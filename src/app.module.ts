@@ -23,12 +23,17 @@ import { TypeOrmModule } from '@nestjs/typeorm';
         username: configService.getOrThrow<string>('DB_USERNAME'),
         password: configService.getOrThrow<string>('DB_PASSWORD'),
         database: configService.getOrThrow<string>('DB_DATABASE'),
+
+        ssl: {
+          rejectUnauthorized: false,
+        },
+
         autoLoadEntities: true,
         synchronize: true, // 개발용으로만 true, 프로덕션에서는 false
       }),
     }),
   ],
-  controllers: [], // 기본 생성된 AppController 등은 삭제해도 무방
-  providers: [], // 기본 생성된 AppService 등은 삭제해도 무방
+  controllers: [],
+  providers: [],
 })
 export class AppModule {}
