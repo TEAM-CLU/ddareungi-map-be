@@ -1,0 +1,86 @@
+name: Auto Move Closed Issues to Done
+
+on:
+  issues:
+    types: [closed]
+
+jobs:
+  move-closed-issue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Move closed issue to Done column
+        uses: actions/github-script@v6
+        env:
+          PROJECT_ID: ${{ secrets.PROJECT_ID }}
+          TARGET_STATUS_NAME: Done
+        with:
+          github-token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          script: |
+            const projectId = process.env.PROJECT_ID;
+            const contentId = context.payload.issue.node_id;
+            const targetStatusName = process.env.TARGET_STATUS_NAME;
+
+            const projectRes = await github.graphql(`
+              query ($projectId: ID!) {
+                node(id: $projectId) {
+                  ... on ProjectV2 {
+                    id
+                    fields(first: 50) {
+                      nodes {
+                        id
+                        name
+                        dataType
+                        ... on ProjectV2SingleSelectField {
+                          options { id name }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            `, { projectId });
+
+            const fields = projectRes.node.fields.nodes;
+            const statusField = fields.find(f => f.name === "Status" && f.dataType === "SINGLE_SELECT");
+            if (!statusField) throw new Error("⚠️ Status field not found");
+
+            const option = statusField.options.find(o => o.name === targetStatusName);
+            if (!option) throw new Error(`⚠️ Status option "${targetStatusName}" not found`);
+
+            const searchRes = await github.graphql(`
+              query ($projectId: ID!, $contentId: ID!) {
+                node(id: $projectId) {
+                  ... on ProjectV2 {
+                    items(first: 100, filter: {contentId: $contentId}) {
+                      nodes { id }
+                    }
+                  }
+                }
+              }
+            `, { projectId, contentId });
+
+            const itemId = searchRes.node.items.nodes[0]?.id;
+            if (!itemId) {
+                core.info("Issue was not found in the project. Skipping.");
+                return;
+            }
+
+            await github.graphql(`
+              mutation ($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+                updateProjectV2ItemFieldValue(input: {
+                  projectId: $projectId,
+                  itemId: $itemId,
+                  fieldId: $fieldId,
+                  value: { singleSelectOptionId: $optionId }
+                }) {
+                  projectV2Item { id }
+                }
+              }
+            `, {
+              projectId,
+              itemId,
+              fieldId: statusField.id,
+              optionId: option.id
+            });
+
+            core.info(`✅ Moved issue ${contentId} to "${targetStatusName}"`);
