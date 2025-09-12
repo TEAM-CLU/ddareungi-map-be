@@ -1,0 +1,14 @@
+language: "ko-KR" # 한국말로 설정
+early_access: false
+reviews:
+  profile: "chill" # 리뷰 스타일 (chill, strict, balanced ...)
+  request_changes_workflow: true # 코드래빗이 리뷰 끝나면 알아서 PR 승인하게끔
+  high_level_summary: true # 리뷰 마지막에 전체 요약 코멘트 작성
+  poem: false 
+  review_status: true
+  collapse_walkthrough: false
+  auto_review:
+    enabled: true
+    drafts: false
+chat:
+  auto_reply: true
