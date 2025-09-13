@@ -3,6 +3,8 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { MailModule } from './mail/mail.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -32,6 +34,10 @@ import { TypeOrmModule } from '@nestjs/typeorm';
         synchronize: true, // 개발용으로만 true, 프로덕션에서는 false
       }),
     }),
+
+    // 이메일 및 인증 모듈
+    MailModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
