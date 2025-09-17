@@ -5,6 +5,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { User } from './entities/user.entity';
 import { UserService } from './user.service';
 import { UserController } from './user.controller';
+import { AuthModule } from '../auth/auth.module'; // 추가
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { UserController } from './user.controller';
         signOptions: { expiresIn: configService.get<string>('JWT_EXPIRATION_TIME') }, // 환경 변수에서 만료 시간 가져오기
       }),
     }),
+    AuthModule, // 추가
   ],
   providers: [UserService],
   controllers: [UserController],

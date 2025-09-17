@@ -73,45 +73,5 @@ export class UserController {
     return await this.userService.login(loginUserDto);
   }
 
-  @Post('token-confirm')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ 
-    summary: '토큰을 통한 유저 인증',
-    description: '토큰값을 입력하여 해당 유저가 누구인지 확인합니다. <JWT>에 토큰값을 넣어주세요(<>도 삭제해주세요)'
-  })
-  @ApiBody({
-    schema: {
-      example: {
-        token: 'Bearer <JWT>',
-      },
-    },
-  })
-  @ApiResponse({ 
-    status: 200, 
-    description: '인증 확인',
-    schema: {
-      example: {
-        message: '유저 검증이 완료됐습니다.',
-      },
-    },
-  })
-  @ApiResponse({ 
-    status: 400, 
-    description: '잘못된 요청 (토큰 오류)',
-    schema: {
-      example: {
-        statusCode: 400,
-        message: '토큰 검증에 실패하였습니다. 다시 시도해주세요',
-        error: 'Bad Request',
-      },
-    },
-  })
-  async tokenConfirm(@Body('token') token: string) {
-    if (!token) {
-      throw new BadRequestException('토큰 값이 필요합니다.');
-    }
-
-    const extractedToken = token.replace('Bearer ', '');
-    return await this.userService.validateUserByToken(extractedToken);
-  }
+  
 }
