@@ -1,4 +1,4 @@
-import { HttpException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { HttpException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
@@ -94,33 +94,11 @@ export class UserService {
     // JWT 토큰 생성
     const payload = { userId: user.userId, email: user.email };
     const accessToken = this.jwtService.sign(payload);
+    user.lastLogin = new Date();
+    await this.userRepository.save(user);
 
     return { accessToken };
   }
 
-  async validateUserByToken(token: string): Promise<User> {
-    try {
-      // 토큰 검증 및 디코딩
-      const decoded = this.jwtService.verify(token);
-
-      // 디코딩된 정보에서 사용자 ID 추출
-      const userId = decoded.userId;
-
-      // 사용자 조회
-      const user = await this.userRepository.findOne({ where: { userId } });
-      if (!user) {
-        throw new UnauthorizedException({
-          statusCode: 401,
-          message: '유효하지 않은 사용자입니다.',
-        });
-      }
-
-      return user;
-    } catch (error) {
-      throw new UnauthorizedException({
-        statusCode: 401,
-        message: '유효하지 않은 토큰입니다.',
-      });
-    }
-  }
+  
 }
