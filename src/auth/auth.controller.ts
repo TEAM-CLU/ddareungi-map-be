@@ -1,4 +1,4 @@
-import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Body, HttpCode, HttpStatus, Get, Req, Res, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { BadRequestException } from '@nestjs/common';
@@ -6,6 +6,14 @@ import {
   SendVerificationEmailDto, 
   VerifyEmailDto
 } from './dto/email-verification.dto';
+import { AuthGuard } from '@nestjs/passport';
+import type { Request, Response } from 'express';
+
+declare module 'express' {
+  interface Request {
+    user?: any; // 사용자 정보를 적절히 정의
+  }
+}
 
 @ApiTags('인증 (Authentication)')
 @Controller('auth')
@@ -116,5 +124,69 @@ export class AuthController {
     const extractedToken = token.replace('Bearer ', '');
     return await this.authService.validateUserByToken(extractedToken);
   }
+
+  @Get('naver')
+  @UseGuards(AuthGuard('naver'))
+  async naverLogin() {
+    // 네이버 로그인 페이지로 리디렉션
+    return {
+      message: '네이버 로그인 페이지로 리디렉션 중입니다.',
+    };
+  }
+
+  @Get('kakao')
+  @UseGuards(AuthGuard('kakao'))
+  async kakaoLogin() {
+    // 카카오 로그인 페이지로 리디렉션
+    return {
+      message: '카카오 로그인 페이지로 리디렉션 중입니다.',
+    };
+  }
+
+  @Get('google')
+  @UseGuards(AuthGuard('google'))
+  async googleLogin() {
+    // 구글 로그인 페이지로 리디렉션
+    return {
+      message: '구글 로그인 페이지로 리디렉션 중입니다.',
+    };
+  }
+  /* Get google Auth Callback */
+  @Get('/google/callback')
+  @UseGuards(AuthGuard('google'))
+  async googleAuthCallback(
+    @Req() req: Request,
+    @Res() res: Response, // : Promise<NaverLoginAuthOutputDto>
+  ) {
+    const { user } = req;
+    return res.send(user);
+    // return this.authService.handleNaverLogin(req);
+    return {
+      message: '구글 로그인 콜백 처리 중입니다.',
+    };
+  }
+
+  /* Get naver Auth Callback */
+  @Get('/naver/callback')
+  @UseGuards(AuthGuard('naver'))
+  async naverAuthCallback(
+    @Req() req: Request,
+    @Res() res: Response, // : Promise<NaverLoginAuthOutputDto>
+  ) {
+    const { user } = req;
+    return res.send(user);
+    // return this.authService.handleNaverLogin(req);
+  }
+
+  /* Get kakao Auth Callback */
+  @Get('/kakao/callback')
+  @UseGuards(AuthGuard('kakao'))
+  async kakaoAuthCallback(
+    @Req() req: Request,
+    @Res() res: Response, // : Promise<NaverLoginAuthOutputDto>
+  ) {
+    const { user } = req;
+    return res.send(user);
+    // return this.authService.handleNaverLogin(req);
+  }
 }
-  
