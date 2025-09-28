@@ -5,6 +5,9 @@ export class User {
   @PrimaryGeneratedColumn('increment', { name: 'user_id' })
   userId: number;
 
+  @Column({ type: 'varchar', length: 255, nullable: true, name: 'social_name' })
+  socialName: string;
+
   @Column({ type: 'varchar', length: 255, unique: true, nullable: true, name: 'social_uid' })
   socialUid: string;
 
@@ -23,7 +26,7 @@ export class User {
   @Column({ type: 'date', name: 'birth_date'})
   birthDate: Date;
 
-  @Column({ type: 'varchar', length: 20, unique: true, name: 'phone_number' })
+  @Column({ type: 'varchar', length: 20, name: 'phone_number' })
   phoneNumber: string;
 
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at', default: () => 'CURRENT_TIMESTAMP' })

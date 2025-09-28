@@ -6,6 +6,7 @@ import { User } from '../user/entities/user.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
+import * as bcrypt from 'bcrypt';
 
 // 이메일 인증 정보를 저장할 인터페이스
 interface EmailVerification {
@@ -154,4 +155,152 @@ export class AuthService {
       });
     }
   }
+
+  async handleNaverLogin(naverProfile: any) {
+    const { response: { id: socialUid, email, nickname, gender, birthday, birthyear, mobile } } = naverProfile;
+
+    // Debugging: Check if socialUid is null
+    if (!socialUid) {
+      console.error('Debug: socialUid is null or undefined', naverProfile);
+    }
+
+    // 1. 회원 존재 여부 확인
+    let user = await this.userRepository.findOne({ where: { socialUid } });
+
+    if (!user) {
+      // 2. 회원가입 처리
+      const randomPassword = `naver${Math.random().toString(36).slice(-20)}`;
+      const passwordHash = await bcrypt.hash(randomPassword, 10);
+
+      // Convert birthday from MM-DD format and birthyear YYYY to YYYY-MM-DD format
+      const formattedBirthDate = birthyear && birthday ? `${birthyear}-${birthday}` : null;
+
+      // Format mobile number from +82 10-AAAA-AAAA to 010-AAAA-AAAA
+      const formattedMobile = mobile && mobile.startsWith('+82')
+        ? mobile.replace('+82 ', '0')
+        : mobile;
+
+      user = this.userRepository.create({
+        socialName: 'Naver',
+        socialUid,
+        email,
+        name: nickname ? nickname : 'Naver User',
+        gender,
+        birthDate: formattedBirthDate ? new Date(formattedBirthDate) : new Date('1970-01-01'),
+        phoneNumber: formattedMobile ? formattedMobile : "Unknown", // 네이버에서 전화번호를 제공하지 않을 수 있음
+        passwordHash,
+      });
+
+      console.log("Creating new user:", user);
+      await this.userRepository.save(user);
+    }
+
+    // 3. 로그인 처리 (lastLogin 업데이트)
+    user.lastLogin = new Date();
+    await this.userRepository.save(user);
+
+    // 4. JWT 토큰 생성
+    const payload = { userId: user.userId, email: user.email };
+    const accessToken = this.jwtService.sign(payload);
+
+    // 5. 유저, 토큰 반환
+    return { user, accessToken };
+  }
+
+  async handleKakaoLogin(kakaoProfile: any) {
+    const { id: socialUid, kakao_account: { email, nickname, gender, birthday, birthyear, phone_number } } = kakaoProfile;
+
+    // Debugging: Check if socialUid is null
+    if (!socialUid) {
+      console.error('Debug: socialUid is null or undefined', kakaoProfile);
+    }
+
+    // 1. 회원 존재 여부 확인
+    let user = await this.userRepository.findOne({ where: { socialUid } });
+
+    if (!user) {
+      // 2. 회원가입 처리
+      const randomPassword = `kakao${Math.random().toString(36).slice(-20)}`;
+      const passwordHash = await bcrypt.hash(randomPassword, 10);
+
+      // Convert birthday from AAAA to AA-AA format
+      const formattedBirthday = birthday ? `${birthday.slice(0, 2)}-${birthday.slice(2)}` : null;
+      const formattedBirthDate = birthyear && formattedBirthday ? `${birthyear}-${formattedBirthday}` : null;
+
+      // Format mobile number from +82 10-AAAA-AAAA to 010-AAAA-AAAA
+      const formattedMobile = phone_number && phone_number.startsWith('+82')
+        ? phone_number.replace('+82 ', '0')
+        : phone_number;
+
+      user = this.userRepository.create({
+        socialName: 'Kakao',
+        socialUid,
+        email,
+        name: nickname ? nickname : 'Kakao User',
+        gender: gender === 'male' ? 'M' : 'F',
+        birthDate: formattedBirthDate ? new Date(formattedBirthDate) : new Date('1970-01-01'),
+        phoneNumber: formattedMobile ? formattedMobile : "Unknown", // 카카오에서 전화번호를 제공하지 않을 수 있음
+        passwordHash,
+      });
+
+      console.log("Creating new user:", user);
+      await this.userRepository.save(user);
+    }
+
+    // 3. 로그인 처리 (lastLogin 업데이트)
+    user.lastLogin = new Date();
+    await this.userRepository.save(user);
+
+    // 4. JWT 토큰 생성
+    const payload = { userId: user.userId, email: user.email };
+    const accessToken = this.jwtService.sign(payload);
+
+    // 5. 유저, 토큰 반환
+    return { user, accessToken };
+  }
+
+  async handleGoogleLogin(googleProfile: any) {
+    const { id: socialUid, email, name, gender, birthday } = googleProfile;
+
+    // Debugging: Check if socialUid is null
+    if (!socialUid) {
+      console.error('Debug: socialUid is null or undefined', googleProfile);
+    }
+
+    // 1. 회원 존재 여부 확인
+    let user = await this.userRepository.findOne({ where: { socialUid } });
+
+    if (!user) {
+      // 2. 회원가입 처리
+      const randomPassword = `google${Math.random().toString(36).slice(-20)}`;
+      const passwordHash = await bcrypt.hash(randomPassword, 10);
+
+      user = this.userRepository.create({
+        socialName: 'Google',
+        socialUid,
+        email,
+        name: name ? name : 'Google User',
+        gender,
+        birthDate: birthday ,
+        phoneNumber: "Unknown", // 구글에서 전화번호를 제공하지 않을 수 있음
+        passwordHash,
+      });
+
+      console.log("Creating new user:", user);
+      // await this.userRepository.save(user);
+    }
+
+    // 3. 로그인 처리 (lastLogin 업데이트)
+    user.lastLogin = new Date();
+    await this.userRepository.save(user);
+
+    // 4. JWT 토큰 생성
+    const payload = { userId: user.userId, email: user.email };
+    const accessToken = this.jwtService.sign(payload);
+
+    // 5. 유저, 토큰 반환
+    return { user, accessToken };
+  }
+  
+
 }

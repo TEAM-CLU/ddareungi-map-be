@@ -6,6 +6,10 @@ import { AuthService } from './auth.service';
 import { MailModule } from '../mail/mail.module';
 import { User } from '../user/entities/user.entity';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { JwtNaverStrategy } from './strategies/naver.strategy';
+import { JwtKakaoStrategy } from './strategies/kakao.strategy';
+import { JwtGoogleStrategy } from './strategies/google.strategy';
+
 
 @Module({
   imports: [
@@ -20,8 +24,8 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
           }),
         }),
   ],
-  controllers: [AuthController],
-  providers: [AuthService],
+  controllers: [AuthController],  
+  providers: [AuthService, JwtNaverStrategy, JwtKakaoStrategy, JwtGoogleStrategy],
   exports: [AuthService],
 })
 export class AuthModule {}
