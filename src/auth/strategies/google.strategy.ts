@@ -14,7 +14,7 @@ export class JwtGoogleStrategy extends PassportStrategy(Strategy, 'google') {
     const options = {
       clientID: configService.get('GOOGLE_CLIENT_ID'), //.env파일에 들어있음
       clientSecret: configService.get('GOOGLE_CLIENT_SECRET'), //.env파일에 들어있음
-      callbackURL: 'http://localhost:3000/auth/google/callback', //.env파일에 들어있음
+      callbackURL: 'https://port-0-ddareungi-map-be-mff1z09ze559d642.sel3.cloudtype.app/auth/google/callback', //.env파일에 들어있음
       scope: ['email', 'profile', 
                 'https://www.googleapis.com/auth/user.gender.read', 
                 'https://www.googleapis.com/auth/user.birthday.read', 

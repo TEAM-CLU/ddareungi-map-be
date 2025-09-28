@@ -280,7 +280,7 @@ export class AuthService {
         socialUid,
         email,
         name: name ? name : 'Google User',
-        gender: gender === 'male' ? 'M' : 'F',
+        gender,
         birthDate: birthday ,
         phoneNumber: "Unknown", // 구글에서 전화번호를 제공하지 않을 수 있음
         passwordHash,

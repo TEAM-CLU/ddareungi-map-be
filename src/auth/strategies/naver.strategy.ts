@@ -14,7 +14,7 @@ export class JwtNaverStrategy extends PassportStrategy(Strategy, 'naver') {
     super({
       clientID: configService.get<string>('NAVER_CLIENT_ID'),
       clientSecret: configService.get<string>('NAVER_CLIENT_SECRET'),
-      callbackURL: 'http://localhost:3000/auth/naver/callback',
+      callbackURL: 'https://port-0-ddareungi-map-be-mff1z09ze559d642.sel3.cloudtype.app/auth/naver/callback',
     });
   }
 

@@ -14,7 +14,7 @@ export class JwtKakaoStrategy extends PassportStrategy(Strategy, 'kakao') {
     const options = {
       clientID: configService.get('KAKAO_CLIENT_ID'), //.env파일에 들어있음
       clientSecret: configService.get('KAKAO_CLIENT_SECRET'), //.env파일에 들어있음
-      callbackURL: 'http://localhost:3000/auth/kakao/callback', //.env파일에 들어있음
+      callbackURL: 'https://port-0-ddareungi-map-be-mff1z09ze559d642.sel3.cloudtype.app/auth/kakao/callback', //.env파일에 들어있음
     };
 
     console.log('Kakao Strategy Options:', options);

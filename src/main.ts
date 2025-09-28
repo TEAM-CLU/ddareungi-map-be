@@ -11,7 +11,7 @@ async function bootstrap() {
 
   // CORS 설정
   app.enableCors({
-    origin: ['http://localhost:3000', 'http://localhost:3001'], // Swagger UI 도메인 추가
+    origin: ['http://localhost:3000', 'https://port-0-ddareungi-map-be-mff1z09ze559d642.sel3.cloudtype.app'], // Swagger UI 도메인 추가
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true,
     allowedHeaders: ['Content-Type', 'Authorization'], // 필요한 헤더 추가
