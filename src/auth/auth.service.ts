@@ -172,9 +172,8 @@ export class AuthService {
       const randomPassword = `naver${Math.random().toString(36).slice(-20)}`;
       const passwordHash = await bcrypt.hash(randomPassword, 10);
 
-      // Convert birthday from AAAA to AA-AA format
-      const formattedBirthday = birthday ? `${birthday.slice(0, 2)}-${birthday.slice(2)}` : null;
-      const formattedBirthDate = birthyear && formattedBirthday ? `${birthyear}-${formattedBirthday}` : null;
+      // Convert birthday from MM-DD format and birthyear YYYY to YYYY-MM-DD format
+      const formattedBirthDate = birthyear && birthday ? `${birthyear}-${birthday}` : null;
 
       // Format mobile number from +82 10-AAAA-AAAA to 010-AAAA-AAAA
       const formattedMobile = mobile && mobile.startsWith('+82')
