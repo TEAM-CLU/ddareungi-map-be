@@ -5,6 +5,8 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MailModule } from './mail/mail.module';
 import { AuthModule } from './auth/auth.module';
+import { UserModule } from './user/user.module';
+import { HttpExceptionFilter } from './common/http-exceptioin.filter';
 
 @Module({
   imports: [
@@ -38,8 +40,9 @@ import { AuthModule } from './auth/auth.module';
     // 이메일 및 인증 모듈
     MailModule,
     AuthModule,
+    UserModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, HttpExceptionFilter],
 })
 export class AppModule {}

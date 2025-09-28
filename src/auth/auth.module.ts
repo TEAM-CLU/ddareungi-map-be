@@ -1,12 +1,27 @@
 import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { JwtModule } from '@nestjs/jwt';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { MailModule } from '../mail/mail.module';
+import { User } from '../user/entities/user.entity';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 
 @Module({
-  imports: [MailModule], // MailService를 사용하기 위해 import
+  imports: [
+    MailModule,
+    TypeOrmModule.forFeature([User]),
+    JwtModule.registerAsync({
+          imports: [ConfigModule],
+          inject: [ConfigService],
+          useFactory: (configService: ConfigService) => ({
+            secret: configService.get<string>('JWT_SECRET'), // 환경 변수에서 JWT 비밀 키 가져오기
+            signOptions: { expiresIn: configService.get<string>('JWT_EXPIRATION_TIME') }, // 환경 변수에서 만료 시간 가져오기
+          }),
+        }),
+  ],
   controllers: [AuthController],
   providers: [AuthService],
-  exports: [AuthService], // 다른 모듈에서 사용할 수 있도록 export
+  exports: [AuthService],
 })
 export class AuthModule {}

@@ -2,6 +2,10 @@ import { Injectable, BadRequestException, UnauthorizedException } from '@nestjs/
 import { ConfigService } from '@nestjs/config';
 import { MailService } from '../mail/mail.service';
 import { SendVerificationEmailDto, VerifyEmailDto} from './dto/email-verification.dto';
+import { User } from '../user/entities/user.entity';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { JwtService } from '@nestjs/jwt';
 
 // 이메일 인증 정보를 저장할 인터페이스
 interface EmailVerification {
@@ -20,6 +24,10 @@ export class AuthService {
   constructor(
     private mailService: MailService,
     private configService: ConfigService,
+    private readonly jwtService: JwtService,
+
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
   ) {}
 
   /**
@@ -119,5 +127,31 @@ export class AuthService {
       }
     }
 
+  }
+
+  async validateUserByToken(token: string): Promise<User> {
+    try {
+      // 토큰 검증 및 디코딩
+      const decoded = this.jwtService.verify(token);
+
+      // 디코딩된 정보에서 사용자 ID 추출
+      const userId = decoded.userId;
+
+      // 사용자 조회
+      const user = await this.userRepository.findOne({ where: { userId } });
+      if (!user) {
+        throw new UnauthorizedException({
+          statusCode: 401,
+          message: '유효하지 않은 사용자입니다.',
+        });
+      }
+
+      return user;
+    } catch (error) {
+      throw new UnauthorizedException({
+        statusCode: 401,
+        message: '유효하지 않은 토큰입니다.',
+      });
+    }
   }
 }
