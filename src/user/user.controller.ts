@@ -8,6 +8,7 @@ import { LoginUserDto } from './dto/login-user.dto';
 import { UserInfoResponseDto } from './dto/user-info-response.dto';
 import { UpdateUserInfoDto } from './dto/update-user-info.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { MyPageInfoResponseDto } from './dto/mypage-info-response.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @ApiTags('유저 (User)')
@@ -223,6 +224,46 @@ export class UserController {
   async changePassword(@Request() req, @Body() changePasswordDto: ChangePasswordDto): Promise<{ message: string }> {
     const userId = req.user.userId;
     return await this.userService.changePassword(userId, changePasswordDto);
+  }
+
+  @Get('mypage')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ 
+    summary: '마이페이지 정보 조회',
+    description: 'JWT 토큰을 통해 현재 로그인한 사용자의 마이페이지 정보를 조회합니다. name, email은 실제 데이터를, 나머지는 향후 구현 예정으로 null을 반환합니다.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: '마이페이지 정보 조회 성공',
+    type: MyPageInfoResponseDto
+  })
+  @ApiResponse({ 
+    status: 401, 
+    description: '인증되지 않은 사용자 (토큰 없음 또는 유효하지 않은 토큰)',
+    schema: {
+      example: {
+        statusCode: 401,
+        message: '유효하지 않은 토큰입니다.',
+        error: 'Unauthorized'
+      }
+    }
+  })
+  @ApiResponse({ 
+    status: 404, 
+    description: '사용자를 찾을 수 없음',
+    schema: {
+      example: {
+        statusCode: 404,
+        message: '사용자를 찾을 수 없습니다.',
+        error: 'Not Found'
+      }
+    }
+  })
+  async getMyPageInfo(@Request() req): Promise<MyPageInfoResponseDto> {
+    const userId = req.user.userId;
+    return await this.userService.getMyPageInfo(userId);
   }
 
 }
