@@ -6,6 +6,7 @@ import {
   SendVerificationEmailDto, 
   VerifyEmailDto
 } from './dto/email-verification.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request, Response } from 'express';
 
@@ -188,5 +189,47 @@ export class AuthController {
     const { user } = req;
     return res.send(user);
     // return this.authService.handleNaverLogin(req);
+  }
+
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ 
+    summary: '비밀번호 재설정',
+    description: '이메일 인증 완료 후 새로운 비밀번호로 재설정합니다. 먼저 이메일 인증(/auth/send-verification-email, /auth/verify-email)을 완료해야 합니다.'
+  })
+  @ApiBody({ type: ResetPasswordDto })
+  @ApiResponse({ 
+    status: 200, 
+    description: '비밀번호 재설정 성공',
+    schema: {
+      example: {
+        message: '비밀번호가 성공적으로 재설정되었습니다.'
+      }
+    }
+  })
+  @ApiResponse({ 
+    status: 400, 
+    description: '잘못된 요청 (현재 비밀번호와 동일, 유효성 검사 실패 등)',
+    schema: {
+      example: {
+        statusCode: 400,
+        message: '현재 사용 중인 비밀번호와 동일합니다. 다른 비밀번호를 입력해주세요.',
+        error: 'Bad Request'
+      }
+    }
+  })
+  @ApiResponse({ 
+    status: 404, 
+    description: '사용자를 찾을 수 없음',
+    schema: {
+      example: {
+        statusCode: 404,
+        message: '해당 이메일로 등록된 사용자를 찾을 수 없습니다.',
+        error: 'Not Found'
+      }
+    }
+  })
+  async resetPassword(@Body() resetPasswordDto: ResetPasswordDto): Promise<{ message: string }> {
+    return await this.authService.resetPassword(resetPasswordDto);
   }
 }
