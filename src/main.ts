@@ -31,6 +31,17 @@ async function bootstrap() {
     .setTitle('Ddareuni-Map API documents')
     .setDescription('따릉이맵 API 문서입니다.')
     .setVersion('1.0')
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        name: 'JWT',
+        description: 'Enter JWT token',
+        in: 'header',
+      },
+      'JWT-auth', // This name here is important for matching up with @ApiBearerAuth() in your controller!
+    )
     .addOAuth2({
       type: 'oauth2',
       flows: {
