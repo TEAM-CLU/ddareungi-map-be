@@ -189,6 +189,7 @@ export class AuthService {
         birthDate: formattedBirthDate ? new Date(formattedBirthDate) : new Date('1970-01-01'),
         phoneNumber: formattedMobile ? formattedMobile : "Unknown", // 네이버에서 전화번호를 제공하지 않을 수 있음
         passwordHash,
+        address: "Unknown", // 네이버에서 주소를 제공하지 않을 수 있음
       });
 
       console.log("Creating new user:", user);
@@ -241,6 +242,7 @@ export class AuthService {
         birthDate: formattedBirthDate ? new Date(formattedBirthDate) : new Date('1970-01-01'),
         phoneNumber: formattedMobile ? formattedMobile : "Unknown", // 카카오에서 전화번호를 제공하지 않을 수 있음
         passwordHash,
+        address: "Unknown",
       });
 
       console.log("Creating new user:", user);
@@ -284,6 +286,7 @@ export class AuthService {
         birthDate: birthday ,
         phoneNumber: "Unknown", // 구글에서 전화번호를 제공하지 않을 수 있음
         passwordHash,
+        address: "Unknown",
       });
 
       console.log("Creating new user:", user);
