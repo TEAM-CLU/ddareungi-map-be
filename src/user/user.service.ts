@@ -118,12 +118,7 @@ export class UserService {
         message: '사용자를 찾을 수 없습니다.',
       });
     }
-
-    // 디버깅: birthDate의 타입과 값 확인
-    console.log('birthDate value:', user.birthDate);
-    console.log('birthDate type:', typeof user.birthDate);
-    console.log('birthDate instanceof Date:', user.birthDate instanceof Date);
-
+    
     // birthDate를 안전하게 문자열로 변환
     let formattedBirthDate: string;
     
