@@ -22,14 +22,18 @@ export class CreateUserDto {
   @IsNotEmpty()
   name: string;
 
-  @ApiProperty({ description: '성별', enum: ['male', 'female'] })
+  @ApiProperty({ description: '성별', enum: ['M', 'F'] })
   @IsString()
-  @IsIn(['male', 'female'])
+  @IsIn(['M', 'F'])
   gender: string;
 
   @ApiProperty({ description: '생년월일', example: '1990-01-01' })
   @IsDateString()
   birthDate: string;
+
+  @ApiProperty({ description: '주소', example: '서울특별시-강남구-역삼동' })
+  @IsString()
+  address: string;
 
   @ApiProperty({ description: '전화번호' })
   @IsString()
