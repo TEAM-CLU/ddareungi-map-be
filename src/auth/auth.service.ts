@@ -1,7 +1,8 @@
-import { Injectable, BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, BadRequestException, UnauthorizedException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MailService } from '../mail/mail.service';
 import { SendVerificationEmailDto, VerifyEmailDto} from './dto/email-verification.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { User } from '../user/entities/user.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -303,6 +304,48 @@ export class AuthService {
 
     // 5. 유저, 토큰 반환
     return { user, accessToken };
+  }
+
+  /**
+   * 비밀번호 재설정 (이메일 인증 완료 후 호출)
+   */
+  async resetPassword(resetPasswordDto: ResetPasswordDto): Promise<{ message: string }> {
+    const { email, newPassword } = resetPasswordDto;
+    const normalizedEmail = email.toLowerCase();
+
+    // 1. 사용자 존재 여부 확인
+    const user = await this.userRepository.findOne({ 
+      where: { email: normalizedEmail },
+      select: ['userId', 'email', 'passwordHash']
+    });
+
+    if (!user) {
+      throw new NotFoundException({
+        statusCode: 404,
+        message: '해당 이메일로 등록된 사용자를 찾을 수 없습니다.',
+      });
+    }
+
+    // 2. 새로운 비밀번호가 기존 비밀번호와 같은지 확인
+    const isSamePassword = await bcrypt.compare(newPassword, user.passwordHash);
+    if (isSamePassword) {
+      throw new BadRequestException({
+        statusCode: 400,
+        message: '현재 사용 중인 비밀번호와 동일합니다. 다른 비밀번호를 입력해주세요.',
+      });
+    }
+
+    // 3. 새로운 비밀번호 해싱
+    const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+
+    // 4. 비밀번호 업데이트 (updatedAt은 @UpdateDateColumn으로 자동 업데이트됨)
+    await this.userRepository.update(user.userId, {
+      passwordHash: hashedNewPassword,
+    });
+
+    return {
+      message: '비밀번호가 성공적으로 재설정되었습니다.',
+    };
   }
   
 
