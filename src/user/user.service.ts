@@ -48,20 +48,9 @@ export class UserService {
       }, 409);
     }
 
-    // 중복 socialUid 검사
-    if (socialUid) {
-      const existingSocialUser = await this.userRepository.findOne({ where: { socialUid } });
-      if (existingSocialUser) {
-        throw new HttpException({
-          statusCode: 409,
-          message: '이미 사용 중인 소셜 UID입니다.',
-        }, 409);
-      }
-    }
-
     // 비밀번호 해싱
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = this.userRepository.create({ ...createUserDto, passwordHash: hashedPassword });
+    const user = this.userRepository.create({ ...createUserDto, passwordHash: hashedPassword, socialName: 'SocialUser' });
 
     try {
       return await this.userRepository.save(user);

@@ -8,7 +8,7 @@ export class User {
   @Column({ type: 'varchar', length: 255, nullable: true, name: 'social_name' })
   socialName: string;
 
-  @Column({ type: 'varchar', length: 255, unique: true, nullable: true, name: 'social_uid' })
+  @Column({ type: 'varchar', length: 255, nullable: true, name: 'social_uid' })
   socialUid: string;
 
   @Column({ type: 'varchar', length: 255, unique: true})
