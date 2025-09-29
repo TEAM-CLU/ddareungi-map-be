@@ -26,6 +26,9 @@ export class User {
   @Column({ type: 'date', name: 'birth_date'})
   birthDate: Date;
 
+  @Column({ type: 'varchar', length: 255, nullable: true, name: 'address' })
+  address: string;
+
   @Column({ type: 'varchar', length: 20, name: 'phone_number' })
   phoneNumber: string;
 
