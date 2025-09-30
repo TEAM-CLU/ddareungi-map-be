@@ -34,9 +34,4 @@ export class CreateUserDto {
   @ApiProperty({ description: '주소', example: '서울특별시-강남구-역삼동' })
   @IsString()
   address: string;
-
-  @ApiProperty({ description: '전화번호' })
-  @IsString()
-  @Length(8, 20)
-  phoneNumber: string;
 }
