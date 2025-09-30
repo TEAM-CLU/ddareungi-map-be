@@ -43,8 +43,7 @@ export class AuthController {
     schema: {
       example: {
         statusCode: 400,
-        message: '인증 코드는 1분에 한 번만 요청할 수 있습니다.',
-        error: 'Bad Request'
+        message: '인증 코드는 1분에 한 번만 요청할 수 있습니다.'
       }
     }
   })
@@ -75,8 +74,7 @@ export class AuthController {
     schema: {
       example: {
         statusCode: 400,
-        message: '인증 코드가 일치하지 않습니다. (3/5)',
-        error: 'Bad Request'
+        message: '인증 코드가 일치하지 않습니다. (3/5)'
       }
     }
   })
@@ -171,8 +169,7 @@ export class AuthController {
     schema: {
       example: {
         statusCode: 400,
-        message: '현재 사용 중인 비밀번호와 동일합니다. 다른 비밀번호를 입력해주세요.',
-        error: 'Bad Request'
+        message: '현재 사용 중인 비밀번호와 동일합니다. 다른 비밀번호를 입력해주세요.'
       }
     }
   })
@@ -182,8 +179,7 @@ export class AuthController {
     schema: {
       example: {
         statusCode: 404,
-        message: '해당 이메일로 등록된 사용자를 찾을 수 없습니다.',
-        error: 'Not Found'
+        message: '해당 이메일로 등록된 사용자를 찾을 수 없습니다.'
       }
     }
   })

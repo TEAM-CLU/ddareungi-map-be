@@ -1,4 +1,4 @@
-import { HttpException, Injectable, UnauthorizedException, NotFoundException } from '@nestjs/common';
+import { HttpException, Injectable, UnauthorizedException, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
@@ -267,7 +267,7 @@ export class UserService {
   /**
    * 이메일 중복 확인
    */
-  async checkEmailExists(checkEmailDto: CheckEmailDto): Promise<{ isAvailable: boolean; message: string }> {
+  async checkEmailExists(checkEmailDto: CheckEmailDto): Promise<{ message: string }> {
     const { email } = checkEmailDto;
     const normalizedEmail = email.toLowerCase();
 
@@ -277,14 +277,13 @@ export class UserService {
     });
 
     if (existingUser) {
-      return {
-        isAvailable: false,
-        message: '이미 사용 중인 이메일입니다.',
-      };
+      throw new ConflictException({
+        statusCode: 409,
+        message: '이메일이 중복되었습니다.',
+      });
     }
 
     return {
-      isAvailable: true,
       message: '사용 가능한 이메일입니다.',
     };
   }
