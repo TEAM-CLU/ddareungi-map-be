@@ -9,6 +9,7 @@ import { UserInfoResponseDto } from './dto/user-info-response.dto';
 import { UpdateUserInfoDto } from './dto/update-user-info.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { MyPageInfoResponseDto } from './dto/mypage-info-response.dto';
+import { CheckEmailDto } from './dto/check-email.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @ApiTags('유저 (User)')
@@ -19,7 +20,7 @@ export class UserController {
   @Post('create-user')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ 
-    summary: '유저 회원가입 (임시)',
+    summary: '유저 회원가입',
     description: '지정된 형식을 통하여 회원가입을 진행합니다.'
   })
   @ApiBody({ type: CreateUserDto })
@@ -264,6 +265,40 @@ export class UserController {
   async getMyPageInfo(@Request() req): Promise<MyPageInfoResponseDto> {
     const userId = req.user.userId;
     return await this.userService.getMyPageInfo(userId);
+  }
+
+  @Post('check-email')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ 
+    summary: '이메일 중복 확인',
+    description: '회원가입 시 이메일 중복 여부를 확인합니다.'
+  })
+  @ApiBody({ type: CheckEmailDto })
+  @ApiResponse({ 
+    status: 200, 
+    description: '이메일 중복 확인 성공',
+    schema: {
+      example: {
+        isAvailable: true,
+        message: '사용 가능한 이메일입니다.'
+      }
+    }
+  })
+  @ApiResponse({ 
+    status: 400, 
+    description: '잘못된 요청 (이메일 형식 오류)',
+    schema: {
+      example: {
+        statusCode: 400,
+        message: [
+          'email must be an email'
+        ],
+        error: 'Bad Request'
+      }
+    }
+  })
+  async checkEmail(@Body() checkEmailDto: CheckEmailDto): Promise<{ isAvailable: boolean; message: string }> {
+    return await this.userService.checkEmailExists(checkEmailDto);
   }
 
 }

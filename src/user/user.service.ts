@@ -8,6 +8,7 @@ import { UserInfoResponseDto } from './dto/user-info-response.dto';
 import { UpdateUserInfoDto } from './dto/update-user-info.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { MyPageInfoResponseDto } from './dto/mypage-info-response.dto';
+import { CheckEmailDto } from './dto/check-email.dto';
 import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 
@@ -260,6 +261,31 @@ export class UserService {
       calories: null,
       plantingTree: null,
       carbonReduction: null,
+    };
+  }
+
+  /**
+   * 이메일 중복 확인
+   */
+  async checkEmailExists(checkEmailDto: CheckEmailDto): Promise<{ isAvailable: boolean; message: string }> {
+    const { email } = checkEmailDto;
+    const normalizedEmail = email.toLowerCase();
+
+    const existingUser = await this.userRepository.findOne({ 
+      where: { email: normalizedEmail },
+      select: ['userId']
+    });
+
+    if (existingUser) {
+      return {
+        isAvailable: false,
+        message: '이미 사용 중인 이메일입니다.',
+      };
+    }
+
+    return {
+      isAvailable: true,
+      message: '사용 가능한 이메일입니다.',
     };
   }
 

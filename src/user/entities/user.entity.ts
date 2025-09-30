@@ -29,9 +29,6 @@ export class User {
   @Column({ type: 'varchar', length: 255, nullable: true, name: 'address' })
   address: string;
 
-  @Column({ type: 'varchar', length: 20, name: 'phone_number' })
-  phoneNumber: string;
-
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at', default: () => 'CURRENT_TIMESTAMP' })
   createdAt: Date;
 
