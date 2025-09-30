@@ -39,8 +39,7 @@ export class UserController {
     schema: {
       example: {
         statusCode: 400,
-        message: '회원가입에 실패하였습니다. 다시 시도해주세요',
-        error: 'Bad Request'
+        message: '회원가입에 실패하였습니다. 다시 시도해주세요'
       }
     }
   })
@@ -70,8 +69,7 @@ export class UserController {
     schema: {
       example: {
         statusCode: 400,
-        message: '로그인에 실패하였습니다. 다시 시도해주세요',
-        error: 'Bad Request'
+        message: '로그인에 실패하였습니다. 다시 시도해주세요'
       }
     }
   })
@@ -98,8 +96,7 @@ export class UserController {
     schema: {
       example: {
         statusCode: 401,
-        message: '유효하지 않은 토큰입니다.',
-        error: 'Unauthorized'
+        message: '유효하지 않은 토큰입니다.'
       }
     }
   })
@@ -109,8 +106,7 @@ export class UserController {
     schema: {
       example: {
         statusCode: 404,
-        message: '사용자를 찾을 수 없습니다.',
-        error: 'Not Found'
+        message: '사용자를 찾을 수 없습니다.'
       }
     }
   })
@@ -139,8 +135,7 @@ export class UserController {
     schema: {
       example: {
         statusCode: 400,
-        message: '올바르지 않은 생년월일 형식입니다.',
-        error: 'Bad Request'
+        message: '올바르지 않은 생년월일 형식입니다.'
       }
     }
   })
@@ -150,8 +145,7 @@ export class UserController {
     schema: {
       example: {
         statusCode: 401,
-        message: '유효하지 않은 토큰입니다.',
-        error: 'Unauthorized'
+        message: '유효하지 않은 토큰입니다.'
       }
     }
   })
@@ -161,8 +155,7 @@ export class UserController {
     schema: {
       example: {
         statusCode: 404,
-        message: '사용자를 찾을 수 없습니다.',
-        error: 'Not Found'
+        message: '사용자를 찾을 수 없습니다.'
       }
     }
   })
@@ -195,8 +188,7 @@ export class UserController {
     schema: {
       example: {
         statusCode: 400,
-        message: '같은 비밀번호입니다. 다른 비밀번호를 입력해주세요.',
-        error: 'Bad Request'
+        message: '같은 비밀번호입니다. 다른 비밀번호를 입력해주세요.'
       }
     }
   })
@@ -206,8 +198,7 @@ export class UserController {
     schema: {
       example: {
         statusCode: 401,
-        message: '현재 비밀번호가 올바르지 않습니다.',
-        error: 'Unauthorized'
+        message: '현재 비밀번호가 올바르지 않습니다.'
       }
     }
   })
@@ -217,8 +208,7 @@ export class UserController {
     schema: {
       example: {
         statusCode: 404,
-        message: '사용자를 찾을 수 없습니다.',
-        error: 'Not Found'
+        message: '사용자를 찾을 수 없습니다.'
       }
     }
   })
@@ -246,8 +236,7 @@ export class UserController {
     schema: {
       example: {
         statusCode: 401,
-        message: '유효하지 않은 토큰입니다.',
-        error: 'Unauthorized'
+        message: '유효하지 않은 토큰입니다.'
       }
     }
   })
@@ -257,8 +246,7 @@ export class UserController {
     schema: {
       example: {
         statusCode: 404,
-        message: '사용자를 찾을 수 없습니다.',
-        error: 'Not Found'
+        message: '사용자를 찾을 수 없습니다.'
       }
     }
   })
@@ -276,10 +264,9 @@ export class UserController {
   @ApiBody({ type: CheckEmailDto })
   @ApiResponse({ 
     status: 200, 
-    description: '이메일 중복 확인 성공',
+    description: '사용 가능한 이메일',
     schema: {
       example: {
-        isAvailable: true,
         message: '사용 가능한 이메일입니다.'
       }
     }
@@ -290,14 +277,22 @@ export class UserController {
     schema: {
       example: {
         statusCode: 400,
-        message: [
-          'email must be an email'
-        ],
-        error: 'Bad Request'
+        message: 
+          '이메일 형식이 올바르지 않습니다.',
       }
     }
   })
-  async checkEmail(@Body() checkEmailDto: CheckEmailDto): Promise<{ isAvailable: boolean; message: string }> {
+  @ApiResponse({ 
+    status: 409, 
+    description: '이메일 중복',
+    schema: {
+      example: {
+        statusCode: 409,
+        message: '이메일이 이미 존재합니다.'
+      }
+    }
+  })
+  async checkEmail(@Body() checkEmailDto: CheckEmailDto): Promise<{ message: string }> {
     return await this.userService.checkEmailExists(checkEmailDto);
   }
 
