@@ -7,6 +7,8 @@ import { LoginUserDto } from './dto/login-user.dto';
 import { UserInfoResponseDto } from './dto/user-info-response.dto';
 import { UpdateUserInfoDto } from './dto/update-user-info.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { MyPageInfoResponseDto } from './dto/mypage-info-response.dto';
+import { CheckEmailDto } from './dto/check-email.dto';
 import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 
@@ -232,6 +234,58 @@ export class UserService {
 
     return {
       message: '비밀번호가 성공적으로 변경되었습니다.',
+    };
+  }
+
+  /**
+   * 마이페이지 정보 조회
+   */
+  async getMyPageInfo(userId: number): Promise<MyPageInfoResponseDto> {
+    const user = await this.userRepository.findOne({
+      where: { userId },
+      select: ['name', 'email']
+    });
+
+    if (!user) {
+      throw new NotFoundException({
+        statusCode: 404,
+        message: '사용자를 찾을 수 없습니다.',
+      });
+    }
+
+    return {
+      name: user.name,
+      email: user.email,
+      totalDistance: null,
+      totalTime: null,
+      calories: null,
+      plantingTree: null,
+      carbonReduction: null,
+    };
+  }
+
+  /**
+   * 이메일 중복 확인
+   */
+  async checkEmailExists(checkEmailDto: CheckEmailDto): Promise<{ isAvailable: boolean; message: string }> {
+    const { email } = checkEmailDto;
+    const normalizedEmail = email.toLowerCase();
+
+    const existingUser = await this.userRepository.findOne({ 
+      where: { email: normalizedEmail },
+      select: ['userId']
+    });
+
+    if (existingUser) {
+      return {
+        isAvailable: false,
+        message: '이미 사용 중인 이메일입니다.',
+      };
+    }
+
+    return {
+      isAvailable: true,
+      message: '사용 가능한 이메일입니다.',
     };
   }
 

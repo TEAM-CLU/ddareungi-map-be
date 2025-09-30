@@ -158,7 +158,7 @@ export class AuthService {
   }
 
   async handleNaverLogin(naverProfile: any) {
-    const { response: { id: socialUid, email, nickname, gender, birthday, birthyear, mobile } } = naverProfile;
+    const { response: { id: socialUid, email, nickname, gender, birthday, birthyear} } = naverProfile;
 
     // Debugging: Check if socialUid is null
     if (!socialUid) {
@@ -176,11 +176,6 @@ export class AuthService {
       // Convert birthday from MM-DD format and birthyear YYYY to YYYY-MM-DD format
       const formattedBirthDate = birthyear && birthday ? `${birthyear}-${birthday}` : null;
 
-      // Format mobile number from +82 10-AAAA-AAAA to 010-AAAA-AAAA
-      const formattedMobile = mobile && mobile.startsWith('+82')
-        ? mobile.replace('+82 ', '0')
-        : mobile;
-
       user = this.userRepository.create({
         socialName: 'Naver',
         socialUid,
@@ -188,7 +183,6 @@ export class AuthService {
         name: nickname ? nickname : 'Naver User',
         gender,
         birthDate: formattedBirthDate ? new Date(formattedBirthDate) : new Date('1970-01-01'),
-        phoneNumber: formattedMobile ? formattedMobile : "Unknown", // 네이버에서 전화번호를 제공하지 않을 수 있음
         passwordHash,
         address: "Unknown", // 네이버에서 주소를 제공하지 않을 수 있음
       });
@@ -206,11 +200,11 @@ export class AuthService {
     const accessToken = this.jwtService.sign(payload);
 
     // 5. 유저, 토큰 반환
-    return { user, accessToken };
+    return { accessToken };
   }
 
   async handleKakaoLogin(kakaoProfile: any) {
-    const { id: socialUid, kakao_account: { email, nickname, gender, birthday, birthyear, phone_number } } = kakaoProfile;
+    const { id: socialUid, kakao_account: { email, nickname, gender, birthday, birthyear } } = kakaoProfile;
 
     // Debugging: Check if socialUid is null
     if (!socialUid) {
@@ -229,19 +223,13 @@ export class AuthService {
       const formattedBirthday = birthday ? `${birthday.slice(0, 2)}-${birthday.slice(2)}` : null;
       const formattedBirthDate = birthyear && formattedBirthday ? `${birthyear}-${formattedBirthday}` : null;
 
-      // Format mobile number from +82 10-AAAA-AAAA to 010-AAAA-AAAA
-      const formattedMobile = phone_number && phone_number.startsWith('+82')
-        ? phone_number.replace('+82 ', '0')
-        : phone_number;
-
       user = this.userRepository.create({
         socialName: 'Kakao',
         socialUid,
         email,
         name: nickname ? nickname : 'Kakao User',
-        gender: gender === 'male' ? 'M' : 'F',
+        gender: gender === 'male' ? 'M' : (gender === 'female' ? 'F' : 'U'),
         birthDate: formattedBirthDate ? new Date(formattedBirthDate) : new Date('1970-01-01'),
-        phoneNumber: formattedMobile ? formattedMobile : "Unknown", // 카카오에서 전화번호를 제공하지 않을 수 있음
         passwordHash,
         address: "Unknown",
       });
@@ -259,7 +247,7 @@ export class AuthService {
     const accessToken = this.jwtService.sign(payload);
 
     // 5. 유저, 토큰 반환
-    return { user, accessToken };
+    return { accessToken };
   }
 
   async handleGoogleLogin(googleProfile: any) {
@@ -278,20 +266,35 @@ export class AuthService {
       const randomPassword = `google${Math.random().toString(36).slice(-20)}`;
       const passwordHash = await bcrypt.hash(randomPassword, 10);
 
+      // 생년월일 처리 개선
+      let parsedBirthDate: Date;
+      if (birthday && birthday !== 'unknown') {
+        try {
+          parsedBirthDate = new Date(birthday);
+          // 유효하지 않은 날짜인 경우 기본값 사용
+          if (isNaN(parsedBirthDate.getTime())) {
+            parsedBirthDate = new Date('1970-01-01');
+          }
+        } catch (error) {
+          parsedBirthDate = new Date('1970-01-01');
+        }
+      } else {
+        parsedBirthDate = new Date('1970-01-01');
+      }
+
       user = this.userRepository.create({
         socialName: 'Google',
         socialUid,
         email,
         name: name ? name : 'Google User',
-        gender,
-        birthDate: birthday ,
-        phoneNumber: "Unknown", // 구글에서 전화번호를 제공하지 않을 수 있음
+        gender: gender || 'U', // Unknown으로 기본값 설정
+        birthDate: parsedBirthDate,
         passwordHash,
         address: "Unknown",
       });
 
       console.log("Creating new user:", user);
-      // await this.userRepository.save(user);
+      await this.userRepository.save(user);
     }
 
     // 3. 로그인 처리 (lastLogin 업데이트)
@@ -303,7 +306,7 @@ export class AuthService {
     const accessToken = this.jwtService.sign(payload);
 
     // 5. 유저, 토큰 반환
-    return { user, accessToken };
+    return { accessToken };
   }
 
   /**
