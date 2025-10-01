@@ -8,6 +8,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
+import axios from 'axios';
 
 // 이메일 인증 정보를 저장할 인터페이스
 interface EmailVerification {
@@ -350,6 +352,233 @@ export class AuthService {
       message: '비밀번호가 성공적으로 재설정되었습니다.',
     };
   }
-  
+
+  // ==================== PKCE 관련 메서드들 ====================
+
+  /**
+   * PKCE용 code_verifier와 code_challenge 생성
+   */
+  generatePKCE() {
+    const codeVerifier = crypto.randomBytes(32).toString('base64url');
+    const codeChallenge = crypto
+      .createHash('sha256')
+      .update(codeVerifier)
+      .digest('base64url');
+    
+    return {
+      codeVerifier,
+      codeChallenge,
+      codeChallengeMethod: 'S256'
+    };
+  }
+
+  /**
+   * Google PKCE 로그인 URL 생성
+   */
+  getGooglePKCEAuthUrl() {
+    const clientId = this.configService.get<string>('GOOGLE_CLIENT_ID');
+    const redirectUri = this.configService.get<string>('GOOGLE_PKCE_CALLBACK_URL');
+    if (!redirectUri) {
+      throw new BadRequestException('GOOGLE_PKCE_CALLBACK_URL 환경변수가 설정되지 않았습니다.');
+    }
+    
+    const pkce = this.generatePKCE();
+    const state = crypto.randomBytes(16).toString('base64url');
+    
+    const baseUrl = 'https://accounts.google.com/o/oauth2/auth';
+    const params = new URLSearchParams();
+    params.append('client_id', clientId!);
+    params.append('redirect_uri', redirectUri);
+    params.append('response_type', 'code');
+    params.append('scope', 'openid email profile');
+    params.append('code_challenge', pkce.codeChallenge);
+    params.append('code_challenge_method', pkce.codeChallengeMethod);
+    params.append('state', state);
+    
+    return {
+      authUrl: `${baseUrl}?${params.toString()}`,
+      codeVerifier: pkce.codeVerifier,
+      state: state
+    };
+  }
+
+  /**
+   * Kakao PKCE 로그인 URL 생성
+   */
+  getKakaoPKCEAuthUrl() {
+    const clientId = this.configService.get<string>('KAKAO_CLIENT_ID');
+    const redirectUri = this.configService.get<string>('KAKAO_PKCE_CALLBACK_URL');
+    if (!redirectUri) {
+      throw new BadRequestException('KAKAO_PKCE_CALLBACK_URL 환경변수가 설정되지 않았습니다.');
+    }
+    
+    const pkce = this.generatePKCE();
+    const state = crypto.randomBytes(16).toString('base64url');
+    
+    const baseUrl = 'https://kauth.kakao.com/oauth/authorize';
+    const params = new URLSearchParams();
+    params.append('client_id', clientId!);
+    params.append('redirect_uri', redirectUri);
+    params.append('response_type', 'code');
+    params.append('code_challenge', pkce.codeChallenge);
+    params.append('code_challenge_method', pkce.codeChallengeMethod);
+    params.append('state', state);
+    
+    return {
+      authUrl: `${baseUrl}?${params.toString()}`,
+      codeVerifier: pkce.codeVerifier,
+      state: state
+    };
+  }
+
+  /**
+   * Naver PKCE 로그인 URL 생성
+   */
+  getNaverPKCEAuthUrl() {
+    const clientId = this.configService.get<string>('NAVER_CLIENT_ID');
+    const redirectUri = this.configService.get<string>('NAVER_PKCE_CALLBACK_URL');
+    if (!redirectUri) {
+      throw new BadRequestException('NAVER_PKCE_CALLBACK_URL 환경변수가 설정되지 않았습니다.');
+    }
+    
+    const pkce = this.generatePKCE();
+    const state = crypto.randomBytes(16).toString('base64url');
+    
+    const baseUrl = 'https://nid.naver.com/oauth2.0/authorize';
+    const params = new URLSearchParams();
+    params.append('client_id', clientId!);
+    params.append('redirect_uri', redirectUri);
+    params.append('response_type', 'code');
+    params.append('code_challenge', pkce.codeChallenge);
+    params.append('code_challenge_method', pkce.codeChallengeMethod);
+    params.append('state', state);
+    
+    return {
+      authUrl: `${baseUrl}?${params.toString()}`,
+      codeVerifier: pkce.codeVerifier,
+      state: state
+    };
+  }
+
+  /**
+   * Google PKCE 콜백 처리
+   */
+  async handleGooglePKCECallback(code: string, codeVerifier: string, state: string) {
+    try {
+      // 1. Access Token 요청 (Google은 PKCE에서도 client_secret 필요)
+      const tokenResponse = await axios.post('https://oauth2.googleapis.com/token', {
+        client_id: this.configService.get<string>('GOOGLE_CLIENT_ID'),
+        client_secret: this.configService.get<string>('GOOGLE_CLIENT_SECRET'),
+        code: code,
+        code_verifier: codeVerifier,
+        grant_type: 'authorization_code',
+        redirect_uri: this.configService.get<string>('GOOGLE_PKCE_CALLBACK_URL') || 'http://localhost:3000/auth/google/pkce/callback'
+      });
+
+      const { access_token } = tokenResponse.data;
+
+      // 2. 사용자 정보 가져오기
+      const userResponse = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
+        headers: {
+          Authorization: `Bearer ${access_token}`
+        }
+      });
+
+      // 3. 추가 정보 가져오기 (생일, 성별)
+      const peopleResponse = await axios.get('https://people.googleapis.com/v1/people/me?personFields=birthdays,genders', {
+        headers: {
+          Authorization: `Bearer ${access_token}`
+        }
+      });
+
+      const googleProfile = {
+        id: userResponse.data.id,
+        name: userResponse.data.name,
+        email: userResponse.data.email,
+        gender: peopleResponse.data.genders?.[0]?.value === 'male' ? 'M' : (peopleResponse.data.genders?.[0]?.value === 'female' ? 'F' : 'U'),
+        birthday: peopleResponse.data.birthdays?.[0]?.date
+          ? `${peopleResponse.data.birthdays[0].date.year}-${peopleResponse.data.birthdays[0].date.month.toString().padStart(2, '0')}-${peopleResponse.data.birthdays[0].date.day.toString().padStart(2, '0')}`
+          : null,
+      };
+
+      return await this.handleGoogleLogin(googleProfile);
+    } catch (error) {
+      console.error('Google PKCE callback error:', error);
+      throw new BadRequestException('Google 로그인 처리 중 오류가 발생했습니다.');
+    }
+  }
+
+  /**
+   * Kakao PKCE 콜백 처리
+   */
+  async handleKakaoPKCECallback(code: string, codeVerifier: string, state: string) {
+    try {
+      // 1. Access Token 요청
+      const tokenResponse = await axios.post('https://kauth.kakao.com/oauth/token', {
+        grant_type: 'authorization_code',
+        client_id: this.configService.get<string>('KAKAO_CLIENT_ID'),
+        client_secret: this.configService.get<string>('KAKAO_CLIENT_SECRET'),
+        code: code,
+        code_verifier: codeVerifier,
+        redirect_uri: this.configService.get<string>('KAKAO_PKCE_CALLBACK_URL') || 'http://localhost:3000/auth/kakao/pkce/callback'
+      }, {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
+      });
+
+      const { access_token } = tokenResponse.data;
+
+      // 2. 사용자 정보 가져오기
+      const userResponse = await axios.get('https://kapi.kakao.com/v2/user/me', {
+        headers: {
+          Authorization: `Bearer ${access_token}`
+        }
+      });
+
+      const kakaoProfile = userResponse.data;
+      return await this.handleKakaoLogin(kakaoProfile);
+    } catch (error) {
+      console.error('Kakao PKCE callback error:', error);
+      throw new BadRequestException('카카오 로그인 처리 중 오류가 발생했습니다.');
+    }
+  }
+
+  /**
+   * Naver PKCE 콜백 처리
+   */
+  async handleNaverPKCECallback(code: string, codeVerifier: string, state: string) {
+    try {
+      // 1. Access Token 요청
+      const tokenResponse = await axios.post('https://nid.naver.com/oauth2.0/token', {
+        grant_type: 'authorization_code',
+        client_id: this.configService.get<string>('NAVER_CLIENT_ID'),
+        client_secret: this.configService.get<string>('NAVER_CLIENT_SECRET'), // Naver는 이미 포함됨
+        code: code,
+        code_verifier: codeVerifier,
+        redirect_uri: this.configService.get<string>('NAVER_PKCE_CALLBACK_URL') || 'http://localhost:3000/auth/naver/pkce/callback',
+        state: state
+      }, {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
+      });
+
+      const { access_token } = tokenResponse.data;
+
+      // 2. 사용자 정보 가져오기
+      const userResponse = await axios.get('https://openapi.naver.com/v1/nid/me', {
+        headers: {
+          Authorization: `Bearer ${access_token}`
+        }
+      });
+
+      const naverProfile = userResponse.data;
+      return await this.handleNaverLogin(naverProfile);
+    } catch (error) {
+      console.error('Naver PKCE callback error:', error);
+      throw new BadRequestException('네이버 로그인 처리 중 오류가 발생했습니다.');
+    }
+  }
 
 }

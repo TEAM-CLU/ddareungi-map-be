@@ -12,16 +12,15 @@ export class JwtGoogleStrategy extends PassportStrategy(Strategy, 'google') {
     private readonly authService: AuthService,
   ) {
     const options = {
-      clientID: configService.get('GOOGLE_CLIENT_ID'), //.env파일에 들어있음
-      clientSecret: configService.get('GOOGLE_CLIENT_SECRET'), //.env파일에 들어있음
-      callbackURL: 'https://port-0-ddareungi-map-be-mff1z09ze559d642.sel3.cloudtype.app/auth/google/callback', //.env파일에 들어있음
+      clientID: configService.get('GOOGLE_CLIENT_ID'),
+      clientSecret: configService.get('GOOGLE_CLIENT_SECRET'),
+      callbackURL: configService.get('GOOGLE_CALLBACK_URL'),
       scope: ['email', 'profile', 
                 'https://www.googleapis.com/auth/user.gender.read', 
                 'https://www.googleapis.com/auth/user.birthday.read', 
-                'https://www.googleapis.com/auth/user.phonenumbers.read'], // 이 한줄때문에 다른거와 다르게 안됐는데 아마 구글만의 정책인거같음
+                'https://www.googleapis.com/auth/user.phonenumbers.read'],
     };
 
-    console.log('Google Strategy Options:', options);
     super(options);
   }
 

@@ -13,7 +13,10 @@ import { HttpExceptionFilter } from './common/http-exceptioin.filter';
     // 환경변수 모듈 설정
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      envFilePath: [
+        `.env.${process.env.NODE_ENV || 'local'}`,
+        '.env'
+      ],
     }),
 
     // TypeORM 모듈 설정 (DB 연결)
