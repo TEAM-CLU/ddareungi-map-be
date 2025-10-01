@@ -9,12 +9,14 @@ async function bootstrap() {
 
   app.use(helmet());
 
-  // CORS 설정
+  // CORS 설정을 환경변수에서 읽어오기
+  const corsOrigins = process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000'];
+  
   app.enableCors({
-    origin: ['http://localhost:3000', 'https://port-0-ddareungi-map-be-mff1z09ze559d642.sel3.cloudtype.app'], // Swagger UI 도메인 추가
+    origin: corsOrigins,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization'], // 필요한 헤더 추가
+    allowedHeaders: ['Content-Type', 'Authorization'],
   });
 
   // ValidationPipe

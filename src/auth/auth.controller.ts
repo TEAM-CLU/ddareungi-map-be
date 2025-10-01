@@ -1,4 +1,4 @@
-import { Controller, Post, Body, HttpCode, HttpStatus, Get, Req, Res, UseGuards } from '@nestjs/common';
+import { Controller, Post, Body, HttpCode, HttpStatus, Get, Req, Res, UseGuards, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { BadRequestException } from '@nestjs/common';
@@ -185,5 +185,157 @@ export class AuthController {
   })
   async resetPassword(@Body() resetPasswordDto: ResetPasswordDto): Promise<{ message: string }> {
     return await this.authService.resetPassword(resetPasswordDto);
+  }
+
+  // ==================== PKCE 소셜 로그인 엔드포인트들 ====================
+
+  @Get('google/pkce')
+  @ApiOperation({ 
+    summary: 'Google PKCE 로그인 URL 생성',
+    description: 'PKCE 방식의 Google OAuth 2.0 로그인 URL을 생성합니다. 모바일 앱에서 사용하세요.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Google PKCE 로그인 URL 생성 성공',
+    schema: {
+      example: {
+        message: 'Google PKCE 로그인 URL입니다.',
+        authUrl: 'https://accounts.google.com/o/oauth2/auth?client_id=...',
+        codeVerifier: 'xyz123...',
+        state: 'abc456...'
+      }
+    }
+  })
+  async getGooglePKCEUrl() {
+    const result = this.authService.getGooglePKCEAuthUrl();
+    return {
+      message: 'Google PKCE 로그인 URL입니다.',
+      ...result
+    };
+  }
+
+  @Get('kakao/pkce')
+  @ApiOperation({ 
+    summary: 'Kakao PKCE 로그인 URL 생성',
+    description: 'PKCE 방식의 Kakao OAuth 2.0 로그인 URL을 생성합니다. 모바일 앱에서 사용하세요.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Kakao PKCE 로그인 URL 생성 성공',
+    schema: {
+      example: {
+        message: 'Kakao PKCE 로그인 URL입니다.',
+        authUrl: 'https://kauth.kakao.com/oauth/authorize?client_id=...',
+        codeVerifier: 'xyz123...',
+        state: 'abc456...'
+      }
+    }
+  })
+  async getKakaoPKCEUrl() {
+    const result = this.authService.getKakaoPKCEAuthUrl();
+    return {
+      message: 'Kakao PKCE 로그인 URL입니다.',
+      ...result
+    };
+  }
+
+  @Get('naver/pkce')
+  @ApiOperation({ 
+    summary: 'Naver PKCE 로그인 URL 생성',
+    description: 'PKCE 방식의 Naver OAuth 2.0 로그인 URL을 생성합니다. 모바일 앱에서 사용하세요.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Naver PKCE 로그인 URL 생성 성공',
+    schema: {
+      example: {
+        message: 'Naver PKCE 로그인 URL입니다.',
+        authUrl: 'https://nid.naver.com/oauth2.0/authorize?client_id=...',
+        codeVerifier: 'xyz123...',
+        state: 'abc456...'
+      }
+    }
+  })
+  async getNaverPKCEUrl() {
+    const result = this.authService.getNaverPKCEAuthUrl();
+    return {
+      message: 'Naver PKCE 로그인 URL입니다.',
+      ...result
+    };
+  }
+
+  @Get('google/pkce/callback')
+  @ApiOperation({ 
+    summary: 'Google PKCE 콜백 처리',
+    description: 'Google OAuth 2.0 PKCE 인증 후 콜백을 처리합니다.'
+  })
+  async handleGooglePKCECallback(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Query('code_verifier') codeVerifier: string,
+    @Res() res: Response
+  ) {
+    try {
+      const result = await this.authService.handleGooglePKCECallback(code, codeVerifier, state);
+      return res.json({
+        message: 'Google 로그인 성공',
+        ...result
+      });
+    } catch (error) {
+      return res.status(400).json({
+        message: 'Google 로그인 실패',
+        error: error.message
+      });
+    }
+  }
+
+  @Get('kakao/pkce/callback')
+  @ApiOperation({ 
+    summary: 'Kakao PKCE 콜백 처리',
+    description: 'Kakao OAuth 2.0 PKCE 인증 후 콜백을 처리합니다.'
+  })
+  async handleKakaoPKCECallback(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Query('code_verifier') codeVerifier: string,
+    @Res() res: Response
+  ) {
+    try {
+      const result = await this.authService.handleKakaoPKCECallback(code, codeVerifier, state);
+      return res.json({
+        message: 'Kakao 로그인 성공',
+        ...result
+      });
+    } catch (error) {
+      return res.status(400).json({
+        message: 'Kakao 로그인 실패',
+        error: error.message
+      });
+    }
+  }
+
+  @Get('naver/pkce/callback')
+  @ApiOperation({ 
+    summary: 'Naver PKCE 콜백 처리',
+    description: 'Naver OAuth 2.0 PKCE 인증 후 콜백을 처리합니다.'
+  })
+  async handleNaverPKCECallback(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Query('code_verifier') codeVerifier: string,
+    @Res() res: Response
+  ) {
+    try {
+      const result = await this.authService.handleNaverPKCECallback(code, codeVerifier, state);
+      return res.json({
+        message: 'Naver 로그인 성공',
+        ...result
+      });
+    } catch (error) {
+      return res.status(400).json({
+        message: 'Naver 로그인 실패',
+        error: error.message
+      });
+    }
   }
 }
