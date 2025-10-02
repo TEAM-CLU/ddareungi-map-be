@@ -24,6 +24,8 @@ interface EmailVerification {
 export class AuthService {
   // 실제 프로덕션에서는 Redis나 데이터베이스를 사용해야 합니다
   private verificationCodes = new Map<string, EmailVerification>();
+  // PKCE state별 사용자 정보 및 토큰 저장소 (codeVerifier 포함)
+  private pkceStates = new Map<string, { accessToken: string; user: any; codeVerifier: string; expiresAt: Date }>();
 
   constructor(
     private mailService: MailService,
@@ -385,6 +387,14 @@ export class AuthService {
     const pkce = this.generatePKCE();
     const state = crypto.randomBytes(16).toString('base64url');
     
+    // state와 codeVerifier 매핑 저장 (초기 상태)
+    this.pkceStates.set(state, {
+      accessToken: '', // 콜백에서 채워질 예정
+      user: null,      // 콜백에서 채워질 예정
+      codeVerifier: pkce.codeVerifier,
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10분
+    });
+    
     const baseUrl = 'https://accounts.google.com/o/oauth2/auth';
     const params = new URLSearchParams();
     params.append('client_id', clientId!);
@@ -415,6 +425,14 @@ export class AuthService {
     const pkce = this.generatePKCE();
     const state = crypto.randomBytes(16).toString('base64url');
     
+    // state와 codeVerifier 매핑 저장 (초기 상태)
+    this.pkceStates.set(state, {
+      accessToken: '', // 콜백에서 채워질 예정
+      user: null,      // 콜백에서 채워질 예정
+      codeVerifier: pkce.codeVerifier,
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10분
+    });
+    
     const baseUrl = 'https://kauth.kakao.com/oauth/authorize';
     const params = new URLSearchParams();
     params.append('client_id', clientId!);
@@ -444,6 +462,14 @@ export class AuthService {
     const pkce = this.generatePKCE();
     const state = crypto.randomBytes(16).toString('base64url');
     
+    // state와 codeVerifier 매핑 저장 (초기 상태)
+    this.pkceStates.set(state, {
+      accessToken: '', // 콜백에서 채워질 예정
+      user: null,      // 콜백에서 채워질 예정
+      codeVerifier: pkce.codeVerifier,
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10분
+    });
+    
     const baseUrl = 'https://nid.naver.com/oauth2.0/authorize';
     const params = new URLSearchParams();
     params.append('client_id', clientId!);
@@ -461,16 +487,15 @@ export class AuthService {
   }
 
   /**
-   * Google PKCE 콜백 처리
+   * Google PKCE 콜백 처리 - 사용자 정보 저장하고 state 반환
    */
-  async handleGooglePKCECallback(code: string, codeVerifier: string, state: string) {
+  async handleGooglePKCECallback(code: string, state: string): Promise<string> {
     try {
-      // 1. Access Token 요청 (Google은 PKCE에서도 client_secret 필요)
+      // 1. Access Token 요청 (code_verifier는 프론트에서 관리)
       const tokenResponse = await axios.post('https://oauth2.googleapis.com/token', {
         client_id: this.configService.get<string>('GOOGLE_CLIENT_ID'),
         client_secret: this.configService.get<string>('GOOGLE_CLIENT_SECRET'),
         code: code,
-        code_verifier: codeVerifier,
         grant_type: 'authorization_code',
         redirect_uri: this.configService.get<string>('GOOGLE_PKCE_CALLBACK_URL') || 'http://localhost:3000/auth/google/pkce/callback'
       });
@@ -501,7 +526,25 @@ export class AuthService {
           : null,
       };
 
-      return await this.handleGoogleLogin(googleProfile);
+      // 4. 기존 state 데이터 확인
+      const existingPkceData = this.pkceStates.get(state);
+      if (!existingPkceData) {
+        throw new UnauthorizedException('Invalid state - no matching PKCE data found');
+      }
+      
+      // 5. 회원가입/로그인 처리
+      const authResult = await this.handleGoogleLogin(googleProfile);
+      
+      // 6. 기존 state 데이터 업데이트 (codeVerifier 유지)
+      this.pkceStates.set(state, {
+        accessToken: authResult.accessToken,
+        user: googleProfile,
+        codeVerifier: existingPkceData.codeVerifier, // 기존 codeVerifier 유지
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000) // 5분으로 갱신
+      });
+
+      // 7. state 반환 (딥링크에 사용)
+      return state;
     } catch (error) {
       console.error('Google PKCE callback error:', error);
       throw new BadRequestException('Google 로그인 처리 중 오류가 발생했습니다.');
@@ -509,17 +552,16 @@ export class AuthService {
   }
 
   /**
-   * Kakao PKCE 콜백 처리
+   * Kakao PKCE 콜백 처리 - 사용자 정보 저장하고 state 반환
    */
-  async handleKakaoPKCECallback(code: string, codeVerifier: string, state: string) {
+  async handleKakaoPKCECallback(code: string, state: string): Promise<string> {
     try {
-      // 1. Access Token 요청
+      // 1. Access Token 요청 (code_verifier는 프론트에서 관리)
       const tokenResponse = await axios.post('https://kauth.kakao.com/oauth/token', {
         grant_type: 'authorization_code',
         client_id: this.configService.get<string>('KAKAO_CLIENT_ID'),
         client_secret: this.configService.get<string>('KAKAO_CLIENT_SECRET'),
         code: code,
-        code_verifier: codeVerifier,
         redirect_uri: this.configService.get<string>('KAKAO_PKCE_CALLBACK_URL') || 'http://localhost:3000/auth/kakao/pkce/callback'
       }, {
         headers: {
@@ -537,7 +579,26 @@ export class AuthService {
       });
 
       const kakaoProfile = userResponse.data;
-      return await this.handleKakaoLogin(kakaoProfile);
+      
+      // 3. 기존 state 데이터 확인
+      const existingPkceData = this.pkceStates.get(state);
+      if (!existingPkceData) {
+        throw new UnauthorizedException('Invalid state - no matching PKCE data found');
+      }
+      
+      // 4. 회원가입/로그인 처리
+      const authResult = await this.handleKakaoLogin(kakaoProfile);
+      
+      // 5. 기존 state 데이터 업데이트 (codeVerifier 유지)
+      this.pkceStates.set(state, {
+        accessToken: authResult.accessToken,
+        user: kakaoProfile,
+        codeVerifier: existingPkceData.codeVerifier, // 기존 codeVerifier 유지
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000) // 5분으로 갱신
+      });
+
+      // 6. state 반환 (딥링크에 사용)
+      return state;
     } catch (error) {
       console.error('Kakao PKCE callback error:', error);
       throw new BadRequestException('카카오 로그인 처리 중 오류가 발생했습니다.');
@@ -545,17 +606,16 @@ export class AuthService {
   }
 
   /**
-   * Naver PKCE 콜백 처리
+   * Naver PKCE 콜백 처리 - 사용자 정보 저장하고 state 반환
    */
-  async handleNaverPKCECallback(code: string, codeVerifier: string, state: string) {
+  async handleNaverPKCECallback(code: string, state: string): Promise<string> {
     try {
-      // 1. Access Token 요청
+      // 1. Access Token 요청 (code_verifier는 프론트에서 관리)
       const tokenResponse = await axios.post('https://nid.naver.com/oauth2.0/token', {
         grant_type: 'authorization_code',
         client_id: this.configService.get<string>('NAVER_CLIENT_ID'),
-        client_secret: this.configService.get<string>('NAVER_CLIENT_SECRET'), // Naver는 이미 포함됨
+        client_secret: this.configService.get<string>('NAVER_CLIENT_SECRET'),
         code: code,
-        code_verifier: codeVerifier,
         redirect_uri: this.configService.get<string>('NAVER_PKCE_CALLBACK_URL') || 'http://localhost:3000/auth/naver/pkce/callback',
         state: state
       }, {
@@ -574,10 +634,94 @@ export class AuthService {
       });
 
       const naverProfile = userResponse.data;
-      return await this.handleNaverLogin(naverProfile);
+      
+      // 3. 기존 state 데이터 확인
+      const existingPkceData = this.pkceStates.get(state);
+      if (!existingPkceData) {
+        throw new UnauthorizedException('Invalid state - no matching PKCE data found');
+      }
+      
+      // 4. 회원가입/로그인 처리
+      const authResult = await this.handleNaverLogin(naverProfile);
+      
+      // 5. 기존 state 데이터 업데이트 (codeVerifier 유지)
+      this.pkceStates.set(state, {
+        accessToken: authResult.accessToken,
+        user: naverProfile,
+        codeVerifier: existingPkceData.codeVerifier, // 기존 codeVerifier 유지
+        expiresAt: new Date(Date.now() + 5 * 60 * 1000) // 5분으로 갱신
+      });
+
+      // 6. state 반환 (딥링크에 사용)
+      return state;
     } catch (error) {
       console.error('Naver PKCE callback error:', error);
       throw new BadRequestException('네이버 로그인 처리 중 오류가 발생했습니다.');
+    }
+  }
+
+  // 🔐 codeVerifier 검증으로 토큰 반환
+  async exchangeTokenWithCodeVerifier(codeVerifier: string, state: string): Promise<{ accessToken: string; user: any }> {
+    try {
+      // state로 저장된 사용자 정보 조회
+      const pkceData = this.pkceStates.get(state);
+      
+      if (!pkceData) {
+        throw new UnauthorizedException('Invalid or expired state');
+      }
+      
+      if (pkceData.expiresAt < new Date()) {
+        this.pkceStates.delete(state);
+        throw new UnauthorizedException('State has expired');
+      }
+      
+      // codeVerifier 일치 확인
+      if (pkceData.codeVerifier !== codeVerifier) {
+        throw new UnauthorizedException('Invalid code verifier');
+      }
+      
+      // 사용된 state 삭제
+      this.pkceStates.delete(state);
+      
+      return {
+        accessToken: pkceData.accessToken, // 우리 서비스 JWT 토큰
+        user: pkceData.user
+      };
+      
+    } catch (error) {
+      console.error('Token exchange error:', error);
+      throw new UnauthorizedException('토큰 교환에 실패했습니다.');
+    }
+  }
+
+  // 🔐 쿠키 기반 토큰 검증 및 사용자 정보 조회
+  async verifyTokenFromCookie(token: string): Promise<{ userId: number; email: string; name: string }> {
+    try {
+      // JWT 토큰 검증
+      const payload = this.jwtService.verify(token);
+      
+      // 사용자 정보 조회
+      const user = await this.userRepository.findOne({
+        where: { userId: payload.userId }
+      });
+      
+      if (!user) {
+        throw new UnauthorizedException('사용자를 찾을 수 없습니다.');
+      }
+      
+      return {
+        userId: user.userId,
+        email: user.email,
+        name: user.name
+      };
+      
+    } catch (error) {
+      if (error.name === 'TokenExpiredError') {
+        throw new UnauthorizedException('토큰이 만료되었습니다.');
+      } else if (error.name === 'JsonWebTokenError') {
+        throw new UnauthorizedException('유효하지 않은 토큰입니다.');
+      }
+      throw new UnauthorizedException('토큰 검증에 실패했습니다.');
     }
   }
 

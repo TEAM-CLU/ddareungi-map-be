@@ -1,7 +1,6 @@
-import { Controller, Post, Body, HttpCode, HttpStatus, Get, Req, Res, UseGuards, Query } from '@nestjs/common';
+import { Controller, Post, Body, HttpCode, HttpStatus, Get, Req, Res, UseGuards, Query, BadRequestException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
-import { BadRequestException } from '@nestjs/common';
 import { 
   SendVerificationEmailDto, 
   VerifyEmailDto
@@ -202,7 +201,6 @@ export class AuthController {
         message: 'Google PKCE 로그인 URL입니다.',
         authUrl: 'https://accounts.google.com/o/oauth2/auth?client_id=...',
         codeVerifier: 'xyz123...',
-        state: 'abc456...'
       }
     }
   })
@@ -227,7 +225,6 @@ export class AuthController {
         message: 'Kakao PKCE 로그인 URL입니다.',
         authUrl: 'https://kauth.kakao.com/oauth/authorize?client_id=...',
         codeVerifier: 'xyz123...',
-        state: 'abc456...'
       }
     }
   })
@@ -252,7 +249,6 @@ export class AuthController {
         message: 'Naver PKCE 로그인 URL입니다.',
         authUrl: 'https://nid.naver.com/oauth2.0/authorize?client_id=...',
         codeVerifier: 'xyz123...',
-        state: 'abc456...'
       }
     }
   })
@@ -272,20 +268,19 @@ export class AuthController {
   async handleGooglePKCECallback(
     @Query('code') code: string,
     @Query('state') state: string,
-    @Query('code_verifier') codeVerifier: string,
     @Res() res: Response
   ) {
     try {
-      const result = await this.authService.handleGooglePKCECallback(code, codeVerifier, state);
-      return res.json({
-        message: 'Google 로그인 성공',
-        ...result
-      });
+      // 회원가입/로그인 처리하고 state에 정보 저장
+      const resultState = await this.authService.handleGooglePKCECallback(code, state);
+      
+      // 딥링크로 state 전달 (프론트에서 codeVerifier로 토큰 교환할 수 있도록)
+      const successDeepLink = `${process.env.GOOGLE_PKCE_CALLBACK_URL}/callback?success=true&state=${resultState}&provider=google&message=${encodeURIComponent('Google 로그인 성공')}`;
+      return res.redirect(successDeepLink);
+      
     } catch (error) {
-      return res.status(400).json({
-        message: 'Google 로그인 실패',
-        error: error.message
-      });
+      const errorDeepLink = `${process.env.GOOGLE_PKCE_CALLBACK_URL}/callback?error=auth_failed&message=${encodeURIComponent(error.message)}`;
+      return res.redirect(errorDeepLink);
     }
   }
 
@@ -297,20 +292,19 @@ export class AuthController {
   async handleKakaoPKCECallback(
     @Query('code') code: string,
     @Query('state') state: string,
-    @Query('code_verifier') codeVerifier: string,
     @Res() res: Response
   ) {
     try {
-      const result = await this.authService.handleKakaoPKCECallback(code, codeVerifier, state);
-      return res.json({
-        message: 'Kakao 로그인 성공',
-        ...result
-      });
+      // 회원가입/로그인 처리하고 state에 정보 저장
+      const resultState = await this.authService.handleKakaoPKCECallback(code, state);
+      
+      // 딥링크로 state 전달 (프론트에서 codeVerifier로 토큰 교환할 수 있도록)
+      const successDeepLink = `ddareungi://auth/callback?success=true&state=${resultState}&provider=kakao&message=${encodeURIComponent('Kakao 로그인 성공')}`;
+      return res.redirect(successDeepLink);
+      
     } catch (error) {
-      return res.status(400).json({
-        message: 'Kakao 로그인 실패',
-        error: error.message
-      });
+      const errorDeepLink = `ddareungi://auth/callback?error=auth_failed&message=${encodeURIComponent(error.message)}`;
+      return res.redirect(errorDeepLink);
     }
   }
 
@@ -322,20 +316,104 @@ export class AuthController {
   async handleNaverPKCECallback(
     @Query('code') code: string,
     @Query('state') state: string,
-    @Query('code_verifier') codeVerifier: string,
     @Res() res: Response
   ) {
     try {
-      const result = await this.authService.handleNaverPKCECallback(code, codeVerifier, state);
-      return res.json({
-        message: 'Naver 로그인 성공',
-        ...result
-      });
+      // 회원가입/로그인 처리하고 state에 정보 저장
+      const resultState = await this.authService.handleNaverPKCECallback(code, state);
+      
+      // 딥링크로 state 전달 (프론트에서 codeVerifier로 토큰 교환할 수 있도록)
+      const successDeepLink = `ddareungi://auth/callback?success=true&state=${resultState}&provider=naver&message=${encodeURIComponent('Naver 로그인 성공')}`;
+      return res.redirect(successDeepLink);
+      
     } catch (error) {
-      return res.status(400).json({
-        message: 'Naver 로그인 실패',
-        error: error.message
-      });
+      const errorDeepLink = `ddareungi://auth/callback?error=auth_failed&message=${encodeURIComponent(error.message)}`;
+      return res.redirect(errorDeepLink);
     }
+  }
+
+  @Post('exchange-token')
+  @ApiOperation({ 
+    summary: 'codeVerifier로 토큰 교환',
+    description: '프론트에서 codeVerifier와 state를 사용하여 최종 JWT 토큰을 교환합니다.'
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        codeVerifier: { type: 'string', description: 'PKCE code verifier' },
+        state: { type: 'string', description: '콜백에서 받은 state 값' }
+      },
+      required: ['codeVerifier', 'state']
+    }
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: '토큰 교환 성공',
+    schema: {
+      example: {
+        accessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        user: {
+          id: 'google123',
+          name: '사용자',
+          email: 'user@example.com'
+        },
+        message: '토큰 교환 성공'
+      }
+    }
+  })
+  @ApiResponse({ 
+    status: 401, 
+    description: '토큰 교환 실패',
+    schema: {
+      example: {
+        statusCode: 401,
+        message: 'Invalid or expired state'
+      }
+    }
+  })
+  async exchangeToken(
+    @Body('codeVerifier') codeVerifier: string,
+    @Body('state') state: string
+  ) {
+    if (!codeVerifier || !state) {
+      throw new BadRequestException('codeVerifier and state are required');
+    }
+    
+    const result = await this.authService.exchangeTokenWithCodeVerifier(codeVerifier, state);
+    
+    return {
+      accessToken: result.accessToken,
+      user: result.user,
+      message: '토큰 교환 성공'
+    };
+  }
+
+  @Post('logout')
+  @ApiOperation({ 
+    summary: '로그아웃',
+    description: 'HTTP-Only 쿠키를 삭제하여 로그아웃 처리합니다.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: '로그아웃 성공',
+    schema: {
+      example: {
+        message: '로그아웃되었습니다.'
+      }
+    }
+  })
+  async logout(@Res() res: Response) {
+    // 쿠키 삭제
+    res.clearCookie('accessToken', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      path: '/'
+    });
+    
+    return res.json({
+      message: '로그아웃되었습니다.'
+    });
   }
 }
