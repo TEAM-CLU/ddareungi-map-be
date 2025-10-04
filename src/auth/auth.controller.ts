@@ -275,11 +275,11 @@ export class AuthController {
       const resultState = await this.authService.handleGooglePKCECallback(code, state);
       
       // 딥링크로 state 전달 (프론트에서 codeVerifier로 토큰 교환할 수 있도록)
-      const successDeepLink = `${process.env.GOOGLE_PKCE_CALLBACK_URL}/callback?success=true&state=${resultState}&provider=google&message=${encodeURIComponent('Google 로그인 성공')}`;
+      const successDeepLink = `${process.env.GOOGLE_PKCE_CALLBACK_URL}/?success=true&state=${resultState}&provider=google&message=${encodeURIComponent('Google 로그인 성공')}`;
       return res.redirect(successDeepLink);
       
     } catch (error) {
-      const errorDeepLink = `${process.env.GOOGLE_PKCE_CALLBACK_URL}/callback?error=auth_failed&message=${encodeURIComponent(error.message)}`;
+      const errorDeepLink = `${process.env.GOOGLE_PKCE_CALLBACK_URL}/?error=auth_failed&message=${encodeURIComponent(error.message)}`;
       return res.redirect(errorDeepLink);
     }
   }
@@ -299,11 +299,11 @@ export class AuthController {
       const resultState = await this.authService.handleKakaoPKCECallback(code, state);
       
       // 딥링크로 state 전달 (프론트에서 codeVerifier로 토큰 교환할 수 있도록)
-      const successDeepLink = `ddareungi://auth/callback?success=true&state=${resultState}&provider=kakao&message=${encodeURIComponent('Kakao 로그인 성공')}`;
+      const successDeepLink = `ddareungi://auth/?success=true&state=${resultState}&provider=kakao&message=${encodeURIComponent('Kakao 로그인 성공')}`;
       return res.redirect(successDeepLink);
       
     } catch (error) {
-      const errorDeepLink = `ddareungi://auth/callback?error=auth_failed&message=${encodeURIComponent(error.message)}`;
+      const errorDeepLink = `ddareungi://auth/?error=auth_failed&message=${encodeURIComponent(error.message)}`;
       return res.redirect(errorDeepLink);
     }
   }
