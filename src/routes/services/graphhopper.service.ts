@@ -116,7 +116,7 @@ export class GraphHopperService {
         details: ['road_class', 'bike_network'],
         algorithm: 'round_trip',
         'ch.disable': true,
-        'round_trip.distance': targetDistance * 1000,
+        'round_trip.distance': targetDistance,
         'round_trip.seed': Math.floor(Math.random() * 1000),
         'round_trip.points': 2,
         'alternative_route.max_paths': 3,
@@ -154,7 +154,7 @@ export class GraphHopperService {
       details: ['road_class', 'bike_network'],
       algorithm: 'round_trip',
       'ch.disable': true,
-      'round_trip.distance': targetDistance * 1000,
+      'round_trip.distance': targetDistance,
       'round_trip.seed': Math.floor(Math.random() * 1000),
       'round_trip.points': 2,
     };

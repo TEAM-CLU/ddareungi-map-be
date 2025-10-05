@@ -113,23 +113,28 @@ export class RoutesService {
         ),
       ]);
 
-      // 자전거 왕복 경로 최적 검색 (safe_bike + fast_bike)
-      const optimalBikePaths = await this.routeOptimizer.findOptimalRoutes(
+      // 자전거 왕복 경로 최적 검색 (시작→반환점, 반환점→시작)
+      const [optimalOutboundPaths, optimalReturnPaths] = await Promise.all([
+        this.routeOptimizer.findOptimalRoutes(
+          mockStartStation,
+          request.end, // 시작 대여소 → 반환점
+        ),
+        this.routeOptimizer.findOptimalRoutes(
+          request.end,
+          mockStartStation, // 반환점 → 시작 대여소
+        ),
+      ]);
+
+      // 같은 카테고리끼리 매칭하여 왕복 RouteDto 생성
+      const roundTripRoutes = this.routeConverter.buildRoundTripRoutesFromPaths(
+        optimalOutboundPaths,
+        optimalReturnPaths,
+        walkingToStation,
+        walkingFromStation,
         mockStartStation,
-        request.end, // 반환점
       );
 
-      // 각 자전거 경로에 대해 왕복 RouteDto 생성
-      return optimalBikePaths.map((bikePath) =>
-        this.routeConverter.buildRoundTripRoute(
-          walkingToStation,
-          bikePath, // 대여소 → 반환점
-          bikePath, // 반환점 → 대여소 (같은 경로 역방향)
-          walkingFromStation,
-          mockStartStation,
-          bikePath.routeCategory,
-        ),
-      );
+      return roundTripRoutes;
     } catch (error) {
       this.logger.error('Round trip search failed', error);
       throw error;

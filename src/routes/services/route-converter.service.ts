@@ -9,6 +9,7 @@ import {
 } from '../dto/full-journey.dto';
 import { RoundTripRouteDto } from '../dto/round-trip.dto';
 import { GraphHopperPath } from '../interfaces/graphhopper.interface';
+import { CategorizedPath } from './route-optimizer.service';
 
 interface MockStation {
   id: string;
@@ -256,7 +257,6 @@ export class RouteConverterService {
     routeCategory?: string,
   ): RouteDto {
     const segments: RouteSegmentDto[] = [
-      // 1단계: 출발지 → 대여소 (도보)
       {
         type: 'walking',
         summary: this.convertToSummary(walkingToStation),
@@ -264,7 +264,6 @@ export class RouteConverterService {
         geometry: this.convertToGeometry(walkingToStation.points),
         instructions: this.convertToInstructions(walkingToStation.instructions),
       },
-      // 2단계: 대여소 → 반환점 (자전거)
       {
         type: 'biking',
         summary: this.convertToSummary(bikeToDestination),
@@ -282,7 +281,6 @@ export class RouteConverterService {
           current_bikes: 8,
         },
       },
-      // 3단계: 반환점 → 대여소 (자전거)
       {
         type: 'biking',
         summary: this.convertToSummary(bikeToStation),
@@ -298,7 +296,6 @@ export class RouteConverterService {
           current_bikes: 5,
         },
       },
-      // 4단계: 대여소 → 출발지 (도보)
       {
         type: 'walking',
         summary: this.convertToSummary(walkingToStart),
@@ -429,5 +426,38 @@ export class RouteConverterService {
       ]),
       segments,
     };
+  }
+
+  /**
+   * 왕복 경로의 outbound와 return 경로를 카테고리별로 매칭하여 RouteDto 생성
+   */
+  buildRoundTripRoutesFromPaths(
+    outboundPaths: CategorizedPath[],
+    returnPaths: CategorizedPath[],
+    walkingToStation: GraphHopperPath,
+    walkingFromStation: GraphHopperPath,
+    station: MockStation,
+  ): RouteDto[] {
+    const roundTripRoutes: RouteDto[] = [];
+
+    const maxRoutes = Math.min(outboundPaths.length, returnPaths.length);
+
+    for (let i = 0; i < maxRoutes; i++) {
+      const outboundPath = outboundPaths[i];
+      const returnPath = returnPaths[i];
+
+      const roundTripRoute = this.buildRoundTripRoute(
+        walkingToStation,
+        outboundPath, // 대여소 → 반환점
+        returnPath, // 반환점 → 대여소
+        walkingFromStation,
+        station,
+        outboundPath.routeCategory,
+      );
+
+      roundTripRoutes.push(roundTripRoute);
+    }
+
+    return roundTripRoutes;
   }
 }
