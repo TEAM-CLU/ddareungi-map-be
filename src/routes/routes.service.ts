@@ -7,13 +7,7 @@ import {
 import { RouteOptimizerService } from './services/route-optimizer.service';
 import { RouteConverterService } from './services/route-converter.service';
 import { GraphHopperService } from './services/graphhopper.service';
-
-interface MockStation {
-  id: string;
-  name: string;
-  lat: number;
-  lng: number;
-}
+import { MockStation } from './services/station-mock.service';
 
 @Injectable()
 export class RoutesService {

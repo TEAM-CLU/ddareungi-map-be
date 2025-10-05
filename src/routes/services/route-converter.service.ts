@@ -10,13 +10,7 @@ import {
 import { RoundTripRouteDto } from '../dto/round-trip.dto';
 import { GraphHopperPath } from '../interfaces/graphhopper.interface';
 import { CategorizedPath } from './route-optimizer.service';
-
-interface MockStation {
-  id: string;
-  name: string;
-  lat: number;
-  lng: number;
-}
+import { MockStation } from './station-mock.service';
 
 @Injectable()
 export class RouteConverterService {
