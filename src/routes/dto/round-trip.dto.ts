@@ -1,75 +1,18 @@
-import {
-  IsNotEmpty,
-  IsNumber,
-  IsOptional,
-  ValidateNested,
-  IsEnum,
-} from 'class-validator';
-import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 import {
-  CoordinateDto,
   SummaryDto,
   BoundingBoxDto,
   GeometryDto,
   InstructionDto,
-  BikeProfile,
+  PointToPointRouteRequestDto,
+  CircularRouteRequestDto,
 } from './full-journey.dto';
 
-export class RoundTripSearchRequestDto {
-  @ApiProperty({ description: '출발지 좌표', type: CoordinateDto })
-  @IsNotEmpty()
-  @ValidateNested()
-  @Type(() => CoordinateDto)
-  start: CoordinateDto;
+// 하위 호환성을 위해 공통 DTO를 상속
+export class RoundTripSearchRequestDto extends PointToPointRouteRequestDto {}
 
-  @ApiProperty({ description: '목적지 좌표', type: CoordinateDto })
-  @IsNotEmpty()
-  @ValidateNested()
-  @Type(() => CoordinateDto)
-  end: CoordinateDto;
-
-  @ApiProperty({
-    description: '자전거 프로필 (선택사항)',
-    enum: BikeProfile,
-    required: false,
-  })
-  @IsOptional()
-  @IsEnum(BikeProfile)
-  profile?: BikeProfile;
-}
-
-export class RoundTripRecommendRequestDto {
-  @ApiProperty({ description: '출발지 좌표', type: CoordinateDto })
-  @IsNotEmpty()
-  @ValidateNested()
-  @Type(() => CoordinateDto)
-  start: CoordinateDto;
-
-  @ApiProperty({ description: '목표 거리 (킬로미터)' })
-  @IsNotEmpty()
-  @IsNumber()
-  @Type(() => Number)
-  targetDistance: number;
-
-  @ApiProperty({
-    description: '자전거 프로필',
-    enum: BikeProfile,
-    required: false,
-  })
-  @IsOptional()
-  @IsEnum(BikeProfile)
-  profile?: BikeProfile;
-
-  @ApiProperty({
-    description: '시드값 (선택사항)',
-    required: false,
-  })
-  @IsOptional()
-  @IsNumber()
-  @Type(() => Number)
-  seed?: number;
-}
+// 하위 호환성을 위한 별칭
+export class RoundTripRecommendRequestDto extends CircularRouteRequestDto {}
 
 export class RoundTripRouteDto {
   @ApiProperty({

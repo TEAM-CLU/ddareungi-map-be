@@ -9,13 +9,18 @@ export interface GraphHopperResponse {
 export interface GraphHopperPath {
   distance: number;
   time: number;
-  ascent: number;
-  descent: number;
+  ascend: number;
+  descend: number;
   points: {
     coordinates: number[][];
   };
   bbox: [number, number, number, number];
   instructions: GraphHopperInstruction[];
+  details?: {
+    road_class?: [number, number, string][];
+    bike_network?: [number, number, string][];
+  };
+  profile?: string; // 경로 계산에 사용된 프로필 정보
 }
 
 export interface GraphHopperInstruction {

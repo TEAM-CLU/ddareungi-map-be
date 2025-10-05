@@ -7,12 +7,13 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { RoutesService } from './routes.service';
-import { FullJourneyRequestDto, RouteDto } from './dto/full-journey.dto';
 import {
-  RoundTripRecommendRequestDto,
-  RoundTripResponseDto,
-  RoundTripSearchRequestDto,
-} from './dto/round-trip.dto';
+  RouteDto,
+  CircularRouteRequestDto,
+  // 하위 호환성을 위한 별칭들 (실제로는 PointToPointRouteRequestDto)
+  FullJourneyRequestDto,
+} from './dto/full-journey.dto';
+import { RoundTripSearchRequestDto } from './dto/round-trip.dto';
 import { Logger } from '@nestjs/common';
 import {
   SuccessResponseDto,
@@ -85,7 +86,7 @@ export class RoutesController {
   })
   async getRoundTripSearch(
     @Body() roundTripSearchRequestDto: RoundTripSearchRequestDto,
-  ): Promise<SuccessResponseDto<RoundTripResponseDto>> {
+  ): Promise<SuccessResponseDto<RouteDto[]>> {
     try {
       const result = await this.routesService.findRoundTripSearch(
         roundTripSearchRequestDto,
@@ -124,11 +125,11 @@ export class RoutesController {
     type: ErrorResponseDto,
   })
   async getRoundTripRecommend(
-    @Body() roundTripRecommendRequestDto: RoundTripRecommendRequestDto,
-  ): Promise<SuccessResponseDto<RoundTripResponseDto>> {
+    @Body() circularRouteRequestDto: CircularRouteRequestDto,
+  ): Promise<SuccessResponseDto<RouteDto[]>> {
     try {
       const result = await this.routesService.findRoundTripRecommendations(
-        roundTripRecommendRequestDto,
+        circularRouteRequestDto,
       );
       return SuccessResponseDto.create(
         '왕복 경로를 성공적으로 추천했습니다.',
