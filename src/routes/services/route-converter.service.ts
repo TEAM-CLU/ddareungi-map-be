@@ -6,14 +6,30 @@ import {
   BoundingBoxDto,
   GeometryDto,
   InstructionDto,
-} from '../dto/full-journey.dto';
-import { RoundTripRouteDto } from '../dto/round-trip.dto';
+  StationDto,
+  BikeProfile,
+} from '../dto/route.dto';
 import { GraphHopperPath } from '../interfaces/graphhopper.interface';
 import { CategorizedPath } from './route-optimizer.service';
 import { MockStation } from './station-mock.service';
 
 @Injectable()
 export class RouteConverterService {
+  /**
+   * GraphHopper 프로필 문자열을 BikeProfile enum으로 변환
+   */
+  private convertToBikeProfile(profile?: string): BikeProfile | undefined {
+    if (!profile) return undefined;
+
+    switch (profile) {
+      case 'safe_bike':
+        return BikeProfile.SAFE_BIKE;
+      case 'fast_bike':
+        return BikeProfile.FAST_BIKE;
+      default:
+        return BikeProfile.SAFE_BIKE; // 기본값
+    }
+  }
   /**
    * GraphHopper 경로에서 RouteDto 생성
    */
@@ -39,7 +55,7 @@ export class RouteConverterService {
         bbox: this.convertToBoundingBox(bikeRoute.bbox),
         geometry: this.convertToGeometry(bikeRoute.points),
         instructions: this.convertToInstructions(bikeRoute.instructions),
-        profile: bikeRoute.profile, // 자전거 프로필 정보 추가
+        profile: this.convertToBikeProfile(bikeRoute.profile), // 자전거 프로필 정보 추가
         startStation: {
           station_id: startStation.id,
           station_name: startStation.name,
@@ -190,7 +206,7 @@ export class RouteConverterService {
   /**
    * 도보 경로 세그먼트 생성
    */
-  buildWalkingSegment(path: GraphHopperPath): RoundTripRouteDto {
+  buildWalkingSegment(path: GraphHopperPath): RouteSegmentDto {
     return {
       type: 'walking',
       summary: this.convertToSummary(path),
@@ -207,13 +223,14 @@ export class RouteConverterService {
     path: GraphHopperPath,
     startStation?: MockStation,
     endStation?: MockStation,
-  ): RoundTripRouteDto {
-    const segment: RoundTripRouteDto = {
+  ): RouteSegmentDto {
+    const segment: RouteSegmentDto = {
       type: 'biking',
       summary: this.convertToSummary(path),
       bbox: this.convertToBoundingBox(path.bbox),
       geometry: this.convertToGeometry(path.points),
       instructions: this.convertToInstructions(path.instructions),
+      profile: this.convertToBikeProfile(path.profile), // GraphHopper 프로필을 enum으로 변환
     };
 
     if (startStation) {
@@ -266,7 +283,7 @@ export class RouteConverterService {
         instructions: this.convertToInstructions(
           bikeToDestination.instructions,
         ),
-        profile: bikeToDestination.profile, // 자전거 프로필 정보 추가
+        profile: this.convertToBikeProfile(bikeToDestination.profile), // 자전거 프로필 정보 추가
         startStation: {
           station_id: station.id,
           station_name: station.name,
@@ -281,7 +298,7 @@ export class RouteConverterService {
         bbox: this.convertToBoundingBox(bikeToStation.bbox),
         geometry: this.convertToGeometry(bikeToStation.points),
         instructions: this.convertToInstructions(bikeToStation.instructions),
-        profile: bikeToStation.profile, // 자전거 프로필 정보 추가
+        profile: this.convertToBikeProfile(bikeToStation.profile), // 자전거 프로필 정보 추가
         endStation: {
           station_id: station.id,
           station_name: station.name,
@@ -365,7 +382,7 @@ export class RouteConverterService {
         instructions: this.convertToInstructions(
           circularBikeRoute.instructions,
         ),
-        profile: circularBikeRoute.profile, // 자전거 프로필 정보 추가
+        profile: this.convertToBikeProfile(circularBikeRoute.profile), // 자전거 프로필 정보 추가
         startStation: {
           station_id: station.id,
           station_name: station.name,

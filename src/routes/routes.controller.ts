@@ -10,7 +10,6 @@ import { RoutesService } from './routes.service';
 import {
   RouteDto,
   CircularRouteRequestDto,
-  // 하위 호환성을 위한 별칭들 (실제로는 PointToPointRouteRequestDto)
   FullJourneyRequestDto,
 } from './dto/full-journey.dto';
 import { RoundTripSearchRequestDto } from './dto/round-trip.dto';
