@@ -1,9 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { FullJourneyRequestDto, RouteDto } from './dto/full-journey.dto';
+import { FullJourneyRequestDto, RouteDto } from './dto/route.dto';
 import {
   RoundTripSearchRequestDto,
   RoundTripRecommendRequestDto,
-} from './dto/round-trip.dto';
+} from './dto/route.dto';
 import { RouteOptimizerService } from './services/route-optimizer.service';
 import { RouteConverterService } from './services/route-converter.service';
 import { GraphHopperService } from './services/graphhopper.service';
