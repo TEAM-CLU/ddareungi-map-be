@@ -1,10 +1,4 @@
-import {
-  IsNotEmpty,
-  IsNumber,
-  IsEnum,
-  IsOptional,
-  ValidateNested,
-} from 'class-validator';
+import { IsNotEmpty, IsNumber, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 
@@ -28,28 +22,42 @@ export enum BikeProfile {
   FAST_BIKE = 'fast_bike',
 }
 
-export class FullJourneyRequestDto {
+// A-B 경로 검색 요청 DTO (통합 경로, 왕복 경로에서 공통 사용)
+export class PointToPointRouteRequestDto {
   @ApiProperty({ description: '출발지 좌표', type: CoordinateDto })
   @IsNotEmpty()
   @ValidateNested()
   @Type(() => CoordinateDto)
   start: CoordinateDto;
 
-  @ApiProperty({ description: '도착지 좌표', type: CoordinateDto })
+  @ApiProperty({ description: '목적지 좌표', type: CoordinateDto })
   @IsNotEmpty()
   @ValidateNested()
   @Type(() => CoordinateDto)
   end: CoordinateDto;
-
-  @ApiProperty({
-    description: '자전거 프로필 (선택사항)',
-    enum: BikeProfile,
-    required: false,
-  })
-  @IsOptional()
-  @IsEnum(BikeProfile)
-  profile?: BikeProfile;
 }
+
+// 원형 경로 추천 요청 DTO (출발지 = 도착지인 원형 경로)
+export class CircularRouteRequestDto {
+  @ApiProperty({
+    description: '출발지 좌표 (도착지와 동일)',
+    type: CoordinateDto,
+  })
+  @IsNotEmpty()
+  @ValidateNested()
+  @Type(() => CoordinateDto)
+  start: CoordinateDto;
+
+  @ApiProperty({ description: '목표 거리 (미터)', example: 5000 })
+  @IsNotEmpty()
+  @IsNumber()
+  @Type(() => Number)
+  targetDistance: number;
+}
+
+// 하위 호환성을 위한 별칭들
+export class RouteSearchRequestDto extends PointToPointRouteRequestDto {}
+export class FullJourneyRequestDto extends PointToPointRouteRequestDto {}
 
 export class SummaryDto {
   @ApiProperty({ description: '총 거리 (미터)' })
@@ -138,6 +146,13 @@ export class RouteSegmentDto {
   instructions: InstructionDto[];
 
   @ApiProperty({
+    description: '자전거 프로필 (자전거 구간일 경우)',
+    enum: ['safe_bike', 'fast_bike'],
+    required: false,
+  })
+  profile?: string;
+
+  @ApiProperty({
     description: '출발 대여소 (자전거 구간일 경우)',
     type: StationDto,
     required: false,
@@ -153,8 +168,12 @@ export class RouteSegmentDto {
 }
 
 export class RouteDto {
-  @ApiProperty({ description: '자전거 프로필', enum: BikeProfile })
-  profile: BikeProfile;
+  @ApiProperty({
+    description: '경로 카테고리',
+    enum: ['자전거 도로 우선 경로', '최단 거리 경로', '최소 시간 경로'],
+    example: '자전거 도로 우선 경로',
+  })
+  routeCategory: string;
 
   @ApiProperty({ description: '전체 요약', type: SummaryDto })
   summary: SummaryDto;
