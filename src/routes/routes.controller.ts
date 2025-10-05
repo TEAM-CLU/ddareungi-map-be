@@ -11,8 +11,8 @@ import {
   RouteDto,
   CircularRouteRequestDto,
   FullJourneyRequestDto,
-} from './dto/full-journey.dto';
-import { RoundTripSearchRequestDto } from './dto/round-trip.dto';
+  RoundTripSearchRequestDto,
+} from './dto/route.dto';
 import { Logger } from '@nestjs/common';
 import {
   SuccessResponseDto,
