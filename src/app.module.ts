@@ -6,13 +6,18 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { MailModule } from './mail/mail.module';
 import { AuthModule } from './auth/auth.module';
 import { RoutesModule } from './routes/routes.module';
+import { UserModule } from './user/user.module';
+import { HttpExceptionFilter } from './common/http-exceptioin.filter';
 
 @Module({
   imports: [
     // 환경변수 모듈 설정
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      envFilePath: [
+        `.env.${process.env.NODE_ENV || 'local'}`,
+        '.env'
+      ],
     }),
 
     // TypeORM 모듈 설정 (DB 연결)
@@ -40,8 +45,9 @@ import { RoutesModule } from './routes/routes.module';
     MailModule,
     AuthModule,
     RoutesModule,
+    UserModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, HttpExceptionFilter],
 })
 export class AppModule {}

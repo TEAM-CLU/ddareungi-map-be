@@ -9,10 +9,14 @@ async function bootstrap() {
 
   app.use(helmet());
 
-  // CORS
+  // CORS 설정을 환경변수에서 읽어오기
+  const corsOrigins = process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000'];
+  
   app.enableCors({
-    origin: true, // 허용할 출처, 배포 시에 프론트엔드 도메인 주소로 지정
+    origin: corsOrigins,
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization'],
   });
 
   // ValidationPipe
@@ -29,7 +33,50 @@ async function bootstrap() {
     .setTitle('Ddareuni-Map API documents')
     .setDescription('따릉이맵 API 문서입니다.')
     .setVersion('1.0')
-    .addBearerAuth()
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        name: 'JWT',
+        description: 'Enter JWT token',
+        in: 'header',
+      },
+      'JWT-auth', // This name here is important for matching up with @ApiBearerAuth() in your controller!
+    )
+    .addOAuth2({
+      type: 'oauth2',
+      flows: {
+        authorizationCode: {
+          authorizationUrl: 'https://nid.naver.com/oauth2.0/authorize',
+          tokenUrl: 'https://nid.naver.com/oauth2.0/token',
+          scopes: {},
+        },
+      },
+    })
+    .addOAuth2({
+      type: 'oauth2',
+      flows: {
+        authorizationCode: {
+          authorizationUrl: 'https://kauth.kakao.com/oauth/authorize',
+          tokenUrl: 'https://kauth.kakao.com/oauth/token',
+          scopes: {},
+        },
+      },
+    })
+    .addOAuth2({
+      type: 'oauth2',
+      flows: {
+        authorizationCode: {
+          authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+          tokenUrl: 'https://oauth2.googleapis.com/token',
+          scopes: {
+            email: 'Access to your email address',
+            profile: 'Access to your basic profile info',
+          },
+        },
+      },
+    })
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api-docs', app, document);
