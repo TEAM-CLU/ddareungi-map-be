@@ -134,7 +134,7 @@ export class RouteConverterService {
   ): InstructionDto[] {
     return instructions.map((instruction) => ({
       distance: Math.round(instruction.distance),
-      time: instruction.time,
+      time: Math.round(instruction.time / 1000),
       text: instruction.text,
       sign: instruction.sign,
       interval: instruction.interval,
