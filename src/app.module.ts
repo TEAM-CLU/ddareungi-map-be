@@ -3,9 +3,11 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ScheduleModule } from '@nestjs/schedule';
 import { MailModule } from './mail/mail.module';
 import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
+import { StationsModule } from './stations/stations.module';
 import { HttpExceptionFilter } from './common/http-exceptioin.filter';
 
 @Module({
@@ -13,11 +15,11 @@ import { HttpExceptionFilter } from './common/http-exceptioin.filter';
     // 환경변수 모듈 설정
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: [
-        `.env.${process.env.NODE_ENV || 'local'}`,
-        '.env'
-      ],
+      envFilePath: [`.env.${process.env.NODE_ENV || 'local'}`, '.env'],
     }),
+
+    // 스케줄링 모듈 설정
+    ScheduleModule.forRoot(),
 
     // TypeORM 모듈 설정 (DB 연결)
     TypeOrmModule.forRootAsync({
@@ -44,6 +46,7 @@ import { HttpExceptionFilter } from './common/http-exceptioin.filter';
     MailModule,
     AuthModule,
     UserModule,
+    StationsModule,
   ],
   controllers: [AppController],
   providers: [AppService, HttpExceptionFilter],
