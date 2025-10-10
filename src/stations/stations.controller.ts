@@ -17,7 +17,8 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { StationsService } from './services/stations.service';
-import { CreateStationDto, MapAreaSearchDto } from './dto/station.dto';
+import { CreateStationDto, StationResponseDto } from './dto/station.dto';
+import { DeleteAllResult } from './interfaces/station.interfaces';
 import { Logger } from '@nestjs/common';
 import {
   SuccessResponseDto,
@@ -68,6 +69,85 @@ export class StationsController {
     }
   }
 
+  @Post('realtime-sync')
+  @ApiOperation({
+    summary: '실시간 대여정보 동기화',
+    description:
+      '서울시 공공자전거 실시간 대여정보 API를 호출하여 특정 대여소의 현재 자전거 수와 거치대 수를 업데이트합니다.',
+  })
+  @ApiQuery({
+    name: 'stationId',
+    description: '동기화할 대여소의 외부 스테이션 ID',
+    type: String,
+    required: false,
+  })
+  @ApiResponse({
+    status: 200,
+    description: '실시간 동기화 성공',
+    type: SuccessResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: '대여소를 찾을 수 없음',
+    type: ErrorResponseDto,
+  })
+  @ApiResponse({
+    status: 500,
+    description: '서버 내부 오류',
+    type: ErrorResponseDto,
+  })
+  async syncRealtimeStationInfo(
+    @Query('stationId') stationId?: string,
+  ): Promise<SuccessResponseDto<object>> {
+    try {
+      this.logger.log(
+        `실시간 대여정보 동기화 요청: ${stationId || '전체 대여소'}`,
+      );
+
+      if (stationId) {
+        // 특정 대여소만 동기화
+        const realtimeInfo =
+          await this.stationsService.syncSingleStationRealtimeInfo(stationId);
+
+        if (!realtimeInfo) {
+          throw new HttpException(
+            ErrorResponseDto.create(
+              HttpStatus.NOT_FOUND,
+              `대여소 ID ${stationId}를 찾을 수 없습니다.`,
+            ),
+            HttpStatus.NOT_FOUND,
+          );
+        }
+
+        return SuccessResponseDto.create(
+          '실시간 대여정보 동기화가 성공적으로 완료되었습니다.',
+          realtimeInfo,
+        );
+      } else {
+        // 전체 대여소 동기화 (개발/테스트 용도)
+        const result = await this.stationsService.syncAllStationsRealtimeInfo();
+
+        return SuccessResponseDto.create(
+          `실시간 대여정보 동기화가 완료되었습니다. (성공: ${result.successCount}개, 실패: ${result.failureCount}개)`,
+          result,
+        );
+      }
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      this.logger.error('실시간 대여정보 동기화 실패:', error);
+      throw new HttpException(
+        ErrorResponseDto.create(
+          HttpStatus.INTERNAL_SERVER_ERROR,
+          '실시간 대여정보 동기화에 실패했습니다.',
+        ),
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
   @Get('nearby')
   @ApiOperation({
     summary: '가장 가까운 대여소 3개 검색',
@@ -78,13 +158,13 @@ export class StationsController {
     name: 'latitude',
     description: '검색할 위도 (WGS84)',
     type: Number,
-    example: 37.5665,
+    example: 37.630032,
   })
   @ApiQuery({
     name: 'longitude',
     description: '검색할 경도 (WGS84)',
     type: Number,
-    example: 126.978,
+    example: 127.076508,
   })
   @ApiResponse({
     status: 200,
@@ -104,7 +184,7 @@ export class StationsController {
   async findNearbyStations(
     @Query('latitude') latitude: number,
     @Query('longitude') longitude: number,
-  ): Promise<SuccessResponseDto<any[]>> {
+  ): Promise<SuccessResponseDto<StationResponseDto[]>> {
     try {
       const lat = Number(latitude);
       const lng = Number(longitude);
@@ -137,19 +217,19 @@ export class StationsController {
     name: 'latitude',
     description: '중심점 위도 (WGS84)',
     type: Number,
-    example: 37.5665,
+    example: 37.630032,
   })
   @ApiQuery({
     name: 'longitude',
     description: '중심점 경도 (WGS84)',
     type: Number,
-    example: 126.978,
+    example: 127.076508,
   })
   @ApiQuery({
     name: 'radius',
     description: '검색 반경 (미터)',
     type: Number,
-    example: 2000,
+    example: 1000,
   })
   @ApiResponse({
     status: 200,
@@ -170,7 +250,7 @@ export class StationsController {
     @Query('latitude') latitude: number,
     @Query('longitude') longitude: number,
     @Query('radius') radius: number,
-  ): Promise<SuccessResponseDto<any[]>> {
+  ): Promise<SuccessResponseDto<StationResponseDto[]>> {
     try {
       // 입력값 검증
       const lat = Number(latitude);
@@ -248,7 +328,7 @@ export class StationsController {
     description: '서버 내부 오류',
     type: ErrorResponseDto,
   })
-  async findAll(): Promise<SuccessResponseDto<any[]>> {
+  async findAll(): Promise<SuccessResponseDto<StationResponseDto[]>> {
     try {
       const stations = await this.stationsService.findAll();
 
@@ -293,7 +373,9 @@ export class StationsController {
     description: '서버 내부 오류',
     type: ErrorResponseDto,
   })
-  async findOne(@Param('id') id: string): Promise<SuccessResponseDto<any>> {
+  async findOne(
+    @Param('id') id: string,
+  ): Promise<SuccessResponseDto<StationResponseDto>> {
     try {
       const station = await this.stationsService.findOne(id);
 
@@ -350,7 +432,7 @@ export class StationsController {
   })
   async create(
     @Body() createStationDto: CreateStationDto,
-  ): Promise<SuccessResponseDto<any>> {
+  ): Promise<SuccessResponseDto<StationResponseDto>> {
     try {
       const station = await this.stationsService.create(createStationDto);
 
@@ -419,6 +501,67 @@ export class StationsController {
     }
   }
 
+  @Delete('confirm')
+  @ApiOperation({
+    summary: '모든 대여소 삭제 (관리자용)',
+    description:
+      '모든 대여소를 영구적으로 삭제합니다. 매우 위험한 작업이므로 확인 키가 필요합니다.',
+  })
+  @ApiQuery({
+    name: 'confirmKey',
+    description: '삭제 확인 키 (DELETE_ALL_STATIONS_CONFIRM)',
+    type: String,
+    required: true,
+  })
+  @ApiResponse({
+    status: 200,
+    description: '모든 대여소 삭제 성공',
+    type: SuccessResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: '잘못된 확인 키',
+    type: ErrorResponseDto,
+  })
+  @ApiResponse({
+    status: 500,
+    description: '서버 내부 오류',
+    type: ErrorResponseDto,
+  })
+  async removeAll(
+    @Query('confirmKey') confirmKey: string,
+  ): Promise<SuccessResponseDto<DeleteAllResult>> {
+    try {
+      this.logger.warn('🚨 전체 대여소 삭제 API 호출됨');
+
+      const result = await this.stationsService.removeAll(confirmKey);
+
+      return SuccessResponseDto.create(
+        `모든 대여소가 성공적으로 삭제되었습니다. (${result.deletedCount}개 삭제됨)`,
+        result,
+      );
+    } catch (error) {
+      this.logger.error('전체 대여소 삭제 실패:', error);
+
+      if (error instanceof Error && error.message.includes('잘못된 확인 키')) {
+        throw new HttpException(
+          ErrorResponseDto.create(HttpStatus.BAD_REQUEST, error.message),
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      throw new HttpException(
+        ErrorResponseDto.create(
+          HttpStatus.INTERNAL_SERVER_ERROR,
+          error instanceof Error
+            ? error.message
+            : '전체 대여소 삭제에 실패했습니다.',
+        ),
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
   @Get('sync/status')
   @ApiOperation({
     summary: '동기화 상태 조회',
@@ -434,7 +577,7 @@ export class StationsController {
     description: '서버 내부 오류',
     type: ErrorResponseDto,
   })
-  async getSyncStatus(): Promise<SuccessResponseDto<any>> {
+  async getSyncStatus(): Promise<SuccessResponseDto<object>> {
     try {
       const status = await this.stationsService.getSyncStatus();
       return SuccessResponseDto.create('동기화 상태 조회 성공', status);

@@ -11,11 +11,12 @@ import type { Point } from 'geojson';
 @Entity('stations')
 @Index('idx_stations_location', ['location'], { spatial: true })
 export class Station {
-  @PrimaryColumn({ type: 'varchar', length: 50 })
+  @PrimaryColumn({
+    type: 'varchar',
+    length: 50,
+    comment: 'Seoul API Station ID (e.g., ST-3060)',
+  })
   station_id: string;
-
-  @Column({ type: 'varchar', length: 50, nullable: true })
-  external_station_id: string | null;
 
   @Column({ type: 'varchar', length: 255 })
   station_name: string;
