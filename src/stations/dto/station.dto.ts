@@ -1,53 +1,19 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsString, IsNumber, IsOptional, IsDateString } from 'class-validator';
 
-// TypeORM Raw Query 결과 타입 정의
+// TypeORM Raw Query 결과 타입 정의 (외부 ID 통합)
 export interface StationRawQueryResult {
-  station_station_id: string;
-  station_external_station_id: string | null;
-  station_station_name: string;
-  station_station_number: string | null;
-  station_district: string | null;
-  station_address: string | null;
-  station_total_racks: number;
-  station_current_adult_bikes: number;
-  station_last_updated_at: Date | null;
+  station_id: string;
+  station_name: string;
+  station_number: string | null;
+  district: string | null;
+  address: string | null;
+  total_racks: number;
+  current_adult_bikes: number;
+  last_updated_at: Date | null;
   latitude: string; // PostGIS ST_Y 결과는 string으로 반환
   longitude: string; // PostGIS ST_X 결과는 string으로 반환
   distance?: string; // 거리 계산 시 추가되는 필드
-}
-
-// Base Coordinate DTO - 좌표 관련 공통 DTO
-export class BaseCoordinateDto {
-  @ApiProperty({
-    description: '위도 (WGS84)',
-    example: 37.5665,
-    minimum: -90,
-    maximum: 90,
-  })
-  @IsNumber()
-  latitude: number;
-
-  @ApiProperty({
-    description: '경도 (WGS84)',
-    example: 126.978,
-    minimum: -180,
-    maximum: 180,
-  })
-  @IsNumber()
-  longitude: number;
-}
-
-// 지도 영역 검색을 위한 DTO
-export class MapAreaSearchDto extends BaseCoordinateDto {
-  @ApiProperty({
-    description: '검색 반경 (미터)',
-    example: 2000,
-    minimum: 100,
-    maximum: 20000,
-  })
-  @IsNumber()
-  radius: number;
 }
 
 // 유틸리티 함수: Raw Query 결과를 StationResponseDto로 변환
@@ -55,17 +21,16 @@ export function mapRawQueryToStationResponse(
   raw: StationRawQueryResult,
 ): StationResponseDto {
   return {
-    station_id: raw.station_station_id,
-    external_station_id: raw.station_external_station_id,
-    station_name: raw.station_station_name,
-    station_number: raw.station_station_number,
-    district: raw.station_district,
-    address: raw.station_address,
+    station_id: raw.station_id,
+    station_name: raw.station_name,
+    station_number: raw.station_number,
+    district: raw.district,
+    address: raw.address,
     latitude: parseFloat(raw.latitude),
     longitude: parseFloat(raw.longitude),
-    total_racks: raw.station_total_racks,
-    current_adult_bikes: raw.station_current_adult_bikes,
-    last_updated_at: raw.station_last_updated_at,
+    total_racks: raw.total_racks,
+    current_adult_bikes: raw.current_adult_bikes,
+    last_updated_at: raw.last_updated_at,
   };
 }
 
@@ -149,21 +114,35 @@ export class SeoulBikeStationApiResponse
   row: SeoulBikeStationInfo[];
 }
 
+// 실시간 대여정보 응답 (bikeList API)
+export interface SeoulBikeRealtimeInfo {
+  rackTotCnt: string; // 거치대 개수
+  stationName: string; // 보관소(대여소)명
+  parkingBikeTotCnt: string; // 자전거 보관 총건수
+  shared: string; // 거치율
+  stationLatitude: string; // 위도
+  stationLongitude: string; // 경도
+  stationId: string; // 대여소ID
+}
+
+export interface SeoulBikeRealtimeApiResponse {
+  rentBikeStatus: {
+    list_total_count: number;
+    RESULT: {
+      CODE: string;
+      MESSAGE: string;
+    };
+    row: SeoulBikeRealtimeInfo[];
+  };
+}
+
 // 클라이언트 응답 DTO
 export class StationResponseDto {
   @ApiProperty({
-    description: '대여소 ID',
-    example: 'ST-1001',
+    description: '대여소 ID (서울시 API 기준)',
+    example: 'ST-3060',
   })
   station_id: string;
-
-  @ApiProperty({
-    description: '외부 대여소 ID (서울시 API)',
-    required: false,
-    example: 'SPB-1001',
-    nullable: true,
-  })
-  external_station_id: string | null;
 
   @ApiProperty({
     description: '대여소명',
@@ -242,15 +221,6 @@ export class CreateStationDto {
   })
   @IsString()
   station_id: string;
-
-  @ApiProperty({
-    description: '외부 대여소 ID (서울시 API)',
-    required: false,
-    example: 'SPB-1001',
-  })
-  @IsOptional()
-  @IsString()
-  external_station_id?: string;
 
   @ApiProperty({
     description: '대여소명',
@@ -333,51 +303,6 @@ export class CreateStationDto {
   last_updated_at?: Date;
 }
 
-// 대여소 검색 DTO
-export class StationSearchDto {
-  @ApiProperty({
-    description: '검색할 위도 (WGS84)',
-    example: 37.5665,
-    minimum: -90,
-    maximum: 90,
-  })
-  @IsNumber()
-  latitude: number;
-
-  @ApiProperty({
-    description: '검색할 경도 (WGS84)',
-    example: 126.978,
-    minimum: -180,
-    maximum: 180,
-  })
-  @IsNumber()
-  longitude: number;
-
-  @ApiProperty({
-    description: '검색 반경 (미터)',
-    required: false,
-    default: 1000,
-    example: 1000,
-    minimum: 100,
-    maximum: 10000,
-  })
-  @IsOptional()
-  @IsNumber()
-  radius?: number = 1000;
-
-  @ApiProperty({
-    description: '반환할 최대 개수',
-    required: false,
-    default: 10,
-    example: 10,
-    minimum: 1,
-    maximum: 100,
-  })
-  @IsOptional()
-  @IsNumber()
-  limit?: number = 10;
-}
-
 // ===========================================
 // 유틸리티 함수들
 // ===========================================
@@ -410,35 +335,13 @@ export function isSeoulApiResultSuccess(
 }
 
 /**
- * Raw Query 결과를 StationResponseDto로 안전하게 변환
- */
-export function convertRawToStationResponse(
-  raw: StationRawQueryResult,
-): StationResponseDto {
-  return {
-    station_id: raw.station_station_id,
-    external_station_id: raw.station_external_station_id,
-    station_name: raw.station_station_name,
-    station_number: raw.station_station_number,
-    district: raw.station_district,
-    address: raw.station_address,
-    latitude: parseFloat(raw.latitude),
-    longitude: parseFloat(raw.longitude),
-    total_racks: raw.station_total_racks,
-    current_adult_bikes: raw.station_current_adult_bikes,
-    last_updated_at: raw.station_last_updated_at,
-  };
-}
-
-/**
  * 서울시 API 대여소 정보를 내부 CreateStationDto로 변환
  */
 export function convertSeoulStationToCreateDto(
   seoulStation: SeoulBikeStationInfo,
 ): CreateStationDto {
   return {
-    station_id: `ST-${seoulStation.RENT_ID}`,
-    external_station_id: seoulStation.RENT_ID,
+    station_id: `${seoulStation.RENT_ID}`,
     station_name: seoulStation.RENT_NM,
     station_number: seoulStation.RENT_NO,
     district: seoulStation.STA_LOC,
