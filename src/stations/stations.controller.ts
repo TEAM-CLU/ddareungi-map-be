@@ -18,7 +18,10 @@ import {
 } from '@nestjs/swagger';
 import { StationsService } from './services/stations.service';
 import { CreateStationDto, StationResponseDto } from './dto/station.dto';
-import { DeleteAllResult } from './interfaces/station.interfaces';
+import {
+  DeleteAllResult,
+  GeoJSONFeatureCollection,
+} from './interfaces/station.interfaces';
 import { Logger } from '@nestjs/common';
 import {
   SuccessResponseDto,
@@ -152,7 +155,7 @@ export class StationsController {
   @ApiOperation({
     summary: '가장 가까운 대여소 3개 검색',
     description:
-      '지정된 위치 기준으로 가장 가까운 대여소 3개를 거리순으로 조회합니다.',
+      '지정된 위치 기준으로 가장 가까운 대여소 3개를 거리순으로 조회합니다. format=geojson 옵션으로 GeoJSON 형태로도 조회 가능합니다.',
   })
   @ApiQuery({
     name: 'latitude',
@@ -165,6 +168,13 @@ export class StationsController {
     description: '검색할 경도 (WGS84)',
     type: Number,
     example: 127.076508,
+  })
+  @ApiQuery({
+    name: 'format',
+    description: '응답 포맷 (json 또는 geojson)',
+    enum: ['json', 'geojson'],
+    required: false,
+    example: 'json',
   })
   @ApiResponse({
     status: 200,
@@ -184,12 +194,24 @@ export class StationsController {
   async findNearbyStations(
     @Query('latitude') latitude: number,
     @Query('longitude') longitude: number,
-  ): Promise<SuccessResponseDto<StationResponseDto[]>> {
+    @Query('format') format: 'json' | 'geojson' = 'json',
+  ): Promise<
+    SuccessResponseDto<StationResponseDto[] | GeoJSONFeatureCollection>
+  > {
     try {
       const lat = Number(latitude);
       const lng = Number(longitude);
 
       const stations = await this.stationsService.findNearbyStations(lat, lng);
+
+      if (format === 'geojson') {
+        const geoJsonData =
+          this.stationsService.convertStationsToGeoJSON(stations);
+        return SuccessResponseDto.create(
+          'GeoJSON 형태로 가장 가까운 대여소 3개를 성공적으로 조회했습니다.',
+          geoJsonData,
+        );
+      }
 
       return SuccessResponseDto.create(
         '가장 가까운 대여소 3개를 성공적으로 조회했습니다.',
@@ -211,7 +233,7 @@ export class StationsController {
   @ApiOperation({
     summary: '지도 영역 내 대여소 조회',
     description:
-      '지정된 중심점과 반경 내에 있는 모든 대여소를 거리순으로 조회합니다. 지도 화면에 표시할 대여소 목록을 가져올 때 사용합니다.',
+      '지정된 중심점과 반경 내에 있는 모든 대여소를 거리순으로 조회합니다. 지도 화면에 표시할 대여소 목록을 가져올 때 사용합니다. format=geojson 옵션으로 GeoJSON 형태로도 조회 가능합니다.',
   })
   @ApiQuery({
     name: 'latitude',
@@ -230,6 +252,13 @@ export class StationsController {
     description: '검색 반경 (미터)',
     type: Number,
     example: 1000,
+  })
+  @ApiQuery({
+    name: 'format',
+    description: '응답 포맷 (json 또는 geojson)',
+    enum: ['json', 'geojson'],
+    required: false,
+    example: 'json',
   })
   @ApiResponse({
     status: 200,
@@ -250,7 +279,10 @@ export class StationsController {
     @Query('latitude') latitude: number,
     @Query('longitude') longitude: number,
     @Query('radius') radius: number,
-  ): Promise<SuccessResponseDto<StationResponseDto[]>> {
+    @Query('format') format: 'json' | 'geojson' = 'json',
+  ): Promise<
+    SuccessResponseDto<StationResponseDto[] | GeoJSONFeatureCollection>
+  > {
     try {
       // 입력값 검증
       const lat = Number(latitude);
@@ -293,6 +325,15 @@ export class StationsController {
         searchRadius,
       );
 
+      if (format === 'geojson') {
+        const geoJsonData =
+          this.stationsService.convertStationsToGeoJSON(stations);
+        return SuccessResponseDto.create(
+          `GeoJSON 형태로 지도 영역 내 대여소 ${stations.length}개를 성공적으로 조회했습니다.`,
+          geoJsonData,
+        );
+      }
+
       return SuccessResponseDto.create(
         `지도 영역 내 대여소 ${stations.length}개를 성공적으로 조회했습니다.`,
         stations,
@@ -316,7 +357,15 @@ export class StationsController {
   @Get()
   @ApiOperation({
     summary: '모든 대여소 조회',
-    description: '등록된 모든 대여소 정보를 조회합니다.',
+    description:
+      '등록된 모든 대여소 정보를 조회합니다. format=geojson 옵션으로 GeoJSON 형태로도 조회 가능합니다.',
+  })
+  @ApiQuery({
+    name: 'format',
+    description: '응답 포맷 (json 또는 geojson)',
+    enum: ['json', 'geojson'],
+    required: false,
+    example: 'json',
   })
   @ApiResponse({
     status: 200,
@@ -328,9 +377,22 @@ export class StationsController {
     description: '서버 내부 오류',
     type: ErrorResponseDto,
   })
-  async findAll(): Promise<SuccessResponseDto<StationResponseDto[]>> {
+  async findAll(
+    @Query('format') format: 'json' | 'geojson' = 'json',
+  ): Promise<
+    SuccessResponseDto<StationResponseDto[] | GeoJSONFeatureCollection>
+  > {
     try {
       const stations = await this.stationsService.findAll();
+
+      if (format === 'geojson') {
+        const geoJsonData =
+          this.stationsService.convertStationsToGeoJSON(stations);
+        return SuccessResponseDto.create(
+          'GeoJSON 형태로 모든 대여소를 성공적으로 조회했습니다.',
+          geoJsonData,
+        );
+      }
 
       return SuccessResponseDto.create(
         '모든 대여소를 성공적으로 조회했습니다.',

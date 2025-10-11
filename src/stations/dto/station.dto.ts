@@ -10,6 +10,7 @@ export interface StationRawQueryResult {
   address: string | null;
   total_racks: number;
   current_adult_bikes: number;
+  status: 'available' | 'empty';
   last_updated_at: Date | null;
   latitude: string; // PostGIS ST_Y 결과는 string으로 반환
   longitude: string; // PostGIS ST_X 결과는 string으로 반환
@@ -21,15 +22,14 @@ export function mapRawQueryToStationResponse(
   raw: StationRawQueryResult,
 ): StationResponseDto {
   return {
-    station_id: raw.station_id,
-    station_name: raw.station_name,
-    station_number: raw.station_number,
-    district: raw.district,
-    address: raw.address,
+    id: raw.station_id,
+    name: raw.station_name,
+    number: raw.station_number,
     latitude: parseFloat(raw.latitude),
     longitude: parseFloat(raw.longitude),
     total_racks: raw.total_racks,
     current_adult_bikes: raw.current_adult_bikes,
+    status: raw.status,
     last_updated_at: raw.last_updated_at,
   };
 }
@@ -136,19 +136,19 @@ export interface SeoulBikeRealtimeApiResponse {
   };
 }
 
-// 클라이언트 응답 DTO
+// 클라이언트 응답 DTO (간소화된 버전)
 export class StationResponseDto {
   @ApiProperty({
     description: '대여소 ID (서울시 API 기준)',
     example: 'ST-3060',
   })
-  station_id: string;
+  id: string;
 
   @ApiProperty({
     description: '대여소명',
     example: '여의도공원 대여소',
   })
-  station_name: string;
+  name: string;
 
   @ApiProperty({
     description: '대여소번호',
@@ -156,23 +156,7 @@ export class StationResponseDto {
     example: '101',
     nullable: true,
   })
-  station_number: string | null;
-
-  @ApiProperty({
-    description: '구/동 정보',
-    required: false,
-    example: '영등포구',
-    nullable: true,
-  })
-  district: string | null;
-
-  @ApiProperty({
-    description: '주소',
-    required: false,
-    example: '서울시 영등포구 여의도동 88-3',
-    nullable: true,
-  })
-  address: string | null;
+  number: string | null;
 
   @ApiProperty({
     description: '위도 (WGS84)',
@@ -205,6 +189,13 @@ export class StationResponseDto {
   current_adult_bikes: number;
 
   @ApiProperty({
+    description: '대여소 상태 (자전거 보유 여부 기준)',
+    enum: ['available', 'empty'],
+    example: 'available',
+  })
+  status: 'available' | 'empty';
+
+  @ApiProperty({
     description: '마지막 업데이트 시간',
     required: false,
     example: '2024-10-07T12:00:00Z',
@@ -220,14 +211,14 @@ export class CreateStationDto {
     example: 'ST-1001',
   })
   @IsString()
-  station_id: string;
+  id: string;
 
   @ApiProperty({
     description: '대여소명',
     example: '여의도공원 대여소',
   })
   @IsString()
-  station_name: string;
+  name: string;
 
   @ApiProperty({
     description: '대여소번호',
@@ -236,7 +227,7 @@ export class CreateStationDto {
   })
   @IsOptional()
   @IsString()
-  station_number?: string;
+  number?: string;
 
   @ApiProperty({
     description: '구/동 정보',
@@ -341,9 +332,9 @@ export function convertSeoulStationToCreateDto(
   seoulStation: SeoulBikeStationInfo,
 ): CreateStationDto {
   return {
-    station_id: `${seoulStation.RENT_ID}`,
-    station_name: seoulStation.RENT_NM,
-    station_number: seoulStation.RENT_NO,
+    id: `${seoulStation.RENT_ID}`,
+    name: seoulStation.RENT_NM,
+    number: seoulStation.RENT_NO,
     district: seoulStation.STA_LOC,
     address: `${seoulStation.STA_ADD1} ${seoulStation.STA_ADD2}`.trim(),
     latitude: parseFloat(seoulStation.STA_LAT),
