@@ -1,74 +1,126 @@
 /**
- * Stations 도메인 전용 인터페이스
+ * Station 도메인 인터페이스 정의
+ * 비즈니스 로직 계약 및 복합 타입 구조 정의
  */
 
-/**
- * GeoJSON 기본 구조
- */
-export interface GeoJSONGeometry {
-  type: 'Point';
-  coordinates: [number, number]; // [경도, 위도]
+import { StationStatus, StationId } from '../types/station.types';
+
+// ============================================
+// 좌표 관련 인터페이스
+// ============================================
+
+export interface Coordinates {
+  latitude: number;
+  longitude: number;
 }
 
-export interface GeoJSONFeature {
+export interface StationLocation extends Coordinates {
+  isValid(): boolean;
+}
+
+// ============================================
+// 대여소 정보 인터페이스
+// ============================================
+
+// 대여소 기본 정보
+export interface StationBasicInfo {
+  id: StationId;
+  name: string;
+  number?: string | null;
+  district?: string | null;
+  address?: string | null;
+}
+
+// 대여소 운영 정보
+export interface StationOperationInfo {
+  total_racks: number;
+  current_adult_bikes: number;
+  status: StationStatus;
+  last_updated_at: Date | null;
+}
+
+// 완전한 대여소 정보
+export interface StationInfo
+  extends StationBasicInfo,
+    StationOperationInfo,
+    Coordinates {}
+
+// ============================================
+// 쿼리 관련 인터페이스
+// ============================================
+
+// TypeORM Raw Query 결과 타입 정의 (DB 호환성)
+export interface StationRawQueryResult {
+  id: string;
+  name: string;
+  number?: string | null;
+  district?: string | null;
+  address?: string | null;
+  total_racks: number;
+  current_adult_bikes: number;
+  status: 'available' | 'empty' | 'inactive';
+  last_updated_at: Date | null;
+  latitude: string; // PostGIS ST_Y 결과는 string으로 반환
+  longitude: string; // PostGIS ST_X 결과는 string으로 반환
+  distance?: string; // 거리 계산 시 추가되는 필드
+}
+
+// 쿼리 결과 타입
+export interface StationQueryResult extends StationInfo {
+  distance?: number;
+}
+
+// ============================================
+// 서비스 계층 인터페이스
+// ============================================
+
+// GeoJSON 인터페이스
+export interface GeoJsonFeature {
   type: 'Feature';
-  geometry: GeoJSONGeometry;
+  geometry: {
+    type: 'Point';
+    coordinates: [number, number]; // [longitude, latitude]
+  };
   properties: {
     id: string;
     name: string;
-    number?: string;
     total_racks: number;
     current_adult_bikes: number;
-    status: 'available' | 'empty';
-    last_updated_at?: Date;
+    status: StationStatus;
+    last_updated_at: string | null;
   };
 }
 
-export interface GeoJSONFeatureCollection {
+export interface GeoJsonResponse {
   type: 'FeatureCollection';
-  features: GeoJSONFeature[];
+  features: GeoJsonFeature[];
 }
 
-/**
- * 동기화 결과 인터페이스
- */
+// 동기화 결과 인터페이스
 export interface SyncResult {
+  totalProcessed: number;
   created: number;
   updated: number;
-  failed: number;
-  total: number;
+  skipped: number;
+  errors: number;
+  startTime: Date;
+  endTime: Date;
+  duration: number;
 }
 
+// 실시간 업데이트 데이터 인터페이스
 export interface RealtimeUpdateData {
-  current_adult_bikes: number;
-  total_racks: number;
-  status: 'available' | 'empty';
-  last_updated_at: Date;
+  [key: string]: {
+    current_adult_bikes: number;
+    total_racks: number;
+    last_updated_at: Date;
+  };
 }
 
-export interface SyncRealtimeDetail {
-  stationId: string;
-  stationName: string;
-  status: 'success' | 'failed';
-  parkingBikeTotCnt?: number;
-  rackTotCnt?: number;
-  error?: string;
-}
-
+// 전체 삭제 결과 인터페이스
 export interface DeleteAllResult {
-  deletedCount: number;
-}
-
-export interface StationSyncDetail {
-  stationId: string;
-  stationName: string;
-  action: 'created' | 'updated' | 'failed';
-  error?: string;
-}
-
-export interface SyncStatusInfo {
-  latestSync: any;
-  lastSuccessSync: any;
-  needsSync: boolean;
-  isOverdue: boolean;
+  deleted: number;
+  deletedCount: number; // 호환성을 위한 별칭
+  success: boolean;
+  message?: string;
 }

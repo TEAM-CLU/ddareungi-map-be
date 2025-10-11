@@ -9,6 +9,8 @@ import { StationSyncService } from './services/station-sync.service';
 import { StationRealtimeService } from './services/station-realtime.service';
 import { StationQueryService } from './services/station-query.service';
 import { StationManagementService } from './services/station-management.service';
+import { StationDomainService } from './services/station-domain.service';
+import { StationMapperService } from './services/station-mapper.service';
 import { Station } from './entities/station.entity';
 import { SyncLog } from './entities/sync-log.entity';
 
@@ -26,7 +28,16 @@ import { SyncLog } from './entities/sync-log.entity';
     StationRealtimeService,
     StationQueryService,
     StationManagementService,
+    StationDomainService,
+    StationMapperService,
   ],
-  exports: [StationsService, SeoulApiService],
+  exports: [
+    StationsService,
+    StationSyncService,
+    StationQueryService,
+    StationManagementService,
+    StationRealtimeService,
+    StationDomainService,
+  ],
 })
 export class StationsModule {}

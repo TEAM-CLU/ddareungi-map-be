@@ -4,10 +4,7 @@ import { Repository, IsNull, Not } from 'typeorm';
 import { Station } from '../entities/station.entity';
 import { SeoulApiService } from './seoul-api.service';
 import { StationResponseDto, SeoulBikeRealtimeInfo } from '../dto/station.dto';
-import {
-  RealtimeUpdateData,
-  SyncRealtimeDetail,
-} from '../interfaces/station.interfaces';
+import { StationDomainService } from './station-domain.service';
 
 @Injectable()
 export class StationRealtimeService {
@@ -17,6 +14,7 @@ export class StationRealtimeService {
     @InjectRepository(Station)
     private readonly stationRepository: Repository<Station>,
     private readonly seoulApiService: SeoulApiService,
+    private readonly stationDomainService: StationDomainService,
   ) {}
 
   /**
@@ -43,15 +41,26 @@ export class StationRealtimeService {
         if (!station.id) continue;
 
         const realtimeInfo = realtimeInfoMap.get(station.id);
-        if (!realtimeInfo) continue;
+        if (!realtimeInfo) {
+          // 실시간 정보가 없는 경우 inactive로 설정
+          station.status = 'inactive';
+          station.last_updated_at = new Date();
+          continue;
+        }
 
-        // 응답 객체에 실시간 정보 반영 (shared 필드 활용)
+        // 응답 객체에 실시간 정보 반영 (상태 계산 로직 개선)
         const currentBikes = parseInt(realtimeInfo.parkingBikeTotCnt) || 0;
-        const sharedRate = parseFloat(realtimeInfo.shared) || 0;
+        const totalRacks = parseInt(realtimeInfo.rackTotCnt) || 0;
+        const calculatedStatus =
+          this.stationDomainService.calculateStationStatus(
+            currentBikes,
+            totalRacks,
+            true,
+          );
 
         station.current_adult_bikes = currentBikes;
-        station.total_racks = parseInt(realtimeInfo.rackTotCnt) || 0;
-        station.status = sharedRate > 0 ? 'available' : 'empty';
+        station.total_racks = totalRacks;
+        station.status = calculatedStatus;
         station.last_updated_at = new Date();
       }
 
@@ -66,22 +75,17 @@ export class StationRealtimeService {
 
   /**
    * 실시간 정보로 데이터베이스 업데이트용 데이터 생성
-   * Seoul API의 shared 필드(거치율)를 활용하여 상태 결정
+   * StationDomainService 상태 계산 로직 사용
    */
   private createRealtimeUpdateData(
     realtimeInfo: SeoulBikeRealtimeInfo,
-  ): RealtimeUpdateData {
+  ): Partial<Station> {
     const currentBikes = parseInt(realtimeInfo.parkingBikeTotCnt) || 0;
-    const sharedRate = parseFloat(realtimeInfo.shared) || 0; // 거치율
-
-    // 거치율이 0%면 empty, 그 외에는 available
-    const status: 'available' | 'empty' =
-      sharedRate > 0 ? 'available' : 'empty';
+    const totalRacks = parseInt(realtimeInfo.rackTotCnt) || 0;
 
     return {
       current_adult_bikes: currentBikes,
-      total_racks: parseInt(realtimeInfo.rackTotCnt) || 0,
-      status: status,
+      total_racks: totalRacks,
       last_updated_at: new Date(),
     };
   }
@@ -101,22 +105,58 @@ export class StationRealtimeService {
       const realtimeInfoMap =
         await this.seoulApiService.fetchMultipleRealtimeStationInfo(stationIds);
 
-      // 데이터베이스 업데이트만 수행
+      // 실시간 정보를 받지 못한 대여소들을 inactive로 설정
+      const failedStationIds = stationIds.filter(
+        (id) => !realtimeInfoMap.has(id),
+      );
+
+      // 성공한 대여소들 업데이트
       for (const [stationId, realtimeInfo] of realtimeInfoMap.entries()) {
         try {
           const updateData = this.createRealtimeUpdateData(realtimeInfo);
-          await this.stationRepository.update(
-            { station_id: stationId },
-            updateData,
-          );
+          await this.stationRepository.update({ id: stationId }, updateData);
         } catch {
           this.logger.warn(`대여소 ${stationId} DB 업데이트 실패`);
+        }
+      }
+
+      // 실패한 대여소들을 inactive로 설정
+      for (const stationId of failedStationIds) {
+        try {
+          await this.stationRepository.update(
+            { id: stationId },
+            {
+              status: 'inactive',
+              last_updated_at: new Date(),
+            },
+          );
+          this.logger.warn(
+            `대여소 ${stationId} 실시간 정보 없음 - inactive로 설정`,
+          );
+        } catch {
+          this.logger.warn(`대여소 ${stationId} inactive 상태 업데이트 실패`);
         }
       }
 
       return realtimeInfoMap;
     } catch (error) {
       this.logger.error('ID 기반 실시간 동기화 실패:', error);
+
+      // 전체 실패한 경우 모든 대여소를 inactive로 설정
+      for (const stationId of stationIds) {
+        try {
+          await this.stationRepository.update(
+            { id: stationId },
+            {
+              status: 'inactive',
+              last_updated_at: new Date(),
+            },
+          );
+        } catch {
+          this.logger.warn(`대여소 ${stationId} inactive 상태 업데이트 실패`);
+        }
+      }
+
       return new Map();
     }
   }
@@ -136,14 +176,28 @@ export class StationRealtimeService {
         await this.seoulApiService.fetchRealtimeStationInfo(stationId);
 
       if (!realtimeInfo) {
-        this.logger.warn(`실시간 정보 없음: ${stationId}`);
+        this.logger.warn(`실시간 정보 없음: ${stationId} - inactive로 설정`);
+
+        // 실시간 정보가 없는 경우 inactive로 설정
+        const updateResult = await this.stationRepository.update(
+          { id: stationId },
+          {
+            status: 'inactive',
+            last_updated_at: new Date(),
+          },
+        );
+
+        if (updateResult.affected === 0) {
+          this.logger.warn(`대여소 없음: ${stationId}`);
+        }
+
         return null;
       }
 
       // 데이터베이스 업데이트
       const updateData = this.createRealtimeUpdateData(realtimeInfo);
       const updateResult = await this.stationRepository.update(
-        { station_id: stationId },
+        { id: stationId },
         updateData,
       );
 
@@ -162,6 +216,21 @@ export class StationRealtimeService {
       return result;
     } catch (error) {
       this.logger.error(`실시간 동기화 실패: ${stationId}`, error);
+
+      // 동기화 실패 시에도 inactive로 설정
+      try {
+        await this.stationRepository.update(
+          { id: stationId },
+          {
+            status: 'inactive',
+            last_updated_at: new Date(),
+          },
+        );
+        this.logger.warn(`대여소 ${stationId} 동기화 실패 - inactive로 설정`);
+      } catch {
+        this.logger.warn(`대여소 ${stationId} inactive 상태 업데이트 실패`);
+      }
+
       throw error;
     }
   }
@@ -172,17 +241,21 @@ export class StationRealtimeService {
   async syncAllStationsRealtimeInfo(): Promise<{
     successCount: number;
     failureCount: number;
-    details: SyncRealtimeDetail[];
+    details: Array<{
+      stationId: string;
+      success: boolean;
+      error?: string;
+    }>;
   }> {
     try {
       // 모든 대여소 조회
       const allStations = await this.stationRepository.find({
-        select: ['station_id', 'station_name'],
-        where: { station_id: Not(IsNull()) },
+        select: ['id', 'name'],
+        where: { id: Not(IsNull()) },
       });
 
       const stationIds = allStations
-        .map((station) => station.station_id)
+        .map((station) => station.id)
         .filter((id): id is string => !!id);
 
       if (stationIds.length === 0) {
@@ -194,28 +267,28 @@ export class StationRealtimeService {
 
       let successCount = 0;
       let failureCount = 0;
-      const details: SyncRealtimeDetail[] = [];
+      const details: Array<{
+        stationId: string;
+        success: boolean;
+        error?: string;
+      }> = [];
 
       // 결과 집계
       for (const station of allStations) {
-        if (!station.station_id) continue;
+        if (!station.id) continue;
 
-        const realtimeInfo = realtimeInfoMap.get(station.station_id);
+        const realtimeInfo = realtimeInfoMap.get(station.id);
         if (realtimeInfo) {
           successCount++;
           details.push({
-            stationId: station.station_id,
-            stationName: station.station_name,
-            status: 'success',
-            parkingBikeTotCnt: parseInt(realtimeInfo.parkingBikeTotCnt) || 0,
-            rackTotCnt: parseInt(realtimeInfo.rackTotCnt) || 0,
+            stationId: station.id,
+            success: true,
           });
         } else {
           failureCount++;
           details.push({
-            stationId: station.station_id,
-            stationName: station.station_name,
-            status: 'failed',
+            stationId: station.id,
+            success: false,
             error: '실시간 정보 없음',
           });
         }
