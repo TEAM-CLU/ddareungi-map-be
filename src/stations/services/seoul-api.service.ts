@@ -137,7 +137,10 @@ export class SeoulApiService {
     url: string,
   ): Promise<SeoulBikeStationApiResponse> {
     try {
-      this.logger.log(`서울시 API 호출: ${url}`);
+      // URL 대신 API 타입만 로깅
+      const apiType = url.includes(this.serviceName)
+        ? '대여소 정보 API'
+        : '실시간 정보 API';
 
       const response = await firstValueFrom(this.httpService.get(url));
 
@@ -149,7 +152,7 @@ export class SeoulApiService {
       const parsedData = this.parseSeoulApiResponse(response.data);
 
       this.logger.log(
-        `서울시 API 응답 성공: 총 ${parsedData.list_total_count || 0}건 중 ${
+        `${apiType} 호출 완료: 총 ${parsedData.list_total_count || 0}건 중 ${
           parsedData.row?.length || 0
         }건 조회`,
       );
@@ -181,15 +184,9 @@ export class SeoulApiService {
     let currentPage = 1;
     let hasMoreData = true;
 
-    this.logger.log('모든 대여소 정보 조회 시작');
-
     while (hasMoreData) {
       const startIndex = (currentPage - 1) * this.defaultPageSize + 1;
       const endIndex = currentPage * this.defaultPageSize;
-
-      this.logger.log(
-        `페이지 ${currentPage} 조회 중... (${startIndex}-${endIndex})`,
-      );
 
       const response = await this.fetchStationInfoWithRetry(
         startIndex,
@@ -213,7 +210,9 @@ export class SeoulApiService {
       await this.delay(this.apiDelay);
     }
 
-    this.logger.log(`전체 대여소 조회 완료: 총 ${allStations.length}개 대여소`);
+    this.logger.log(
+      `전체 대여소 조회 완료: ${allStations.length}개 대여소 수집`,
+    );
     return allStations;
   }
 
@@ -271,7 +270,6 @@ export class SeoulApiService {
   ): Promise<SeoulBikeRealtimeInfo | null> {
     try {
       const url = this.buildRealtimeApiUrl(stationId);
-      this.logger.debug(`실시간 대여 정보 API 호출: ${url}`);
 
       const response = await firstValueFrom(
         this.httpService.get<SeoulBikeRealtimeApiResponse>(url, {
@@ -281,7 +279,7 @@ export class SeoulApiService {
 
       return this.parseRealtimeApiResponse(response.data, stationId);
     } catch (error) {
-      this.logger.error(`실시간 대여 정보 조회 실패 - ${stationId}:`, error);
+      this.logger.error(`실시간 정보 조회 실패 - ${stationId}:`, error);
       return null; // 실시간 정보 조회 실패는 치명적이지 않음
     }
   }
@@ -316,9 +314,6 @@ export class SeoulApiService {
     }
 
     const realtimeInfo = rentBikeStatus.row[0];
-    this.logger.debug(
-      `실시간 대여 정보 조회 성공 - ${stationId}: 거치대 ${realtimeInfo.rackTotCnt}, 주차 ${realtimeInfo.parkingBikeTotCnt}`,
-    );
 
     return realtimeInfo;
   }
@@ -330,8 +325,6 @@ export class SeoulApiService {
     stationIds: string[],
   ): Promise<Map<string, SeoulBikeRealtimeInfo>> {
     const realtimeInfoMap = new Map<string, SeoulBikeRealtimeInfo>();
-
-    this.logger.log(`${stationIds.length}개 대여소 실시간 정보 조회 시작`);
 
     // 순차 처리로 API 호출 제한 준수
     for (const stationId of stationIds) {
@@ -353,7 +346,7 @@ export class SeoulApiService {
     }
 
     this.logger.log(
-      `실시간 정보 조회 완료: ${realtimeInfoMap.size}/${stationIds.length}개 성공`,
+      `실시간 정보 일괄 조회 완료: ${realtimeInfoMap.size}/${stationIds.length}개 성공`,
     );
 
     return realtimeInfoMap;

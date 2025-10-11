@@ -43,6 +43,14 @@ export class Station {
   @Column({ type: 'int', default: 0 })
   current_adult_bikes: number;
 
+  @Column({
+    type: 'enum',
+    enum: ['available', 'empty'],
+    default: 'available',
+    comment: 'Station availability status based on bike count',
+  })
+  status: 'available' | 'empty';
+
   @Column({ type: 'timestamptz', nullable: true })
   last_updated_at: Date | null;
 

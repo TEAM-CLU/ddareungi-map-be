@@ -2,6 +2,36 @@
  * Stations 도메인 전용 인터페이스
  */
 
+/**
+ * GeoJSON 기본 구조
+ */
+export interface GeoJSONGeometry {
+  type: 'Point';
+  coordinates: [number, number]; // [경도, 위도]
+}
+
+export interface GeoJSONFeature {
+  type: 'Feature';
+  geometry: GeoJSONGeometry;
+  properties: {
+    id: string;
+    name: string;
+    number?: string;
+    total_racks: number;
+    current_adult_bikes: number;
+    status: 'available' | 'empty';
+    last_updated_at?: Date;
+  };
+}
+
+export interface GeoJSONFeatureCollection {
+  type: 'FeatureCollection';
+  features: GeoJSONFeature[];
+}
+
+/**
+ * 동기화 결과 인터페이스
+ */
 export interface SyncResult {
   created: number;
   updated: number;
@@ -12,6 +42,7 @@ export interface SyncResult {
 export interface RealtimeUpdateData {
   current_adult_bikes: number;
   total_racks: number;
+  status: 'available' | 'empty';
   last_updated_at: Date;
 }
 
@@ -33,4 +64,11 @@ export interface StationSyncDetail {
   stationName: string;
   action: 'created' | 'updated' | 'failed';
   error?: string;
+}
+
+export interface SyncStatusInfo {
+  latestSync: any;
+  lastSuccessSync: any;
+  needsSync: boolean;
+  isOverdue: boolean;
 }
