@@ -3,13 +3,16 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { User } from './entities/user.entity';
+import { UserStats } from './entities/user-stats.entity';
 import { UserService } from './user.service';
 import { UserController } from './user.controller';
+import { UserStatsController } from './user-stats.controller';
+import { UserStatsService } from './services/user-stats.service';
 import { AuthModule } from '../auth/auth.module'; // 추가
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User]), // User 엔터티 등록
+    TypeOrmModule.forFeature([User, UserStats]), // User, UserStats 엔터티 등록
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -20,8 +23,8 @@ import { AuthModule } from '../auth/auth.module'; // 추가
     }),
     AuthModule, // 추가
   ],
-  providers: [UserService],
-  controllers: [UserController],
-  exports: [UserService], // 필요 시 다른 모듈에서 사용 가능하도록 export
+  providers: [UserService, UserStatsService],
+  controllers: [UserController, UserStatsController],
+  exports: [UserService, UserStatsService], // 필요 시 다른 모듈에서 사용 가능하도록 export
 })
 export class UserModule {}
