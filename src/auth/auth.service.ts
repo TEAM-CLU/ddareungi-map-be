@@ -3,6 +3,7 @@ import {
   BadRequestException,
   UnauthorizedException,
   NotFoundException,
+  ConflictException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MailService } from '../mail/mail.service';
@@ -94,7 +95,7 @@ export class AuthService {
 
       return {
         message:
-          '인증 코드가 이메일로 발송되었습니다. 10분 내에 인증을 완료해주세요.',
+          '인증코드 발송완료. 10분내 인증 필요',
       };
     } catch (error) {
       // 이메일 발송 실패 시 저장된 인증 정보 삭제
@@ -203,11 +204,27 @@ export class AuthService {
       console.error('Debug: socialUid is null or undefined', naverProfile);
     }
 
-    // 1. 회원 존재 여부 확인
+    // 1. 회원 존재 여부 확인 (socialUid 기준)
     let user = await this.userRepository.findOne({ where: { socialUid } });
 
     if (!user) {
-      // 2. 회원가입 처리
+      // 2. 이메일 중복 확인 (소셜 로그인도 이메일 유니크 제약 준수)
+      const normalizedEmail = email ? email.toLowerCase() : null;
+      if (normalizedEmail) {
+        const existingEmailUser = await this.userRepository.findOne({ 
+          where: { email: normalizedEmail },
+          select: ['userId', 'socialName']
+        });
+        
+        if (existingEmailUser) {
+          throw new ConflictException({
+            statusCode: 409,
+            message: `이미 사용 중인 이메일입니다. (기존 계정: ${existingEmailUser.socialName || '일반 회원'})`,
+          });
+        }
+      }
+
+      // 3. 회원가입 처리
       const randomPassword = `naver${Math.random().toString(36).slice(-20)}`;
       const passwordHash = await bcrypt.hash(randomPassword, 10);
 
@@ -218,7 +235,7 @@ export class AuthService {
       user = this.userRepository.create({
         socialName: 'Naver',
         socialUid,
-        email,
+        email: normalizedEmail,
         name: nickname ? nickname : 'Naver User',
         gender,
         birthDate: formattedBirthDate
@@ -255,11 +272,27 @@ export class AuthService {
       console.error('Debug: socialUid is null or undefined', kakaoProfile);
     }
 
-    // 1. 회원 존재 여부 확인
+    // 1. 회원 존재 여부 확인 (socialUid 기준)
     let user = await this.userRepository.findOne({ where: { socialUid } });
 
     if (!user) {
-      // 2. 회원가입 처리
+      // 2. 이메일 중복 확인 (소셜 로그인도 이메일 유니크 제약 준수)
+      const normalizedEmail = email ? email.toLowerCase() : null;
+      if (normalizedEmail) {
+        const existingEmailUser = await this.userRepository.findOne({ 
+          where: { email: normalizedEmail },
+          select: ['userId', 'socialName']
+        });
+        
+        if (existingEmailUser) {
+          throw new ConflictException({
+            statusCode: 409,
+            message: `이미 사용 중인 이메일입니다. (기존 계정: ${existingEmailUser.socialName || '일반 회원'})`,
+          });
+        }
+      }
+
+      // 3. 회원가입 처리
       const randomPassword = `kakao${Math.random().toString(36).slice(-20)}`;
       const passwordHash = await bcrypt.hash(randomPassword, 10);
 
@@ -275,7 +308,7 @@ export class AuthService {
       user = this.userRepository.create({
         socialName: 'Kakao',
         socialUid,
-        email,
+        email: normalizedEmail,
         name: nickname ? nickname : 'Kakao User',
         gender: gender === 'male' ? 'M' : gender === 'female' ? 'F' : 'U',
         birthDate: formattedBirthDate
@@ -309,11 +342,27 @@ export class AuthService {
       console.error('Debug: socialUid is null or undefined', googleProfile);
     }
 
-    // 1. 회원 존재 여부 확인
+    // 1. 회원 존재 여부 확인 (socialUid 기준)
     let user = await this.userRepository.findOne({ where: { socialUid } });
 
     if (!user) {
-      // 2. 회원가입 처리
+      // 2. 이메일 중복 확인 (소셜 로그인도 이메일 유니크 제약 준수)
+      const normalizedEmail = email ? email.toLowerCase() : null;
+      if (normalizedEmail) {
+        const existingEmailUser = await this.userRepository.findOne({ 
+          where: { email: normalizedEmail },
+          select: ['userId', 'socialName']
+        });
+        
+        if (existingEmailUser) {
+          throw new ConflictException({
+            statusCode: 409,
+            message: `이미 사용 중인 이메일입니다. (기존 계정: ${existingEmailUser.socialName || '일반 회원'})`,
+          });
+        }
+      }
+
+      // 3. 회원가입 처리
       const randomPassword = `google${Math.random().toString(36).slice(-20)}`;
       const passwordHash = await bcrypt.hash(randomPassword, 10);
 
@@ -336,7 +385,7 @@ export class AuthService {
       user = this.userRepository.create({
         socialName: 'Google',
         socialUid,
-        email,
+        email: normalizedEmail,
         name: name ? name : 'Google User',
         gender: gender || 'U', // Unknown으로 기본값 설정
         birthDate: parsedBirthDate,
