@@ -62,7 +62,9 @@ export class SeoulApiService {
     additionalPath?: string,
   ): string {
     const apiKey = this.getApiKey();
-    const path = additionalPath ? `/${additionalPath}` : '';
+    const path = additionalPath
+      ? `/${additionalPath.replace(/^\/+/, '')}` // 시작 슬래시 제거
+      : '';
     return `${this.baseUrl}/${apiKey}/json/${serviceName}/${startIndex}/${endIndex}${path}`;
   }
 
@@ -279,7 +281,11 @@ export class SeoulApiService {
 
       return this.parseRealtimeApiResponse(response.data, stationId);
     } catch (error) {
-      this.logger.error(`실시간 정보 조회 실패 - ${stationId}:`, error);
+      this.logger.error(`실시간 정보 조회 실패 - ${stationId}:`, {
+        error: error instanceof Error ? error.message : String(error),
+        url: this.buildRealtimeApiUrl(stationId),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       return null; // 실시간 정보 조회 실패는 치명적이지 않음
     }
   }
@@ -293,7 +299,10 @@ export class SeoulApiService {
   ): SeoulBikeRealtimeInfo | null {
     // 응답 상태 확인
     if (!data?.rentBikeStatus) {
-      this.logger.warn(`실시간 대여 정보 응답 형식 오류: ${stationId}`);
+      this.logger.warn(
+        `실시간 대여 정보 응답 형식 오류: ${stationId}`,
+        JSON.stringify(data, null, 2),
+      );
       return null;
     }
 
@@ -303,13 +312,17 @@ export class SeoulApiService {
     if (rentBikeStatus.RESULT?.CODE !== this.successCode) {
       this.logger.warn(
         `실시간 대여 정보 API 오류 - ${stationId}: ${rentBikeStatus.RESULT?.MESSAGE}`,
+        JSON.stringify(rentBikeStatus, null, 2),
       );
       return null;
     }
 
     // 데이터 존재 확인
     if (!rentBikeStatus.row || rentBikeStatus.row.length === 0) {
-      this.logger.warn(`실시간 대여 정보 없음: ${stationId}`);
+      this.logger.warn(
+        `실시간 대여 정보 없음: ${stationId}`,
+        JSON.stringify(rentBikeStatus, null, 2),
+      );
       return null;
     }
 
@@ -350,5 +363,37 @@ export class SeoulApiService {
     );
 
     return realtimeInfoMap;
+  }
+
+  /**
+   * API 응답을 분석하여 대여소가 비활성화 상태인지 판단
+   * @param response 서울시 실시간 API 응답
+   * @returns 비활성화 여부
+   */
+  isStationInactive(response?: SeoulBikeRealtimeApiResponse): boolean {
+    if (!response?.rentBikeStatus) {
+      return true; // 응답 자체가 없으면 비활성화
+    }
+
+    const { rentBikeStatus } = response;
+
+    // API 결과 코드가 성공이 아닌 경우
+    if (rentBikeStatus.RESULT?.CODE !== this.successCode) {
+      return true;
+    }
+
+    // 데이터가 없는 경우
+    if (!rentBikeStatus.row || rentBikeStatus.row.length === 0) {
+      return true;
+    }
+
+    // 실제 데이터에서 대여소 운영 상태 확인
+    const _stationData = rentBikeStatus.row[0];
+
+    // 대여소가 운영 중단되었거나 특별한 상태 코드가 있는 경우 확인
+    // (서울시 API 응답 구조에 따라 추가 조건을 넣을 수 있음)
+    // 예: _stationData.stationStatus === 'CLOSED' 등
+
+    return false; // 기본적으로는 활성화 상태로 판단
   }
 }

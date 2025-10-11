@@ -16,13 +16,20 @@ export class Station {
     length: 50,
     comment: 'Seoul API Station ID (e.g., ST-3060)',
   })
-  station_id: string;
+  id: string;
 
-  @Column({ type: 'varchar', length: 255 })
-  station_name: string;
+  @Column({
+    type: 'varchar',
+    length: 255,
+  })
+  name: string;
 
-  @Column({ type: 'varchar', length: 20, nullable: true })
-  station_number: string | null; // RENT_NO
+  @Column({
+    type: 'varchar',
+    length: 20,
+    nullable: true,
+  })
+  number: string | null; // RENT_NO
 
   @Column({ type: 'varchar', length: 100, nullable: true })
   district: string | null; // STA_LOC
@@ -45,11 +52,12 @@ export class Station {
 
   @Column({
     type: 'enum',
-    enum: ['available', 'empty'],
+    enum: ['available', 'empty', 'inactive'],
     default: 'available',
-    comment: 'Station availability status based on bike count',
+    comment:
+      'Station availability status: available(자전거 있음), empty(빈 대여소), inactive(사용불가)',
   })
-  status: 'available' | 'empty';
+  status: 'available' | 'empty' | 'inactive';
 
   @Column({ type: 'timestamptz', nullable: true })
   last_updated_at: Date | null;

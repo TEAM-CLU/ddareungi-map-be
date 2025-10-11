@@ -17,10 +17,15 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { StationsService } from './services/stations.service';
-import { CreateStationDto, StationResponseDto } from './dto/station.dto';
+import { StationSyncService } from './services/station-sync.service';
+import { StationQueryService } from './services/station-query.service';
+import { StationManagementService } from './services/station-management.service';
+import { StationRealtimeService } from './services/station-realtime.service';
+import { StationResponseDto } from './dto/station.dto';
+import { CreateStationDto } from './dto/station-api.dto';
 import {
   DeleteAllResult,
-  GeoJSONFeatureCollection,
+  GeoJsonResponse,
 } from './interfaces/station.interfaces';
 import { Logger } from '@nestjs/common';
 import {
@@ -33,7 +38,13 @@ import {
 export class StationsController {
   private readonly logger = new Logger(StationsController.name);
 
-  constructor(private readonly stationsService: StationsService) {}
+  constructor(
+    private readonly stationsService: StationsService, // 애플리케이션 생명주기용
+    private readonly stationSyncService: StationSyncService,
+    private readonly stationQueryService: StationQueryService,
+    private readonly stationManagementService: StationManagementService,
+    private readonly stationRealtimeService: StationRealtimeService,
+  ) {}
 
   @Post('sync')
   @ApiOperation({
@@ -54,7 +65,7 @@ export class StationsController {
   async syncStations(): Promise<SuccessResponseDto<null>> {
     try {
       this.logger.log('수동 대여소 동기화 요청 받음');
-      await this.stationsService.handleWeeklySync();
+      await this.stationSyncService.handleWeeklySync();
 
       return SuccessResponseDto.create(
         '대여소 동기화가 성공적으로 완료되었습니다.',
@@ -110,7 +121,9 @@ export class StationsController {
       if (stationId) {
         // 특정 대여소만 동기화
         const realtimeInfo =
-          await this.stationsService.syncSingleStationRealtimeInfo(stationId);
+          await this.stationRealtimeService.syncSingleStationRealtimeInfo(
+            stationId,
+          );
 
         if (!realtimeInfo) {
           throw new HttpException(
@@ -128,7 +141,8 @@ export class StationsController {
         );
       } else {
         // 전체 대여소 동기화 (개발/테스트 용도)
-        const result = await this.stationsService.syncAllStationsRealtimeInfo();
+        const result =
+          await this.stationRealtimeService.syncAllStationsRealtimeInfo();
 
         return SuccessResponseDto.create(
           `실시간 대여정보 동기화가 완료되었습니다. (성공: ${result.successCount}개, 실패: ${result.failureCount}개)`,
@@ -195,18 +209,37 @@ export class StationsController {
     @Query('latitude') latitude: number,
     @Query('longitude') longitude: number,
     @Query('format') format: 'json' | 'geojson' = 'json',
-  ): Promise<
-    SuccessResponseDto<StationResponseDto[] | GeoJSONFeatureCollection>
-  > {
+  ): Promise<SuccessResponseDto<StationResponseDto[] | GeoJsonResponse>> {
     try {
       const lat = Number(latitude);
       const lng = Number(longitude);
 
-      const stations = await this.stationsService.findNearbyStations(lat, lng);
+      // 좌표 유효성 검증
+      if (
+        isNaN(lat) ||
+        isNaN(lng) ||
+        lat < -90 ||
+        lat > 90 ||
+        lng < -180 ||
+        lng > 180
+      ) {
+        throw new HttpException(
+          ErrorResponseDto.create(
+            HttpStatus.BAD_REQUEST,
+            '유효하지 않은 좌표입니다. latitude는 -90~90, longitude는 -180~180 범위여야 합니다.',
+          ),
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      const stations = await this.stationQueryService.findNearbyStations(
+        lat,
+        lng,
+      );
 
       if (format === 'geojson') {
         const geoJsonData =
-          this.stationsService.convertStationsToGeoJSON(stations);
+          this.stationQueryService.convertStationsToGeoJSON(stations);
         return SuccessResponseDto.create(
           'GeoJSON 형태로 가장 가까운 대여소 3개를 성공적으로 조회했습니다.',
           geoJsonData,
@@ -275,14 +308,12 @@ export class StationsController {
     description: '서버 내부 오류',
     type: ErrorResponseDto,
   })
-  async findStationsInMapArea(
+  async getStationsWithinRadius(
     @Query('latitude') latitude: number,
     @Query('longitude') longitude: number,
     @Query('radius') radius: number,
     @Query('format') format: 'json' | 'geojson' = 'json',
-  ): Promise<
-    SuccessResponseDto<StationResponseDto[] | GeoJSONFeatureCollection>
-  > {
+  ): Promise<SuccessResponseDto<StationResponseDto[] | GeoJsonResponse>> {
     try {
       // 입력값 검증
       const lat = Number(latitude);
@@ -319,7 +350,7 @@ export class StationsController {
         );
       }
 
-      const stations = await this.stationsService.findStationsInMapArea(
+      const stations = await this.stationQueryService.findStationsInMapArea(
         lat,
         lng,
         searchRadius,
@@ -327,7 +358,7 @@ export class StationsController {
 
       if (format === 'geojson') {
         const geoJsonData =
-          this.stationsService.convertStationsToGeoJSON(stations);
+          this.stationQueryService.convertStationsToGeoJSON(stations);
         return SuccessResponseDto.create(
           `GeoJSON 형태로 지도 영역 내 대여소 ${stations.length}개를 성공적으로 조회했습니다.`,
           geoJsonData,
@@ -379,15 +410,13 @@ export class StationsController {
   })
   async findAll(
     @Query('format') format: 'json' | 'geojson' = 'json',
-  ): Promise<
-    SuccessResponseDto<StationResponseDto[] | GeoJSONFeatureCollection>
-  > {
+  ): Promise<SuccessResponseDto<StationResponseDto[] | GeoJsonResponse>> {
     try {
-      const stations = await this.stationsService.findAll();
+      const stations = await this.stationQueryService.findAll();
 
       if (format === 'geojson') {
         const geoJsonData =
-          this.stationsService.convertStationsToGeoJSON(stations);
+          this.stationQueryService.convertStationsToGeoJSON(stations);
         return SuccessResponseDto.create(
           'GeoJSON 형태로 모든 대여소를 성공적으로 조회했습니다.',
           geoJsonData,
@@ -439,7 +468,7 @@ export class StationsController {
     @Param('id') id: string,
   ): Promise<SuccessResponseDto<StationResponseDto>> {
     try {
-      const station = await this.stationsService.findOne(id);
+      const station = await this.stationQueryService.findOne(id);
 
       if (!station) {
         throw new HttpException(
@@ -496,7 +525,8 @@ export class StationsController {
     @Body() createStationDto: CreateStationDto,
   ): Promise<SuccessResponseDto<StationResponseDto>> {
     try {
-      const station = await this.stationsService.create(createStationDto);
+      const station =
+        await this.stationManagementService.create(createStationDto);
 
       return {
         statusCode: HttpStatus.CREATED,
@@ -511,54 +541,6 @@ export class StationsController {
           '대여소 생성에 실패했습니다.',
         ),
         HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  @Delete(':id')
-  @ApiOperation({
-    summary: '대여소 삭제',
-    description: '지정된 대여소를 영구적으로 삭제합니다.',
-  })
-  @ApiParam({
-    name: 'id',
-    description: '대여소 ID',
-    example: 'ST-1001',
-    type: String,
-  })
-  @ApiResponse({
-    status: 200,
-    description: '대여소 삭제 성공',
-    type: SuccessResponseDto,
-  })
-  @ApiResponse({
-    status: 404,
-    description: '대여소를 찾을 수 없습니다.',
-    type: ErrorResponseDto,
-  })
-  @ApiResponse({
-    status: 500,
-    description: '서버 내부 오류',
-    type: ErrorResponseDto,
-  })
-  async remove(@Param('id') id: string): Promise<SuccessResponseDto<null>> {
-    try {
-      await this.stationsService.remove(id);
-
-      return SuccessResponseDto.create(
-        '대여소가 성공적으로 삭제되었습니다.',
-        null,
-      );
-    } catch (error) {
-      this.logger.error(`대여소 ID ${id} 삭제 실패:`, error);
-      throw new HttpException(
-        ErrorResponseDto.create(
-          HttpStatus.NOT_FOUND,
-          error instanceof Error
-            ? error.message
-            : '대여소 삭제에 실패했습니다.',
-        ),
-        HttpStatus.NOT_FOUND,
       );
     }
   }
@@ -596,7 +578,7 @@ export class StationsController {
     try {
       this.logger.warn('🚨 전체 대여소 삭제 API 호출됨');
 
-      const result = await this.stationsService.removeAll(confirmKey);
+      const result = await this.stationManagementService.removeAll(confirmKey);
 
       return SuccessResponseDto.create(
         `모든 대여소가 성공적으로 삭제되었습니다. (${result.deletedCount}개 삭제됨)`,
@@ -617,7 +599,65 @@ export class StationsController {
           HttpStatus.INTERNAL_SERVER_ERROR,
           error instanceof Error
             ? error.message
-            : '전체 대여소 삭제에 실패했습니다.',
+            : '전체 대여소 삭제 중 내부 오류가 발생했습니다.',
+        ),
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Delete(':id')
+  @ApiOperation({
+    summary: '대여소 삭제',
+    description: '지정된 대여소를 영구적으로 삭제합니다.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: '대여소 ID',
+    example: 'ST-1001',
+    type: String,
+  })
+  @ApiResponse({
+    status: 200,
+    description: '대여소 삭제 성공',
+    type: SuccessResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: '대여소를 찾을 수 없습니다.',
+    type: ErrorResponseDto,
+  })
+  @ApiResponse({
+    status: 500,
+    description: '서버 내부 오류',
+    type: ErrorResponseDto,
+  })
+  async remove(@Param('id') id: string): Promise<SuccessResponseDto<null>> {
+    try {
+      await this.stationManagementService.remove(id);
+
+      return SuccessResponseDto.create(
+        '대여소가 성공적으로 삭제되었습니다.',
+        null,
+      );
+    } catch (error) {
+      this.logger.error(`대여소 ID ${id} 삭제 실패:`, error);
+
+      // 404: 대여소를 찾을 수 없는 경우
+      if (error instanceof Error && error.message.includes('찾을 수 없')) {
+        throw new HttpException(
+          ErrorResponseDto.create(HttpStatus.NOT_FOUND, error.message),
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      // 500: 기타 내부 서버 오류
+      throw new HttpException(
+        ErrorResponseDto.create(
+          HttpStatus.INTERNAL_SERVER_ERROR,
+          error instanceof Error
+            ? error.message
+            : '대여소 삭제 중 내부 오류가 발생했습니다.',
         ),
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
@@ -641,7 +681,7 @@ export class StationsController {
   })
   async getSyncStatus(): Promise<SuccessResponseDto<object>> {
     try {
-      const status = await this.stationsService.getSyncStatus();
+      const status = await this.stationSyncService.getSyncStatus();
       return SuccessResponseDto.create('동기화 상태 조회 성공', status);
     } catch (error) {
       this.logger.error('동기화 상태 조회 실패:', error);

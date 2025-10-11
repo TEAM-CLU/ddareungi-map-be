@@ -2,16 +2,14 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Station } from '../entities/station.entity';
+import { StationResponseDto } from '../dto/station.dto';
 import {
-  StationResponseDto,
+  GeoJsonResponse,
+  GeoJsonFeature,
   StationRawQueryResult,
-  mapRawQueryToStationResponse,
-} from '../dto/station.dto';
-import {
-  GeoJSONFeatureCollection,
-  GeoJSONFeature,
 } from '../interfaces/station.interfaces';
 import { StationRealtimeService } from './station-realtime.service';
+import { StationMapperService } from './station-mapper.service';
 
 // 상수 정의
 const QUERY_CONSTANTS = {
@@ -24,6 +22,7 @@ export class StationQueryService {
     @InjectRepository(Station)
     private readonly stationRepository: Repository<Station>,
     private readonly stationRealtimeService: StationRealtimeService,
+    private readonly stationMapperService: StationMapperService,
   ) {}
 
   /**
@@ -33,15 +32,17 @@ export class StationQueryService {
     return this.stationRepository
       .createQueryBuilder('station')
       .select([
-        'station.station_id as id',
-        'station.station_name as name',
-        'station.station_number as number',
-        'station.total_racks as total_racks',
-        'station.current_adult_bikes as current_adult_bikes',
-        'station.status as status',
-        'station.last_updated_at as last_updated_at',
-        'ST_X(station.location::geometry) as longitude',
+        'station.id as id',
+        'station.name as name',
+        'station.number as number',
+        'station.district',
+        'station.address',
+        'station.total_racks',
+        'station.current_adult_bikes',
+        'station.status',
+        'station.last_updated_at',
         'ST_Y(station.location::geometry) as latitude',
+        'ST_X(station.location::geometry) as longitude',
       ]);
   }
 
@@ -56,13 +57,16 @@ export class StationQueryService {
       .addSelect(
         'ST_Distance(station.location, ST_MakePoint(:longitude, :latitude)::geography) as distance',
       )
+      .where('station.status != :inactiveStatus', {
+        inactiveStatus: 'inactive',
+      })
       .setParameters({ longitude, latitude })
       .orderBy('distance', 'ASC')
       .limit(QUERY_CONSTANTS.NEARBY_STATIONS_LIMIT);
 
     const rawResults = await query.getRawMany();
     const stationResults = rawResults.map((row: StationRawQueryResult) =>
-      mapRawQueryToStationResponse(row),
+      this.stationMapperService.mapRawQueryToResponse(row),
     );
 
     // 실시간 대여정보 동기화
@@ -80,7 +84,7 @@ export class StationQueryService {
     const stations = await this.createBaseStationQuery().getRawMany();
 
     return stations.map((row: StationRawQueryResult) =>
-      mapRawQueryToStationResponse(row),
+      this.stationMapperService.mapRawQueryToResponse(row),
     );
   }
 
@@ -89,14 +93,14 @@ export class StationQueryService {
    */
   async findOne(stationId: string): Promise<StationResponseDto | null> {
     const result = (await this.createBaseStationQuery()
-      .where('station.station_id = :stationId', { stationId })
+      .where('station.id = :stationId', { stationId })
       .getRawOne()) as StationRawQueryResult | null;
 
     if (!result) {
       return null;
     }
 
-    return mapRawQueryToStationResponse(result);
+    return this.stationMapperService.mapRawQueryToResponse(result);
   }
 
   /**
@@ -109,11 +113,14 @@ export class StationQueryService {
   ): Promise<StationResponseDto[]> {
     const query = this.createBaseStationQuery()
       .addSelect(
-        'ST_Distance(station.location, ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)) as distance',
+        'ST_Distance(station.location, ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)::geography) as distance',
       )
       .where(
-        'ST_DWithin(station.location, ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326), :radius)',
+        'ST_DWithin(station.location, ST_SetSRID(ST_MakePoint(:longitude, :latitude), 4326)::geography, :radius)',
       )
+      .andWhere('station.status != :inactiveStatus', {
+        inactiveStatus: 'inactive',
+      })
       .orderBy('distance', 'ASC')
       .setParameters({
         latitude,
@@ -123,7 +130,7 @@ export class StationQueryService {
 
     const rawResults = await query.getRawMany();
     const stationResults = rawResults.map((row: StationRawQueryResult) =>
-      mapRawQueryToStationResponse(row),
+      this.stationMapperService.mapRawQueryToResponse(row),
     );
 
     // 실시간 대여정보 동기화
@@ -137,12 +144,10 @@ export class StationQueryService {
   /**
    * StationResponseDto 배열을 GeoJSON FeatureCollection으로 변환
    */
-  convertStationsToGeoJSON(
-    stations: StationResponseDto[],
-  ): GeoJSONFeatureCollection {
+  convertStationsToGeoJSON(stations: StationResponseDto[]): GeoJsonResponse {
     return {
       type: 'FeatureCollection',
-      features: stations.map((station): GeoJSONFeature => {
+      features: stations.map((station): GeoJsonFeature => {
         return {
           type: 'Feature',
           geometry: {
@@ -152,11 +157,10 @@ export class StationQueryService {
           properties: {
             id: station.id,
             name: station.name,
-            number: station.number || undefined,
             total_racks: station.total_racks,
             current_adult_bikes: station.current_adult_bikes,
             status: station.status,
-            last_updated_at: station.last_updated_at || undefined,
+            last_updated_at: station.last_updated_at?.toISOString() || null,
           },
         };
       }),

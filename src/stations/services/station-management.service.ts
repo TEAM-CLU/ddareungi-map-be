@@ -1,9 +1,17 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  ForbiddenException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Station } from '../entities/station.entity';
-import { CreateStationDto, StationResponseDto } from '../dto/station.dto';
+import { StationResponseDto } from '../dto/station.dto';
+import { CreateStationDto } from '../dto/station-api.dto';
 import { DeleteAllResult } from '../interfaces/station.interfaces';
+import { StationDomainService } from './station-domain.service';
 import type { Point } from 'geojson';
 
 // 상수 정의
@@ -18,6 +26,7 @@ export class StationManagementService {
   constructor(
     @InjectRepository(Station)
     private readonly stationRepository: Repository<Station>,
+    private readonly stationDomainService: StationDomainService,
   ) {}
 
   /**
@@ -31,15 +40,24 @@ export class StationManagementService {
       coordinates: [createStationDto.longitude, createStationDto.latitude],
     };
 
+    // 자전거 수를 기반으로 상태 계산
+    const currentBikes = createStationDto.current_adult_bikes || 0;
+    const totalRacks = createStationDto.total_racks || 0;
+    const calculatedStatus = this.stationDomainService.calculateStationStatus(
+      currentBikes,
+      totalRacks,
+      true,
+    );
+
     const station = this.stationRepository.create({
-      station_id: createStationDto.id,
-      station_name: createStationDto.name,
-      station_number: createStationDto.number,
+      id: createStationDto.id,
+      name: createStationDto.name,
+      number: createStationDto.number,
       district: createStationDto.district,
       address: createStationDto.address,
       total_racks: createStationDto.total_racks,
-      current_adult_bikes: createStationDto.current_adult_bikes || 0,
-      status: 'empty',
+      current_adult_bikes: currentBikes,
+      status: calculatedStatus,
       location,
       last_updated_at: new Date(),
     });
@@ -47,9 +65,9 @@ export class StationManagementService {
     const savedStation = await this.stationRepository.save(station);
 
     return {
-      id: savedStation.station_id,
-      name: savedStation.station_name,
-      number: savedStation.station_number,
+      id: savedStation.id,
+      name: savedStation.name,
+      number: savedStation.number,
       latitude: savedStation.location.coordinates[1],
       longitude: savedStation.location.coordinates[0],
       total_racks: savedStation.total_racks,
@@ -64,11 +82,11 @@ export class StationManagementService {
    */
   async remove(stationId: string): Promise<void> {
     const result = await this.stationRepository.delete({
-      station_id: stationId,
+      id: stationId,
     });
 
     if (result.affected === 0) {
-      throw new Error(`대여소 ID ${stationId}를 찾을 수 없습니다.`);
+      throw new NotFoundException(`대여소 ID ${stationId}를 찾을 수 없습니다.`);
     }
   }
 
@@ -78,7 +96,9 @@ export class StationManagementService {
   async removeAll(confirmKey: string): Promise<DeleteAllResult> {
     // 안전 확인 키 검증
     if (confirmKey !== MANAGEMENT_CONSTANTS.DELETE_CONFIRM_KEY) {
-      throw new Error('잘못된 확인 키입니다. 전체 삭제 작업이 취소되었습니다.');
+      throw new ForbiddenException(
+        '잘못된 확인 키입니다. 전체 삭제 작업이 취소되었습니다.',
+      );
     }
 
     this.logger.warn('🚨 전체 대여소 삭제 작업 시작');
@@ -90,7 +110,12 @@ export class StationManagementService {
 
       if (currentCount === 0) {
         this.logger.log('삭제할 대여소가 없습니다.');
-        return { deletedCount: 0 };
+        return {
+          deleted: 0,
+          deletedCount: 0,
+          success: true,
+          message: '삭제할 대여소가 없습니다.',
+        };
       }
 
       // 모든 대여소 삭제
@@ -98,10 +123,17 @@ export class StationManagementService {
 
       this.logger.warn(`✅ 전체 대여소 삭제 완료: ${currentCount}개 삭제됨`);
 
-      return { deletedCount: currentCount };
+      return {
+        deleted: currentCount,
+        deletedCount: currentCount,
+        success: true,
+        message: `모든 대여소가 성공적으로 삭제되었습니다. (${currentCount}개 삭제됨)`,
+      };
     } catch (error) {
       this.logger.error('전체 대여소 삭제 실패:', error);
-      throw new Error('전체 대여소 삭제 중 오류가 발생했습니다.');
+      throw new InternalServerErrorException(
+        '전체 대여소 삭제 중 오류가 발생했습니다.',
+      );
     }
   }
 }

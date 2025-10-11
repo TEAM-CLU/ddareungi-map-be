@@ -1,37 +1,82 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNumber, IsOptional, IsDateString } from 'class-validator';
+import { CreateStationDto } from './station-api.dto';
+import type { StationRawQueryResult } from '../interfaces/station.interfaces';
 
-// TypeORM Raw Query 결과 타입 정의 (외부 ID 통합)
-export interface StationRawQueryResult {
-  station_id: string;
-  station_name: string;
-  station_number: string | null;
-  district: string | null;
-  address: string | null;
-  total_racks: number;
-  current_adult_bikes: number;
-  status: 'available' | 'empty';
-  last_updated_at: Date | null;
-  latitude: string; // PostGIS ST_Y 결과는 string으로 반환
-  longitude: string; // PostGIS ST_X 결과는 string으로 반환
-  distance?: string; // 거리 계산 시 추가되는 필드
+// 서울시 API 응답을 DTO로 변환
+export function mapSeoulStationToDto(
+  seoulStation: SeoulBikeStationInfo,
+): CreateStationDto {
+  // 좌표 파싱 및 검증
+  const latitude = parseFloat(seoulStation.STA_LAT);
+  const longitude = parseFloat(seoulStation.STA_LONG);
+
+  if (isNaN(latitude) || isNaN(longitude)) {
+    throw new Error(
+      `서울시 API 응답에서 유효하지 않은 좌표: lat=${seoulStation.STA_LAT}, lng=${seoulStation.STA_LONG}`,
+    );
+  }
+
+  // 정수 파싱 및 검증
+  const totalRacks = parseInt(seoulStation.HOLD_NUM, 10);
+  if (isNaN(totalRacks)) {
+    throw new Error(
+      `서울시 API 응답에서 유효하지 않은 거치대 수: ${seoulStation.HOLD_NUM}`,
+    );
+  }
+
+  return {
+    id: seoulStation.RENT_ID,
+    name: seoulStation.RENT_NM,
+    number: seoulStation.RENT_NO,
+    district: seoulStation.STA_LOC,
+    address: `${seoulStation.STA_ADD1} ${seoulStation.STA_ADD2}`.trim(),
+    latitude,
+    longitude,
+    total_racks: totalRacks,
+    current_adult_bikes: 0, // API에서 제공하지 않는 정보
+  };
 }
 
 // 유틸리티 함수: Raw Query 결과를 StationResponseDto로 변환
 export function mapRawQueryToStationResponse(
   raw: StationRawQueryResult,
 ): StationResponseDto {
-  return {
-    id: raw.station_id,
-    name: raw.station_name,
-    number: raw.station_number,
-    latitude: parseFloat(raw.latitude),
-    longitude: parseFloat(raw.longitude),
+  // 좌표 파싱 시 NaN 방지
+  const latitude = parseFloat(raw.latitude);
+  const longitude = parseFloat(raw.longitude);
+
+  if (isNaN(latitude) || isNaN(longitude)) {
+    throw new Error(
+      `유효하지 않은 좌표 데이터: lat=${raw.latitude}, lng=${raw.longitude}`,
+    );
+  }
+
+  // 필수 필드 검증
+  if (!raw.id || !raw.name) {
+    throw new Error('필수 필드(id, name)가 누락되었습니다.');
+  }
+
+  const result: StationResponseDto & { distance?: number } = {
+    id: raw.id,
+    name: raw.name,
+    number: raw.number || null,
+    latitude,
+    longitude,
     total_racks: raw.total_racks,
     current_adult_bikes: raw.current_adult_bikes,
     status: raw.status,
     last_updated_at: raw.last_updated_at,
   };
+
+  // distance 필드가 있으면 추가 (거리 기반 조회 시)
+  if (raw.distance !== undefined) {
+    const distance = parseFloat(raw.distance);
+    if (!isNaN(distance)) {
+      result.distance = distance;
+    }
+  }
+
+  return result;
 }
 
 // 서울시 API 기본 응답 구조
@@ -190,10 +235,10 @@ export class StationResponseDto {
 
   @ApiProperty({
     description: '대여소 상태 (자전거 보유 여부 기준)',
-    enum: ['available', 'empty'],
+    enum: ['available', 'empty', 'inactive'],
     example: 'available',
   })
-  status: 'available' | 'empty';
+  status: 'available' | 'empty' | 'inactive';
 
   @ApiProperty({
     description: '마지막 업데이트 시간',
@@ -203,100 +248,6 @@ export class StationResponseDto {
   })
   last_updated_at: Date | null;
 }
-
-// 대여소 생성/업데이트 DTO
-export class CreateStationDto {
-  @ApiProperty({
-    description: '대여소 ID',
-    example: 'ST-1001',
-  })
-  @IsString()
-  id: string;
-
-  @ApiProperty({
-    description: '대여소명',
-    example: '여의도공원 대여소',
-  })
-  @IsString()
-  name: string;
-
-  @ApiProperty({
-    description: '대여소번호',
-    required: false,
-    example: '101',
-  })
-  @IsOptional()
-  @IsString()
-  number?: string;
-
-  @ApiProperty({
-    description: '구/동 정보',
-    required: false,
-    example: '영등포구',
-  })
-  @IsOptional()
-  @IsString()
-  district?: string;
-
-  @ApiProperty({
-    description: '주소',
-    required: false,
-    example: '서울시 영등포구 여의도동 88-3',
-  })
-  @IsOptional()
-  @IsString()
-  address?: string;
-
-  @ApiProperty({
-    description: '위도 (WGS84)',
-    example: 37.5273,
-    minimum: -90,
-    maximum: 90,
-  })
-  @IsNumber()
-  latitude: number;
-
-  @ApiProperty({
-    description: '경도 (WGS84)',
-    example: 126.9247,
-    minimum: -180,
-    maximum: 180,
-  })
-  @IsNumber()
-  longitude: number;
-
-  @ApiProperty({
-    description: '총 거치대 수',
-    example: 20,
-    minimum: 0,
-  })
-  @IsNumber()
-  total_racks: number;
-
-  @ApiProperty({
-    description: '현재 이용 가능한 자전거 수',
-    required: false,
-    example: 15,
-    minimum: 0,
-    default: 0,
-  })
-  @IsOptional()
-  @IsNumber()
-  current_adult_bikes?: number;
-
-  @ApiProperty({
-    description: '마지막 업데이트 시간',
-    required: false,
-    example: '2024-10-07T12:00:00Z',
-  })
-  @IsOptional()
-  @IsDateString()
-  last_updated_at?: Date;
-}
-
-// ===========================================
-// 유틸리티 함수들
-// ===========================================
 
 /**
  * 서울시 API 응답이 성공 응답인지 확인하는 타입 가드
