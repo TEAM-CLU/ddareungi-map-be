@@ -21,8 +21,9 @@ export class UserService {
     private readonly jwtService: JwtService, // JwtService 주입
   ) {}
 
-  async register(createUserDto: CreateUserDto): Promise<User> {
+  async register(createUserDto: CreateUserDto): Promise<{ message: string }> {
     const { email, password, socialUid } = createUserDto;
+    const normalizedEmail = email.toLowerCase(); // 이메일 정규화
 
     // 이메일 유효성 검사
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -41,21 +42,30 @@ export class UserService {
       }, 400);
     }
 
-    // 중복 이메일 검사
-    const existingUser = await this.userRepository.findOne({ where: { email } });
+    // 중복 이메일 검사 (정규화된 이메일 사용)
+    const existingUser = await this.userRepository.findOne({ 
+      where: { email: normalizedEmail },
+      select: ['userId']
+    });
     if (existingUser) {
-      throw new HttpException({
+      throw new ConflictException({
         statusCode: 409,
         message: '이미 사용 중인 이메일입니다.',
-      }, 409);
+      });
     }
 
     // 비밀번호 해싱
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = this.userRepository.create({ ...createUserDto, passwordHash: hashedPassword, socialName: 'SocialUser' });
+    const user = this.userRepository.create({ 
+      ...createUserDto, 
+      email: normalizedEmail, // 정규화된 이메일 저장
+      passwordHash: hashedPassword, 
+      socialName: 'SocialUser' 
+    });
 
     try {
-      return await this.userRepository.save(user);
+      await this.userRepository.save(user);
+      return { message: '회원가입이 완료되었습니다.' };
     } catch (error) {
       throw new HttpException({
         statusCode: 400,
@@ -66,9 +76,10 @@ export class UserService {
 
   async login(loginUserDto: LoginUserDto): Promise<{ accessToken: string }> {
     const { email, password } = loginUserDto;
+    const normalizedEmail = email.toLowerCase(); // 이메일 정규화
 
-    // 이메일로 사용자 찾기
-    const user = await this.userRepository.findOne({ where: { email } });
+    // 이메일로 사용자 찾기 (정규화된 이메일 사용)
+    const user = await this.userRepository.findOne({ where: { email: normalizedEmail } });
     if (!user) {
       throw new UnauthorizedException({
         statusCode: 401,
