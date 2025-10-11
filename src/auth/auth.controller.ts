@@ -416,11 +416,6 @@ export class AuthController {
     schema: {
       example: {
         accessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
-        user: {
-          id: 'google123',
-          name: '사용자',
-          email: 'user@example.com'
-        },
         message: '토큰 교환 성공'
       }
     }
@@ -446,7 +441,6 @@ export class AuthController {
     
     return {
       accessToken: result.accessToken,
-      user: result.user,
       message: '토큰 교환 성공'
     };
   }

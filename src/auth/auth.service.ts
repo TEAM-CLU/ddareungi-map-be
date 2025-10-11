@@ -816,7 +816,7 @@ export class AuthService {
   // 🔐 codeVerifier 검증으로 토큰 반환
   async exchangeTokenWithCodeVerifier(
     codeVerifier: string,
-  ): Promise<{ accessToken: string; user: any }> {
+  ): Promise<{ accessToken: string}> {
     try {
       // 모든 state를 순회하여 일치하는 codeVerifier 찾기
       let matchingState: string | null = null;
@@ -848,8 +848,7 @@ export class AuthService {
 
       // 토큰 반환 데이터 저장
       const result = {
-        accessToken: matchingData.accessToken, // 우리 서비스 JWT 토큰
-        user: matchingData.user,
+        accessToken: matchingData.accessToken // 우리 서비스 JWT 토큰
       };
 
       // 성공적으로 토큰을 교환했으므로 state 삭제
