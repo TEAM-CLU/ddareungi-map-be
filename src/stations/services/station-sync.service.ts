@@ -210,7 +210,7 @@ export class StationSyncService {
       // 새로운 대여소 추가
       const newStation = this.stationRepository.create({
         ...stationData,
-        current_adult_bikes: 0, // 초기값
+        current_bikes: 0, // 초기값
         status: 'empty', // 초기 상태
       });
 

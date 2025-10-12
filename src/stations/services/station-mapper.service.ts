@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { StationResponseDto } from '../dto/station.dto';
-import { StationRawQueryResult } from '../interfaces/station.interfaces';
+import {
+  StationResponseDto,
+  NearbyStationResponseDto,
+} from '../dto/station-api.dto';
+import type { StationRawQueryResult } from '../interfaces/station.interfaces';
 import { StationDomainService } from './station-domain.service';
 
 /**
@@ -32,10 +35,11 @@ export class StationMapperService {
       id: raw.id,
       name: raw.name,
       number: raw.number || null,
+      address: raw.address,
       latitude,
       longitude,
       total_racks: raw.total_racks,
-      current_adult_bikes: raw.current_adult_bikes,
+      current_bikes: raw.current_bikes,
       status: raw.status,
       last_updated_at: raw.last_updated_at,
     };
@@ -48,5 +52,27 @@ export class StationMapperService {
     rawArray: StationRawQueryResult[],
   ): StationResponseDto[] {
     return rawArray.map((raw) => this.mapRawQueryToResponse(raw));
+  }
+
+  /**
+   * StationResponseDto를 NearbyStationResponseDto로 변환 (id, total_racks, status, last_updated_at 제외)
+   */
+  mapToNearbyResponse(station: StationResponseDto): NearbyStationResponseDto {
+    return {
+      name: station.name,
+      number: station.number,
+      latitude: station.latitude,
+      longitude: station.longitude,
+      current_bikes: station.current_bikes,
+    };
+  }
+
+  /**
+   * StationResponseDto 배열을 NearbyStationResponseDto 배열로 변환
+   */
+  mapToNearbyResponseArray(
+    stations: StationResponseDto[],
+  ): NearbyStationResponseDto[] {
+    return stations.map((station) => this.mapToNearbyResponse(station));
   }
 }

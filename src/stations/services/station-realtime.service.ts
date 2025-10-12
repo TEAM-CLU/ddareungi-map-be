@@ -3,7 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull, Not } from 'typeorm';
 import { Station } from '../entities/station.entity';
 import { SeoulApiService } from './seoul-api.service';
-import { StationResponseDto, SeoulBikeRealtimeInfo } from '../dto/station.dto';
+import { StationResponseDto } from '../dto/station-api.dto';
+import { SeoulBikeRealtimeInfo } from '../dto/station.dto';
 import { StationDomainService } from './station-domain.service';
 
 @Injectable()
@@ -58,7 +59,7 @@ export class StationRealtimeService {
             true,
           );
 
-        station.current_adult_bikes = currentBikes;
+        station.current_bikes = currentBikes;
         station.total_racks = totalRacks;
         station.status = calculatedStatus;
         station.last_updated_at = new Date();
@@ -82,10 +83,16 @@ export class StationRealtimeService {
   ): Partial<Station> {
     const currentBikes = parseInt(realtimeInfo.parkingBikeTotCnt) || 0;
     const totalRacks = parseInt(realtimeInfo.rackTotCnt) || 0;
+    const calculatedStatus = this.stationDomainService.calculateStationStatus(
+      currentBikes,
+      totalRacks,
+      true,
+    );
 
     return {
-      current_adult_bikes: currentBikes,
+      current_bikes: currentBikes,
       total_racks: totalRacks,
+      status: calculatedStatus,
       last_updated_at: new Date(),
     };
   }

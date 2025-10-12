@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Station } from '../entities/station.entity';
-import { StationResponseDto } from '../dto/station.dto';
+import { StationResponseDto } from '../dto/station-api.dto';
 import {
   GeoJsonResponse,
   GeoJsonFeature,
@@ -35,12 +35,12 @@ export class StationQueryService {
         'station.id as id',
         'station.name as name',
         'station.number as number',
-        'station.district',
-        'station.address',
-        'station.total_racks',
-        'station.current_adult_bikes',
-        'station.status',
-        'station.last_updated_at',
+        'station.district as district',
+        'station.address as address',
+        'station.total_racks as total_racks',
+        'station.current_bikes as current_bikes',
+        'station.status as status',
+        'station.last_updated_at as last_updated_at',
         'ST_Y(station.location::geometry) as latitude',
         'ST_X(station.location::geometry) as longitude',
       ]);
@@ -53,47 +53,95 @@ export class StationQueryService {
     latitude: number,
     longitude: number,
   ): Promise<StationResponseDto[]> {
-    const query = this.createBaseStationQuery()
-      .addSelect(
-        'ST_Distance(station.location, ST_MakePoint(:longitude, :latitude)::geography) as distance',
-      )
-      .where('station.status != :inactiveStatus', {
-        inactiveStatus: 'inactive',
-      })
-      .setParameters({ longitude, latitude })
-      .orderBy('distance', 'ASC')
-      .limit(QUERY_CONSTANTS.NEARBY_STATIONS_LIMIT);
+    const activeStations: StationResponseDto[] = [];
+    let searchLimit: number = QUERY_CONSTANTS.NEARBY_STATIONS_LIMIT;
+    const maxSearchLimit = 50; // 최대 검색 제한
+    const maxAttempts = 5; // 최대 시도 횟수
+    let attempts = 0;
 
-    const rawResults = await query.getRawMany();
-    const stationResults = rawResults.map((row: StationRawQueryResult) =>
-      this.stationMapperService.mapRawQueryToResponse(row),
-    );
+    while (
+      activeStations.length < QUERY_CONSTANTS.NEARBY_STATIONS_LIMIT &&
+      searchLimit <= maxSearchLimit &&
+      attempts < maxAttempts
+    ) {
+      const query = this.createBaseStationQuery()
+        .addSelect(
+          'ST_Distance(station.location, ST_MakePoint(:longitude, :latitude)::geography) as distance',
+        )
+        .where('station.status != :inactiveStatus', {
+          inactiveStatus: 'inactive',
+        })
+        .setParameters({ longitude, latitude })
+        .orderBy('distance', 'ASC')
+        .limit(searchLimit);
 
-    // 실시간 대여정보 동기화
-    await this.stationRealtimeService.syncRealtimeInfoForStations(
-      stationResults,
-    );
+      const rawResults = await query.getRawMany();
+      const stationResults = rawResults.map((row: StationRawQueryResult) =>
+        this.stationMapperService.mapRawQueryToResponse(row),
+      );
 
-    return stationResults;
+      // 실시간 대여정보 동기화
+      await this.stationRealtimeService.syncRealtimeInfoForStations(
+        stationResults,
+      );
+
+      // 실시간 업데이트 후 active 상태인 대여소만 필터링
+      const currentActiveStations = stationResults.filter(
+        (station) => station.status !== 'inactive',
+      );
+
+      // 이미 선택된 대여소 제외하고 새로운 active 대여소만 추가
+      const newActiveStations = currentActiveStations.filter(
+        (station) =>
+          !activeStations.some((existing) => existing.id === station.id),
+      );
+
+      activeStations.push(...newActiveStations);
+
+      // 원하는 개수만큼 찾았으면 종료
+      if (activeStations.length >= QUERY_CONSTANTS.NEARBY_STATIONS_LIMIT) {
+        break;
+      }
+
+      // 더 많은 대여소를 검색하기 위해 limit 증가
+      searchLimit = Math.min(searchLimit * 2, maxSearchLimit);
+      attempts++;
+    }
+
+    // 정확히 3개만 반환
+    return activeStations.slice(0, QUERY_CONSTANTS.NEARBY_STATIONS_LIMIT);
   }
 
   /**
    * 모든 대여소 조회
    */
   async findAll(): Promise<StationResponseDto[]> {
-    const stations = await this.createBaseStationQuery().getRawMany();
+    const rawResults = await this.createBaseStationQuery().getRawMany();
 
-    return stations.map((row: StationRawQueryResult) =>
+    return rawResults.map((row: StationRawQueryResult) =>
       this.stationMapperService.mapRawQueryToResponse(row),
     );
-  }
-
-  /**
+  } /**
    * 대여소 ID로 조회
    */
   async findOne(stationId: string): Promise<StationResponseDto | null> {
     const result = (await this.createBaseStationQuery()
       .where('station.id = :stationId', { stationId })
+      .getRawOne()) as StationRawQueryResult | null;
+
+    if (!result) {
+      return null;
+    }
+
+    return this.stationMapperService.mapRawQueryToResponse(result);
+  }
+
+  /**
+   * 대여소 번호로 조회
+   */
+  async findByNumber(number: string): Promise<StationResponseDto | null> {
+    const result = (await this.createBaseStationQuery()
+      .where('station.number = :number', { number })
       .getRawOne()) as StationRawQueryResult | null;
 
     if (!result) {
@@ -138,7 +186,12 @@ export class StationQueryService {
       stationResults,
     );
 
-    return stationResults;
+    // 실시간 업데이트 후 inactive 상태인 대여소 제거
+    const activeStations = stationResults.filter(
+      (station) => station.status !== 'inactive',
+    );
+
+    return activeStations;
   }
 
   /**
@@ -158,7 +211,7 @@ export class StationQueryService {
             id: station.id,
             name: station.name,
             total_racks: station.total_racks,
-            current_adult_bikes: station.current_adult_bikes,
+            current_bikes: station.current_bikes,
             status: station.status,
             last_updated_at: station.last_updated_at?.toISOString() || null,
           },

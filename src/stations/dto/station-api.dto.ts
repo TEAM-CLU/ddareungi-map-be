@@ -80,11 +80,11 @@ export class CreateStationDto {
   })
   @IsOptional()
   @IsNumber()
-  current_adult_bikes?: number;
+  current_bikes?: number;
 }
 
 /**
- * API 응답용 DTO
+ * API 응답용 DTO (전체 대여소 조회용)
  */
 export class StationResponseDto {
   @ApiProperty({
@@ -105,6 +105,22 @@ export class StationResponseDto {
     nullable: true,
   })
   number: string | null;
+
+  @ApiProperty({
+    description: '위치(구)',
+    example: '영등포구',
+    nullable: true,
+    required: false,
+  })
+  district?: string | null;
+
+  @ApiProperty({
+    description: '상세 주소',
+    example: '서울시 영등포구 여의동로 68',
+    nullable: true,
+    required: false,
+  })
+  address?: string | null;
 
   @ApiProperty({
     description: '위도',
@@ -128,7 +144,7 @@ export class StationResponseDto {
     description: '현재 자전거 수',
     example: 15,
   })
-  current_adult_bikes: number;
+  current_bikes: number;
 
   @ApiProperty({
     description: '대여소 상태',
@@ -143,4 +159,43 @@ export class StationResponseDto {
     nullable: true,
   })
   last_updated_at: Date | null;
+}
+
+/**
+ * 근처 대여소 및 지도 영역 조회용 응답 DTO (id, total_racks, status, last_updated_at 제외)
+ */
+export class NearbyStationResponseDto {
+  @ApiProperty({
+    description: '대여소 이름',
+    example: '신촌역 1번출구 앞',
+  })
+  name: string;
+
+  @ApiProperty({
+    description: '대여소 번호',
+    example: '05306',
+    required: false,
+    nullable: true,
+  })
+  number: string | null;
+
+  @ApiProperty({
+    description: '위도',
+    example: 37.5665,
+    type: Number,
+  })
+  latitude: number;
+
+  @ApiProperty({
+    description: '경도',
+    example: 126.978,
+    type: Number,
+  })
+  longitude: number;
+
+  @ApiProperty({
+    description: '현재 자전거 수',
+    example: 15,
+  })
+  current_bikes: number;
 }
