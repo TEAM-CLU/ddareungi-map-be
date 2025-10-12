@@ -8,7 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Station } from '../entities/station.entity';
-import { StationResponseDto } from '../dto/station.dto';
+import { StationResponseDto } from '../dto/station-api.dto';
 import { CreateStationDto } from '../dto/station-api.dto';
 import { DeleteAllResult } from '../interfaces/station.interfaces';
 import { StationDomainService } from './station-domain.service';
@@ -41,7 +41,7 @@ export class StationManagementService {
     };
 
     // 자전거 수를 기반으로 상태 계산
-    const currentBikes = createStationDto.current_adult_bikes || 0;
+    const currentBikes = createStationDto.current_bikes || 0;
     const totalRacks = createStationDto.total_racks || 0;
     const calculatedStatus = this.stationDomainService.calculateStationStatus(
       currentBikes,
@@ -56,7 +56,7 @@ export class StationManagementService {
       district: createStationDto.district,
       address: createStationDto.address,
       total_racks: createStationDto.total_racks,
-      current_adult_bikes: currentBikes,
+      current_bikes: currentBikes,
       status: calculatedStatus,
       location,
       last_updated_at: new Date(),
@@ -71,7 +71,7 @@ export class StationManagementService {
       latitude: savedStation.location.coordinates[1],
       longitude: savedStation.location.coordinates[0],
       total_racks: savedStation.total_racks,
-      current_adult_bikes: savedStation.current_adult_bikes,
+      current_bikes: savedStation.current_bikes,
       status: savedStation.status,
       last_updated_at: savedStation.last_updated_at,
     };

@@ -34,7 +34,7 @@ export interface StationBasicInfo {
 // 대여소 운영 정보
 export interface StationOperationInfo {
   total_racks: number;
-  current_adult_bikes: number;
+  current_bikes: number;
   status: StationStatus;
   last_updated_at: Date | null;
 }
@@ -57,17 +57,11 @@ export interface StationRawQueryResult {
   district?: string | null;
   address?: string | null;
   total_racks: number;
-  current_adult_bikes: number;
+  current_bikes: number;
   status: 'available' | 'empty' | 'inactive';
   last_updated_at: Date | null;
   latitude: string; // PostGIS ST_Y 결과는 string으로 반환
   longitude: string; // PostGIS ST_X 결과는 string으로 반환
-  distance?: string; // 거리 계산 시 추가되는 필드
-}
-
-// 쿼리 결과 타입
-export interface StationQueryResult extends StationInfo {
-  distance?: number;
 }
 
 // ============================================
@@ -85,7 +79,7 @@ export interface GeoJsonFeature {
     id: string;
     name: string;
     total_racks: number;
-    current_adult_bikes: number;
+    current_bikes: number;
     status: StationStatus;
     last_updated_at: string | null;
   };
@@ -111,7 +105,7 @@ export interface SyncResult {
 // 실시간 업데이트 데이터 인터페이스
 export interface RealtimeUpdateData {
   [key: string]: {
-    current_adult_bikes: number;
+    current_bikes: number;
     total_racks: number;
     last_updated_at: Date;
   };
