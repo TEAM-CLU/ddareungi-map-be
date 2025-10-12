@@ -5,13 +5,11 @@ import {
   SummaryDto,
   BoundingBoxDto,
   GeometryDto,
-  InstructionDto,
-  StationDto,
   BikeProfile,
 } from '../dto/route.dto';
 import { GraphHopperPath } from '../interfaces/graphhopper.interface';
 import { CategorizedPath } from './route-optimizer.service';
-import { MockStation } from './station-mock.service';
+import { RouteStation } from './station-route.service';
 
 @Injectable()
 export class RouteConverterService {
@@ -37,8 +35,8 @@ export class RouteConverterService {
     walkingToStart: GraphHopperPath,
     bikeRoute: GraphHopperPath,
     walkingFromEnd: GraphHopperPath,
-    startStation: MockStation,
-    endStation: MockStation,
+    startStation: RouteStation,
+    endStation: RouteStation,
     routeCategory?: string, // 옵셔널 카테고리 정보
   ): RouteDto {
     const segments: RouteSegmentDto[] = [
@@ -47,14 +45,12 @@ export class RouteConverterService {
         summary: this.convertToSummary(walkingToStart),
         bbox: this.convertToBoundingBox(walkingToStart.bbox),
         geometry: this.convertToGeometry(walkingToStart.points),
-        instructions: this.convertToInstructions(walkingToStart.instructions),
       },
       {
         type: 'biking',
         summary: this.convertToSummary(bikeRoute),
         bbox: this.convertToBoundingBox(bikeRoute.bbox),
         geometry: this.convertToGeometry(bikeRoute.points),
-        instructions: this.convertToInstructions(bikeRoute.instructions),
         profile: this.convertToBikeProfile(bikeRoute.profile), // 자전거 프로필 정보 추가
         startStation: {
           station_id: startStation.id,
@@ -76,7 +72,6 @@ export class RouteConverterService {
         summary: this.convertToSummary(walkingFromEnd),
         bbox: this.convertToBoundingBox(walkingFromEnd.bbox),
         geometry: this.convertToGeometry(walkingFromEnd.points),
-        instructions: this.convertToInstructions(walkingFromEnd.instructions),
       },
     ];
 
@@ -137,27 +132,6 @@ export class RouteConverterService {
   }
 
   /**
-   * GraphHopper instructions를 InstructionDto로 변환
-   */
-  convertToInstructions(
-    instructions: {
-      distance: number;
-      time: number;
-      text: string;
-      sign: number;
-      interval: [number, number];
-    }[],
-  ): InstructionDto[] {
-    return instructions.map((instruction) => ({
-      distance: Math.round(instruction.distance),
-      time: Math.round(instruction.time / 1000),
-      text: instruction.text,
-      sign: instruction.sign,
-      interval: instruction.interval,
-    }));
-  }
-
-  /**
    * 여러 BoundingBox의 전체 범위 계산
    */
   calculateOverallBoundingBox(bboxes: BoundingBoxDto[]): BoundingBoxDto {
@@ -212,24 +186,22 @@ export class RouteConverterService {
       summary: this.convertToSummary(path),
       bbox: this.convertToBoundingBox(path.bbox),
       geometry: this.convertToGeometry(path.points),
-      instructions: this.convertToInstructions(path.instructions),
     };
   }
 
   /**
    * 자전거 경로 세그먼트 생성 (대여소 정보 포함)
    */
-  buildBikingSegment(
+  createBikeSegmentWithStations(
     path: GraphHopperPath,
-    startStation?: MockStation,
-    endStation?: MockStation,
+    startStation?: RouteStation,
+    endStation?: RouteStation,
   ): RouteSegmentDto {
     const segment: RouteSegmentDto = {
       type: 'biking',
       summary: this.convertToSummary(path),
       bbox: this.convertToBoundingBox(path.bbox),
       geometry: this.convertToGeometry(path.points),
-      instructions: this.convertToInstructions(path.instructions),
       profile: this.convertToBikeProfile(path.profile), // GraphHopper 프로필을 enum으로 변환
     };
 
@@ -259,12 +231,12 @@ export class RouteConverterService {
   /**
    * 왕복 경로를 RouteDto로 변환 (4단계: 도보→자전거→자전거→도보)
    */
-  buildRoundTripRoute(
+  buildDirectRoundTripRoute(
     walkingToStation: GraphHopperPath,
     bikeToDestination: GraphHopperPath,
     bikeToStation: GraphHopperPath,
     walkingToStart: GraphHopperPath,
-    station: MockStation,
+    station: RouteStation,
     routeCategory?: string,
   ): RouteDto {
     const segments: RouteSegmentDto[] = [
@@ -273,16 +245,12 @@ export class RouteConverterService {
         summary: this.convertToSummary(walkingToStation),
         bbox: this.convertToBoundingBox(walkingToStation.bbox),
         geometry: this.convertToGeometry(walkingToStation.points),
-        instructions: this.convertToInstructions(walkingToStation.instructions),
       },
       {
         type: 'biking',
         summary: this.convertToSummary(bikeToDestination),
         bbox: this.convertToBoundingBox(bikeToDestination.bbox),
         geometry: this.convertToGeometry(bikeToDestination.points),
-        instructions: this.convertToInstructions(
-          bikeToDestination.instructions,
-        ),
         profile: this.convertToBikeProfile(bikeToDestination.profile), // 자전거 프로필 정보 추가
         startStation: {
           station_id: station.id,
@@ -297,7 +265,6 @@ export class RouteConverterService {
         summary: this.convertToSummary(bikeToStation),
         bbox: this.convertToBoundingBox(bikeToStation.bbox),
         geometry: this.convertToGeometry(bikeToStation.points),
-        instructions: this.convertToInstructions(bikeToStation.instructions),
         profile: this.convertToBikeProfile(bikeToStation.profile), // 자전거 프로필 정보 추가
         endStation: {
           station_id: station.id,
@@ -312,7 +279,6 @@ export class RouteConverterService {
         summary: this.convertToSummary(walkingToStart),
         bbox: this.convertToBoundingBox(walkingToStart.bbox),
         geometry: this.convertToGeometry(walkingToStart.points),
-        instructions: this.convertToInstructions(walkingToStart.instructions),
       },
     ];
 
@@ -361,7 +327,7 @@ export class RouteConverterService {
     walkingToStation: GraphHopperPath,
     circularBikeRoute: GraphHopperPath,
     walkingToStart: GraphHopperPath,
-    station: MockStation,
+    station: RouteStation,
     routeCategory?: string,
   ): RouteDto {
     const segments: RouteSegmentDto[] = [
@@ -371,7 +337,6 @@ export class RouteConverterService {
         summary: this.convertToSummary(walkingToStation),
         bbox: this.convertToBoundingBox(walkingToStation.bbox),
         geometry: this.convertToGeometry(walkingToStation.points),
-        instructions: this.convertToInstructions(walkingToStation.instructions),
       },
       // 2단계: 대여소 → 원형 경로 → 대여소 (자전거)
       {
@@ -379,9 +344,6 @@ export class RouteConverterService {
         summary: this.convertToSummary(circularBikeRoute),
         bbox: this.convertToBoundingBox(circularBikeRoute.bbox),
         geometry: this.convertToGeometry(circularBikeRoute.points),
-        instructions: this.convertToInstructions(
-          circularBikeRoute.instructions,
-        ),
         profile: this.convertToBikeProfile(circularBikeRoute.profile), // 자전거 프로필 정보 추가
         startStation: {
           station_id: station.id,
@@ -404,7 +366,6 @@ export class RouteConverterService {
         summary: this.convertToSummary(walkingToStart),
         bbox: this.convertToBoundingBox(walkingToStart.bbox),
         geometry: this.convertToGeometry(walkingToStart.points),
-        instructions: this.convertToInstructions(walkingToStart.instructions),
       },
     ];
 
@@ -447,7 +408,7 @@ export class RouteConverterService {
     returnPaths: CategorizedPath[],
     walkingToStation: GraphHopperPath,
     walkingFromStation: GraphHopperPath,
-    station: MockStation,
+    station: RouteStation,
   ): RouteDto[] {
     const roundTripRoutes: RouteDto[] = [];
 
@@ -457,7 +418,7 @@ export class RouteConverterService {
       const outboundPath = outboundPaths[i];
       const returnPath = returnPaths[i];
 
-      const roundTripRoute = this.buildRoundTripRoute(
+      const roundTripRoute = this.buildDirectRoundTripRoute(
         walkingToStation,
         outboundPath, // 대여소 → 반환점
         returnPath, // 반환점 → 대여소
@@ -470,5 +431,19 @@ export class RouteConverterService {
     }
 
     return roundTripRoutes;
+  }
+
+  /**
+   * GraphHopper 경로를 RouteSegmentDto로 변환 (다구간 경로용)
+   */
+  convertToRouteSegment(routeData: GraphHopperPath): RouteSegmentDto {
+    return {
+      type: 'biking', // 다구간 경로는 모두 자전거 구간으로 처리
+      summary: this.convertToSummary(routeData),
+      bbox: this.convertToBoundingBox(routeData.bbox),
+      geometry: this.convertToGeometry(routeData.points),
+      profile: this.convertToBikeProfile(routeData.profile),
+      // 다구간 경로에서는 대여소 정보를 포함하지 않음 (별도 처리 필요시 추가)
+    };
   }
 }

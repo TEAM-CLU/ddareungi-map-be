@@ -32,11 +32,6 @@ export class GraphHopperService {
       details: ['road_class', 'bike_network'],
     };
 
-    this.logger.debug(
-      `GraphHopper API POST 호출 - Profile: ${profile}`,
-      requestBody,
-    );
-
     try {
       const response = await firstValueFrom(
         this.httpService.post<GraphHopperResponse>(
@@ -46,12 +41,19 @@ export class GraphHopperService {
       );
 
       if (!response.data.paths || response.data.paths.length === 0) {
+        this.logger.warn(
+          `GraphHopper API 응답에 경로가 없음 - Profile: ${profile}`,
+        );
         throw new Error('No route found');
       }
 
       return response.data.paths[0];
-    } catch (error) {
-      this.logger.error(`Failed to get route for ${profile}:`, error);
+    } catch (error: unknown) {
+      this.logger.error(
+        `GraphHopper API 호출 실패 - Profile: ${profile}, From: [${from.lat}, ${from.lng}], To: [${to.lat}, ${to.lng}]`,
+      );
+      this.logger.debug(`에러 상세:`, error);
+
       throw error;
     }
   }
@@ -80,6 +82,53 @@ export class GraphHopperService {
         'alternative_route.max_paths': 3,
       };
 
+      try {
+        const response = await firstValueFrom(
+          this.httpService.post<GraphHopperResponse>(
+            `${this.graphHopperBaseUrl}/route`,
+            requestBody,
+          ),
+        );
+
+        // 각 경로에 프로필 정보 추가
+        for (const path of response.data.paths) {
+          path.profile = profile;
+          allPaths.push(path);
+        }
+      } catch (error: unknown) {
+        this.logger.error(
+          `GraphHopper 프로필별 경로 검색 실패 - Profile: ${profile}`,
+        );
+        this.logger.debug(`에러 상세:`, error);
+      }
+    }
+
+    return allPaths;
+  }
+
+  /**
+   * GraphHopper API 호출 (대안 경로 포함)
+   */
+  async getAlternativeRoutes(
+    from: { lat: number; lng: number },
+    to: { lat: number; lng: number },
+    profile: string,
+    maxPaths: number = 3,
+  ): Promise<GraphHopperPath[]> {
+    const requestBody = {
+      points: [
+        [from.lng, from.lat], // GraphHopper는 [lng, lat] 순서
+        [to.lng, to.lat],
+      ],
+      profile: profile,
+      elevation: true,
+      points_encoded: false,
+      details: ['road_class', 'bike_network'],
+      'alternative_route.max_paths': maxPaths,
+      'ch.disable': true,
+    };
+
+    try {
       const response = await firstValueFrom(
         this.httpService.post<GraphHopperResponse>(
           `${this.graphHopperBaseUrl}/route`,
@@ -87,14 +136,28 @@ export class GraphHopperService {
         ),
       );
 
-      // 각 경로에 프로필 정보 추가
-      for (const path of response.data.paths) {
-        path.profile = profile;
-        allPaths.push(path);
+      if (!response.data.paths || response.data.paths.length === 0) {
+        this.logger.warn(
+          `GraphHopper 대안 경로 검색 결과 없음 - Profile: ${profile}`,
+        );
+        throw new Error('No route found');
       }
-    }
 
-    return allPaths;
+      // 각 경로에 프로필 정보 추가
+      return response.data.paths.map((path) => ({
+        ...path,
+        profile: profile,
+      }));
+    } catch (error: unknown) {
+      this.logger.error(
+        `GraphHopper 대안 경로 검색 실패 - Profile: ${profile}, From: [${from.lat}, ${from.lng}], To: [${to.lat}, ${to.lng}]`,
+      );
+      this.logger.debug(`에러 상세:`, error);
+
+      throw new Error(
+        `Failed to get routes: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    }
   }
 
   /**
@@ -108,6 +171,7 @@ export class GraphHopperService {
     const allPaths: GraphHopperPath[] = [];
 
     for (const profile of profiles) {
+      const seed = Math.floor(Math.random() * 1000);
       const requestBody = {
         points: [[start.lng, start.lat]],
         profile: profile,
@@ -117,23 +181,34 @@ export class GraphHopperService {
         algorithm: 'round_trip',
         'ch.disable': true,
         'round_trip.distance': targetDistance,
-        'round_trip.seed': Math.floor(Math.random() * 1000),
+        'round_trip.seed': seed,
         'round_trip.points': 2,
         'alternative_route.max_paths': 3,
       };
 
-      const response = await firstValueFrom(
-        this.httpService.post<GraphHopperResponse>(
-          `${this.graphHopperBaseUrl}/route`,
-          requestBody,
-        ),
-      );
+      try {
+        const response = await firstValueFrom(
+          this.httpService.post<GraphHopperResponse>(
+            `${this.graphHopperBaseUrl}/route`,
+            requestBody,
+          ),
+        );
 
-      for (const path of response.data.paths) {
-        path.profile = profile;
-        allPaths.push(path);
+        for (const path of response.data.paths) {
+          path.profile = profile;
+          allPaths.push(path);
+        }
+      } catch (error: unknown) {
+        this.logger.error(
+          `GraphHopper 원형 경로 검색 실패 - Profile: ${profile}, Distance: ${targetDistance}m`,
+        );
+        this.logger.debug(`에러 상세:`, error);
       }
     }
+
+    this.logger.debug(
+      `GraphHopper 원형 경로 검색 완료 - 총 경로 수: ${allPaths.length}`,
+    );
 
     return allPaths;
   }
@@ -146,6 +221,7 @@ export class GraphHopperService {
     profile: string,
     targetDistance: number,
   ): Promise<GraphHopperPath> {
+    const seed = Math.floor(Math.random() * 1000);
     const requestBody = {
       points: [[start.lng, start.lat]],
       profile: profile,
@@ -155,17 +231,33 @@ export class GraphHopperService {
       algorithm: 'round_trip',
       'ch.disable': true,
       'round_trip.distance': targetDistance,
-      'round_trip.seed': Math.floor(Math.random() * 1000),
+      'round_trip.seed': seed,
       'round_trip.points': 2,
     };
 
-    const response = await firstValueFrom(
-      this.httpService.post<GraphHopperResponse>(
-        `${this.graphHopperBaseUrl}/route`,
-        requestBody,
-      ),
-    );
+    try {
+      const response = await firstValueFrom(
+        this.httpService.post<GraphHopperResponse>(
+          `${this.graphHopperBaseUrl}/route`,
+          requestBody,
+        ),
+      );
 
-    return response.data.paths[0];
+      if (!response.data.paths || response.data.paths.length === 0) {
+        this.logger.warn(
+          `GraphHopper 단일 원형 경로 검색 결과 없음 - Profile: ${profile}`,
+        );
+        throw new Error('No round trip route found');
+      }
+
+      return response.data.paths[0];
+    } catch (error: unknown) {
+      this.logger.error(
+        `GraphHopper 단일 원형 경로 검색 실패 - Profile: ${profile}, Distance: ${targetDistance}m`,
+      );
+      this.logger.debug(`에러 상세:`, error);
+
+      throw error;
+    }
   }
 }

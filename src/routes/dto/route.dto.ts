@@ -1,19 +1,63 @@
-import { IsNotEmpty, IsNumber, ValidateNested } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsNumber,
+  ValidateNested,
+  IsOptional,
+  IsArray,
+  ArrayMaxSize,
+  Min,
+  Max,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CoordinateDto {
-  @ApiProperty({ description: '위도' })
-  @IsNotEmpty()
-  @IsNumber()
+  @ApiProperty({
+    description: '위도 (서울 범위: 37.0 ~ 38.0)',
+    example: 37.5665,
+    minimum: 37.0,
+    maximum: 38.0,
+  })
+  @IsNotEmpty({ message: '위도는 필수값입니다.' })
+  @IsNumber({}, { message: '위도는 숫자여야 합니다.' })
+  @Min(33.0, { message: '위도는 37.0 이상이어야 합니다.' })
+  @Max(38.9, { message: '위도는 38.0 이하여야 합니다.' })
   @Type(() => Number)
   lat: number;
 
-  @ApiProperty({ description: '경도' })
-  @IsNotEmpty()
-  @IsNumber()
+  @ApiProperty({
+    description: '경도 (서울 범위: 126.0 ~ 128.0)',
+    example: 126.978,
+    minimum: 126.0,
+    maximum: 128.0,
+  })
+  @IsNotEmpty({ message: '경도는 필수값입니다.' })
+  @IsNumber({}, { message: '경도는 숫자여야 합니다.' })
+  @Min(124.5, { message: '경도는 126.0 이상이어야 합니다.' })
+  @Max(131.9, { message: '경도는 128.0 이하여야 합니다.' })
   @Type(() => Number)
   lng: number;
+}
+
+// 왕복 경로의 웨이포인트 타입
+export class WaypointDto {
+  @ApiProperty({
+    description: '포인트 타입',
+    enum: ['waypoint', 'return_point'],
+    example: 'waypoint',
+  })
+  @IsNotEmpty({ message: '포인트 타입은 필수값입니다.' })
+  type: 'waypoint' | 'return_point';
+
+  @ApiProperty({
+    description: '위치 좌표',
+    type: CoordinateDto,
+    example: { lat: 37.5665, lng: 126.978 },
+  })
+  @IsNotEmpty()
+  @ValidateNested()
+  @Type(() => CoordinateDto)
+  location: CoordinateDto;
 }
 
 export enum BikeProfile {
@@ -54,23 +98,6 @@ export class GeometryDto {
   points: number[][];
 }
 
-export class InstructionDto {
-  @ApiProperty({ description: '구간 거리 (미터)' })
-  distance: number;
-
-  @ApiProperty({ description: '구간 시간 (밀리초)' })
-  time: number;
-
-  @ApiProperty({ description: '안내 텍스트' })
-  text: string;
-
-  @ApiProperty({ description: '방향 표시 코드' })
-  sign: number;
-
-  @ApiProperty({ description: '좌표 인덱스 범위' })
-  interval: number[];
-}
-
 export class StationDto {
   @ApiProperty({ description: '대여소 ID' })
   station_id: string;
@@ -94,17 +121,42 @@ export class StationDto {
 
 // A-B 경로 검색 요청 DTO (통합 경로, 왕복 경로에서 공통 사용)
 export class PointToPointRouteRequestDto {
-  @ApiProperty({ description: '출발지 좌표', type: CoordinateDto })
+  @ApiProperty({
+    description: '출발지 좌표',
+    type: CoordinateDto,
+    example: { lat: 37.626666, lng: 127.076764 },
+  })
   @IsNotEmpty()
   @ValidateNested()
   @Type(() => CoordinateDto)
   start: CoordinateDto;
 
-  @ApiProperty({ description: '목적지 좌표', type: CoordinateDto })
+  @ApiProperty({
+    description: '목적지 좌표',
+    type: CoordinateDto,
+    example: { lat: 37.664819, lng: 127.057126 },
+  })
   @IsNotEmpty()
   @ValidateNested()
   @Type(() => CoordinateDto)
   end: CoordinateDto;
+
+  @ApiProperty({
+    description: '경유지 좌표 배열 (최대 3개)',
+    type: [CoordinateDto],
+    required: false,
+    maxItems: 3,
+    example: [
+      { lat: 37.642417, lng: 127.067248 },
+      { lat: 37.658922, lng: 127.071167 },
+    ],
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(3)
+  @ValidateNested({ each: true })
+  @Type(() => CoordinateDto)
+  waypoints?: CoordinateDto[];
 }
 
 // 원형 경로 추천 요청 DTO (출발지 = 도착지인 원형 경로)
@@ -112,6 +164,7 @@ export class CircularRouteRequestDto {
   @ApiProperty({
     description: '출발지 좌표 (도착지와 동일)',
     type: CoordinateDto,
+    example: { lat: 37.626666, lng: 127.076764 },
   })
   @IsNotEmpty()
   @ValidateNested()
@@ -119,11 +172,15 @@ export class CircularRouteRequestDto {
   start: CoordinateDto;
 
   @ApiProperty({
-    description: '목표 거리 (미터)',
+    description: '목표 거리 (미터, 100m ~ 50km)',
     example: 5000,
+    minimum: 1000,
+    maximum: 50000,
   })
-  @IsNotEmpty()
-  @IsNumber()
+  @IsNotEmpty({ message: '목표 거리는 필수값입니다.' })
+  @IsNumber({}, { message: '목표 거리는 숫자여야 합니다.' })
+  @Min(100, { message: '목표 거리는 최소 100m 이상이어야 합니다.' })
+  @Max(50000, { message: '목표 거리는 최대 50km(50000m) 이하여야 합니다.' })
   @Type(() => Number)
   targetDistance: number;
 }
@@ -131,7 +188,39 @@ export class CircularRouteRequestDto {
 // 하위 호환성을 위한 별칭들
 export class RouteSearchRequestDto extends PointToPointRouteRequestDto {}
 export class FullJourneyRequestDto extends PointToPointRouteRequestDto {}
-export class RoundTripSearchRequestDto extends PointToPointRouteRequestDto {}
+
+// 왕복 경로 검색 요청 DTO (순서 있는 경유지 포함)
+export class RoundTripSearchRequestDto {
+  @ApiProperty({
+    description: '출발지 좌표 (도착지와 동일)',
+    type: CoordinateDto,
+    example: { lat: 37.626666, lng: 127.076764 },
+  })
+  @IsNotEmpty()
+  @ValidateNested()
+  @Type(() => CoordinateDto)
+  start: CoordinateDto;
+
+  @ApiProperty({
+    description:
+      '경유지와 반환점을 포함한 포인트 배열 (순서대로 방문, 반환점은 1개만 허용)',
+    type: [WaypointDto],
+    required: false,
+    maxItems: 4,
+    example: [
+      { type: 'waypoint', location: { lat: 37.642417, lng: 127.067248 } },
+      { type: 'return_point', location: { lat: 37.664819, lng: 127.057126 } },
+      { type: 'waypoint', location: { lat: 37.658922, lng: 127.071167 } },
+    ],
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(6)
+  @ValidateNested({ each: true })
+  @Type(() => WaypointDto)
+  waypoints?: WaypointDto[];
+}
+
 export class RoundTripRecommendRequestDto extends CircularRouteRequestDto {}
 
 // ============================================
@@ -154,9 +243,6 @@ export class RouteSegmentDto {
 
   @ApiProperty({ description: '경로 지오메트리', type: GeometryDto })
   geometry: GeometryDto;
-
-  @ApiProperty({ description: '내비게이션', type: [InstructionDto] })
-  instructions: InstructionDto[];
 
   @ApiProperty({
     description: '자전거 프로필 (자전거 구간에만 적용)',
