@@ -152,7 +152,7 @@ export class StationQueryService {
   }
 
   /**
-   * 지도 영역 내 모든 대여소 조회 - 실시간 정보 포함
+   * 지도 영역 내 모든 대여소 조회 - DB 데이터만 (성능 최적화)
    */
   async findStationsInMapArea(
     latitude: number,
@@ -181,17 +181,53 @@ export class StationQueryService {
       this.stationMapperService.mapRawQueryToResponse(row),
     );
 
-    // 실시간 대여정보 동기화
+    return stationResults;
+  }
+
+  /**
+   * 대여소 번호 배열로 실시간 재고 정보 조회 및 동기화
+   * 성능 최적화를 위해 별도 엔드포인트로 분리
+   */
+  async findStationInventories(
+    stationNumbers: string[],
+  ): Promise<{ station_number: string; current_bikes: number }[]> {
+    if (!stationNumbers || stationNumbers.length === 0) {
+      return [];
+    }
+
+    // 1. 대여소 번호로 DB에서 대여소 정보 조회
+    const query = this.createBaseStationQuery().where(
+      'station.number IN (:...stationNumbers)',
+      { stationNumbers },
+    );
+
+    const rawResults = await query.getRawMany();
+    const stationResults = rawResults.map((row: StationRawQueryResult) =>
+      this.stationMapperService.mapRawQueryToResponse(row),
+    );
+
+    // 2. 실시간 대여정보 동기화
     await this.stationRealtimeService.syncRealtimeInfoForStations(
       stationResults,
     );
 
-    // 실시간 업데이트 후 inactive 상태인 대여소 제거
-    const activeStations = stationResults.filter(
-      (station) => station.status !== 'inactive',
-    );
+    // 3. 업데이트된 대여소 정보를 다시 조회하여 최신 current_bikes 반환
+    const updatedQuery = this.stationRepository
+      .createQueryBuilder('station')
+      .select([
+        'station.number as station_number',
+        'station.current_bikes as current_bikes',
+      ])
+      .where('station.number IN (:...stationNumbers)', { stationNumbers });
 
-    return activeStations;
+    const updatedResults = await updatedQuery.getRawMany();
+
+    return updatedResults.map(
+      (row: { station_number: string; current_bikes: number }) => ({
+        station_number: row.station_number,
+        current_bikes: row.current_bikes || 0,
+      }),
+    );
   }
 
   /**
