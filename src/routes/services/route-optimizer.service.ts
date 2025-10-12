@@ -231,4 +231,11 @@ export class RouteOptimizerService {
 
     return R * c;
   }
+
+  /**
+   * 다구간 경로용 - 경로들을 최적화하고 카테고리화
+   */
+  optimizeAndCategorizeRoutes(paths: GraphHopperPath[]): CategorizedPath[] {
+    return this.selectOptimalRoutes(paths);
+  }
 }
