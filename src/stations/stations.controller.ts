@@ -21,8 +21,12 @@ import { StationSyncService } from './services/station-sync.service';
 import { StationQueryService } from './services/station-query.service';
 import { StationManagementService } from './services/station-management.service';
 import { StationRealtimeService } from './services/station-realtime.service';
-import { StationResponseDto } from './dto/station.dto';
-import { CreateStationDto } from './dto/station-api.dto';
+import { StationMapperService } from './services/station-mapper.service';
+import { StationResponseDto } from './dto/station-api.dto';
+import {
+  CreateStationDto,
+  NearbyStationResponseDto,
+} from './dto/station-api.dto';
 import {
   DeleteAllResult,
   GeoJsonResponse,
@@ -44,6 +48,7 @@ export class StationsController {
     private readonly stationQueryService: StationQueryService,
     private readonly stationManagementService: StationManagementService,
     private readonly stationRealtimeService: StationRealtimeService,
+    private readonly stationMapperService: StationMapperService,
   ) {}
 
   @Post('sync')
@@ -209,7 +214,7 @@ export class StationsController {
     @Query('latitude') latitude: number,
     @Query('longitude') longitude: number,
     @Query('format') format: 'json' | 'geojson' = 'json',
-  ): Promise<SuccessResponseDto<StationResponseDto[] | GeoJsonResponse>> {
+  ): Promise<SuccessResponseDto<NearbyStationResponseDto[] | GeoJsonResponse>> {
     try {
       const lat = Number(latitude);
       const lng = Number(longitude);
@@ -237,6 +242,17 @@ export class StationsController {
         lng,
       );
 
+      // 조회된 대여소가 없을 때 예외처리
+      if (stations.length === 0) {
+        throw new HttpException(
+          ErrorResponseDto.create(
+            HttpStatus.NOT_FOUND,
+            '주변에 이용 가능한 대여소가 없습니다.',
+          ),
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
       if (format === 'geojson') {
         const geoJsonData =
           this.stationQueryService.convertStationsToGeoJSON(stations);
@@ -246,9 +262,12 @@ export class StationsController {
         );
       }
 
+      const nearbyStations =
+        this.stationMapperService.mapToNearbyResponseArray(stations);
+
       return SuccessResponseDto.create(
         '가장 가까운 대여소 3개를 성공적으로 조회했습니다.',
-        stations,
+        nearbyStations,
       );
     } catch (error) {
       this.logger.error('근처 대여소 조회 실패:', error);
@@ -313,7 +332,7 @@ export class StationsController {
     @Query('longitude') longitude: number,
     @Query('radius') radius: number,
     @Query('format') format: 'json' | 'geojson' = 'json',
-  ): Promise<SuccessResponseDto<StationResponseDto[] | GeoJsonResponse>> {
+  ): Promise<SuccessResponseDto<NearbyStationResponseDto[] | GeoJsonResponse>> {
     try {
       // 입력값 검증
       const lat = Number(latitude);
@@ -356,6 +375,26 @@ export class StationsController {
         searchRadius,
       );
 
+      // 조회된 대여소가 없을 때 예외처리
+      if (stations.length === 0) {
+        if (format === 'geojson') {
+          const emptyGeoJson: GeoJsonResponse = {
+            type: 'FeatureCollection',
+            features: [],
+          };
+          return SuccessResponseDto.create(
+            `지정된 영역(반경 ${searchRadius}m) 내에 이용 가능한 대여소가 없습니다.`,
+            emptyGeoJson,
+          );
+        }
+
+        const emptyArray: NearbyStationResponseDto[] = [];
+        return SuccessResponseDto.create(
+          `지정된 영역(반경 ${searchRadius}m) 내에 이용 가능한 대여소가 없습니다.`,
+          emptyArray,
+        );
+      }
+
       if (format === 'geojson') {
         const geoJsonData =
           this.stationQueryService.convertStationsToGeoJSON(stations);
@@ -365,9 +404,12 @@ export class StationsController {
         );
       }
 
+      const nearbyStations =
+        this.stationMapperService.mapToNearbyResponseArray(stations);
+
       return SuccessResponseDto.create(
         `지도 영역 내 대여소 ${stations.length}개를 성공적으로 조회했습니다.`,
-        stations,
+        nearbyStations,
       );
     } catch (error) {
       if (error instanceof HttpException) {
@@ -439,15 +481,23 @@ export class StationsController {
     }
   }
 
-  @Get(':id')
+  @Get(':number')
   @ApiOperation({
-    summary: '대여소 상세 조회',
-    description: '대여소 ID로 특정 대여소의 상세 정보를 조회합니다.',
+    summary: '대여소 상세 조회 (실시간 정보 포함)',
+    description:
+      '대여소 번호로 특정 대여소의 상세 정보를 조회하고, 실시간 대여 정보를 업데이트한 후 반환합니다.',
   })
   @ApiParam({
-    name: 'id',
-    description: '대여소 ID',
-    example: 'ST-1001',
+    name: 'number',
+    description: '대여소 번호',
+    example: '01611',
+  })
+  @ApiQuery({
+    name: 'format',
+    description: '응답 포맷 (json 또는 geojson)',
+    enum: ['json', 'geojson'],
+    required: false,
+    example: 'json',
   })
   @ApiResponse({
     status: 200,
@@ -465,10 +515,12 @@ export class StationsController {
     type: ErrorResponseDto,
   })
   async findOne(
-    @Param('id') id: string,
-  ): Promise<SuccessResponseDto<StationResponseDto>> {
+    @Param('number') number: string,
+    @Query('format') format: 'json' | 'geojson' = 'json',
+  ): Promise<SuccessResponseDto<NearbyStationResponseDto | GeoJsonResponse>> {
     try {
-      const station = await this.stationQueryService.findOne(id);
+      // number로 대여소 조회
+      const station = await this.stationQueryService.findByNumber(number);
 
       if (!station) {
         throw new HttpException(
@@ -480,16 +532,48 @@ export class StationsController {
         );
       }
 
+      // 실시간 정보 업데이트
+      await this.stationRealtimeService.syncSingleStationRealtimeInfo(
+        station.id,
+      );
+
+      // 업데이트된 정보 다시 조회
+      const updatedStation =
+        await this.stationQueryService.findByNumber(number);
+
+      if (!updatedStation) {
+        throw new HttpException(
+          ErrorResponseDto.create(
+            HttpStatus.NOT_FOUND,
+            '대여소 업데이트 후 조회에 실패했습니다.',
+          ),
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      if (format === 'geojson') {
+        const geoJsonData = this.stationQueryService.convertStationsToGeoJSON([
+          updatedStation,
+        ]);
+        return SuccessResponseDto.create(
+          'GeoJSON 형태로 대여소 상세 정보를 성공적으로 조회했습니다.',
+          geoJsonData,
+        );
+      }
+
+      const nearbyStationResponse =
+        this.stationMapperService.mapToNearbyResponse(updatedStation);
+
       return SuccessResponseDto.create(
         '대여소를 성공적으로 조회했습니다.',
-        station,
+        nearbyStationResponse,
       );
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
       }
 
-      this.logger.error(`대여소 ID ${id} 조회 실패:`, error);
+      this.logger.error(`대여소 번호 ${number} 조회 실패:`, error);
       throw new HttpException(
         ErrorResponseDto.create(
           HttpStatus.INTERNAL_SERVER_ERROR,
@@ -606,15 +690,15 @@ export class StationsController {
     }
   }
 
-  @Delete(':id')
+  @Delete(':number')
   @ApiOperation({
     summary: '대여소 삭제',
     description: '지정된 대여소를 영구적으로 삭제합니다.',
   })
   @ApiParam({
-    name: 'id',
-    description: '대여소 ID',
-    example: 'ST-1001',
+    name: 'number',
+    description: '대여소 번호',
+    example: '00648',
     type: String,
   })
   @ApiResponse({
@@ -632,16 +716,31 @@ export class StationsController {
     description: '서버 내부 오류',
     type: ErrorResponseDto,
   })
-  async remove(@Param('id') id: string): Promise<SuccessResponseDto<null>> {
+  async remove(
+    @Param('number') number: string,
+  ): Promise<SuccessResponseDto<null>> {
     try {
-      await this.stationManagementService.remove(id);
+      // number로 대여소 조회해서 id 찾기
+      const station = await this.stationQueryService.findByNumber(number);
+
+      if (!station) {
+        throw new HttpException(
+          ErrorResponseDto.create(
+            HttpStatus.NOT_FOUND,
+            '대여소를 찾을 수 없습니다.',
+          ),
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      await this.stationManagementService.remove(station.id);
 
       return SuccessResponseDto.create(
         '대여소가 성공적으로 삭제되었습니다.',
         null,
       );
     } catch (error) {
-      this.logger.error(`대여소 ID ${id} 삭제 실패:`, error);
+      this.logger.error(`대여소 번호 ${number} 삭제 실패:`, error);
 
       // 404: 대여소를 찾을 수 없는 경우
       if (error instanceof Error && error.message.includes('찾을 수 없')) {

@@ -47,8 +47,8 @@ export class Station {
   @Column({ type: 'int', default: 0 })
   total_racks: number; // HOLD_NUM
 
-  @Column({ type: 'int', default: 0 })
-  current_adult_bikes: number;
+  @Column({ type: 'int', default: 0, name: 'current_adult_bikes' })
+  current_bikes: number;
 
   @Column({
     type: 'enum',

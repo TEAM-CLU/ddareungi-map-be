@@ -33,7 +33,7 @@ export class StationDomainService {
     operationInfo: Partial<StationOperationInfo>,
     isOperating: boolean = true,
   ): StationStatus {
-    const currentBikes = operationInfo.current_adult_bikes || 0;
+    const currentBikes = operationInfo.current_bikes || 0;
     const totalRacks = operationInfo.total_racks || 0;
 
     return this.calculateStationStatus(currentBikes, totalRacks, isOperating);
