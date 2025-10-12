@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNumber, IsOptional } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsArray } from 'class-validator';
 import type { StationStatus, StationId } from '../types/station.types';
 
 /**
@@ -196,6 +196,36 @@ export class NearbyStationResponseDto {
   @ApiProperty({
     description: '현재 자전거 수',
     example: 15,
+  })
+  current_bikes: number;
+}
+
+/**
+ * 대여소 재고 조회 요청 DTO
+ */
+export class StationInventoryRequestDto {
+  @ApiProperty({
+    description: '대여소 번호 배열',
+    example: ['1001', '1002', '1003'],
+    type: [String],
+  })
+  @IsArray()
+  stationNumbers: string[];
+}
+
+/**
+ * 대여소 재고 조회 응답 DTO
+ */
+export class StationInventoryResponseDto {
+  @ApiProperty({
+    description: '대여소 번호',
+    example: '1001',
+  })
+  station_number: string;
+
+  @ApiProperty({
+    description: '현재 가용 가능한 자전거 수',
+    example: 8,
   })
   current_bikes: number;
 }
