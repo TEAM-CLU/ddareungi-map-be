@@ -1,4 +1,4 @@
-import { Controller, Post, Body, HttpCode, HttpStatus, Get, Req, Res, UseGuards, Query, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Body, HttpCode, HttpStatus, Get, Req, Res, UseGuards, Query, BadRequestException, Param } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { 
@@ -471,5 +471,76 @@ export class AuthController {
     return res.json({
       message: '로그아웃되었습니다.'
     });
+  }
+
+  // ==================== 디버깅용 엔드포인트 (개발 환경 전용) ====================
+
+  @Get('debug/states')
+  @ApiOperation({ 
+    summary: '저장된 PKCE 상태 목록 조회 (개발용)',
+    description: '현재 서버 메모리에 저장된 PKCE 상태들을 조회합니다. 개발 환경에서만 사용하세요.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'PKCE 상태 목록 조회 성공',
+    schema: {
+      example: {
+        message: '현재 저장된 PKCE 상태들입니다.',
+        count: 2,
+        states: [
+          {
+            state: 'abc123xyz',
+            isComplete: true,
+            expiresAt: '2024-01-15T12:00:00.000Z',
+            hasUser: true,
+            hasAccessToken: true
+          }
+        ]
+      }
+    }
+  })
+  async getDebugStates() {
+    // 프로덕션 환경에서는 접근 차단
+    if (process.env.NODE_ENV === 'production') {
+      throw new BadRequestException('이 엔드포인트는 개발 환경에서만 사용할 수 있습니다.');
+    }
+    
+    return await this.authService.getDebugStates();
+  }
+
+  @Get('debug/states/:state')
+  @ApiOperation({ 
+    summary: '특정 PKCE 상태 상세 조회 (개발용)',
+    description: '특정 state의 상세 정보를 조회합니다. 개발 환경에서만 사용하세요.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: '특정 PKCE 상태 조회 성공',
+    schema: {
+      example: {
+        message: '해당 state의 상세 정보입니다.',
+        exists: true,
+        data: {
+          state: 'abc123xyz',
+          isComplete: true,
+          expiresAt: '2024-01-15T12:00:00.000Z',
+          hasAccessToken: true,
+          hasUser: true,
+          userInfo: {
+            email: 'user@example.com',
+            name: 'Test User',
+            socialProvider: 'Google'
+          }
+        }
+      }
+    }
+  })
+  async getDebugStateDetail(@Param('state') state: string) {
+    // 프로덕션 환경에서는 접근 차단
+    if (process.env.NODE_ENV === 'production') {
+      throw new BadRequestException('이 엔드포인트는 개발 환경에서만 사용할 수 있습니다.');
+    }
+    
+    return await this.authService.getDebugStateDetail(state);
   }
 }
