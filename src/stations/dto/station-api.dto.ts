@@ -162,7 +162,7 @@ export class StationResponseDto {
 }
 
 /**
- * 근처 대여소 및 지도 영역 조회용 응답 DTO (id, total_racks, status, last_updated_at 제외)
+ * 근처 대여소 및 지도 영역 조회용 응답 DTO (실시간 정보, 거리, 주소 포함)
  */
 export class NearbyStationResponseDto {
   @ApiProperty({
@@ -178,6 +178,14 @@ export class NearbyStationResponseDto {
     nullable: true,
   })
   number: string | null;
+
+  @ApiProperty({
+    description: '상세 주소',
+    example: '서울시 마포구 신촌로 176',
+    nullable: true,
+    required: false,
+  })
+  address?: string | null;
 
   @ApiProperty({
     description: '위도',
@@ -198,6 +206,14 @@ export class NearbyStationResponseDto {
     example: 15,
   })
   current_bikes: number;
+
+  @ApiProperty({
+    description: '현재 위치로부터의 거리 (미터)',
+    example: 240,
+    type: Number,
+    required: false,
+  })
+  distance?: number;
 }
 
 /**

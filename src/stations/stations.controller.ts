@@ -610,9 +610,9 @@ export class StationsController {
 
   @Get(':number')
   @ApiOperation({
-    summary: '대여소 상세 조회 (실시간 정보 포함)',
+    summary: '대여소 상세 조회 (실시간 정보 + 거리 + 주소 포함)',
     description:
-      '대여소 번호로 특정 대여소의 상세 정보를 조회하고, 실시간 대여 정보를 업데이트한 후 반환합니다.',
+      '대여소 번호로 특정 대여소의 상세 정보를 조회하고, 실시간 대여 정보를 업데이트한 후 반환합니다. 현재 위치가 제공되면 거리도 함께 계산됩니다.',
   })
   @ApiParam({
     name: 'number',
@@ -625,6 +625,20 @@ export class StationsController {
     enum: ['json', 'geojson'],
     required: false,
     example: 'json',
+  })
+  @ApiQuery({
+    name: 'latitude',
+    description: '현재 위치의 위도 (거리 계산용, 선택사항)',
+    type: Number,
+    required: false,
+    example: 37.630032,
+  })
+  @ApiQuery({
+    name: 'longitude',
+    description: '현재 위치의 경도 (거리 계산용, 선택사항)',
+    type: Number,
+    required: false,
+    example: 127.076508,
   })
   @ApiResponse({
     status: 200,
@@ -644,10 +658,40 @@ export class StationsController {
   async findOne(
     @Param('number') number: string,
     @Query('format') format: 'json' | 'geojson' = 'json',
+    @Query('latitude') latitude?: number,
+    @Query('longitude') longitude?: number,
   ): Promise<SuccessResponseDto<NearbyStationResponseDto | GeoJsonResponse>> {
     try {
-      // number로 대여소 조회
-      const station = await this.stationQueryService.findByNumber(number);
+      // 위치 좌표 검증 (제공된 경우)
+      let validatedLat: number | undefined;
+      let validatedLng: number | undefined;
+
+      if (latitude !== undefined && longitude !== undefined) {
+        const lat = Number(latitude);
+        const lng = Number(longitude);
+
+        if (
+          !isNaN(lat) &&
+          !isNaN(lng) &&
+          lat >= -90 &&
+          lat <= 90 &&
+          lng >= -180 &&
+          lng <= 180
+        ) {
+          validatedLat = lat;
+          validatedLng = lng;
+        }
+      }
+
+      // number로 대여소 조회 (거리 포함 가능)
+      const station =
+        validatedLat !== undefined && validatedLng !== undefined
+          ? await this.stationQueryService.findByNumberWithDistance(
+              number,
+              validatedLat,
+              validatedLng,
+            )
+          : await this.stationQueryService.findByNumber(number);
 
       if (!station) {
         throw new HttpException(
@@ -664,9 +708,15 @@ export class StationsController {
         station.id,
       );
 
-      // 업데이트된 정보 다시 조회
+      // 업데이트된 정보 다시 조회 (거리 정보 유지)
       const updatedStation =
-        await this.stationQueryService.findByNumber(number);
+        validatedLat !== undefined && validatedLng !== undefined
+          ? await this.stationQueryService.findByNumberWithDistance(
+              number,
+              validatedLat,
+              validatedLng,
+            )
+          : await this.stationQueryService.findByNumber(number);
 
       if (!updatedStation) {
         throw new HttpException(
