@@ -62,6 +62,7 @@ export interface StationRawQueryResult {
   last_updated_at: Date | null;
   latitude: string; // PostGIS ST_Y 결과는 string으로 반환
   longitude: string; // PostGIS ST_X 결과는 string으로 반환
+  distance?: string; // PostGIS ST_Distance 결과는 string으로 반환 (옵셔널)
 }
 
 // ============================================

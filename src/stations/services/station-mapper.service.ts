@@ -55,15 +55,19 @@ export class StationMapperService {
   }
 
   /**
-   * StationResponseDto를 NearbyStationResponseDto로 변환 (id, total_racks, status, last_updated_at 제외)
+   * StationResponseDto를 NearbyStationResponseDto로 변환 (실시간 정보, 거리, 주소 포함)
    */
-  mapToNearbyResponse(station: StationResponseDto): NearbyStationResponseDto {
+  mapToNearbyResponse(
+    station: StationResponseDto & { distance?: number },
+  ): NearbyStationResponseDto {
     return {
       name: station.name,
       number: station.number,
+      address: station.address,
       latitude: station.latitude,
       longitude: station.longitude,
       current_bikes: station.current_bikes,
+      distance: station.distance,
     };
   }
 
@@ -71,7 +75,7 @@ export class StationMapperService {
    * StationResponseDto 배열을 NearbyStationResponseDto 배열로 변환
    */
   mapToNearbyResponseArray(
-    stations: StationResponseDto[],
+    stations: (StationResponseDto & { distance?: number })[],
   ): NearbyStationResponseDto[] {
     return stations.map((station) => this.mapToNearbyResponse(station));
   }
