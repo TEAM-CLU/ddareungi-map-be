@@ -47,7 +47,7 @@ export class StationQueryService {
   }
 
   /**
-   * 위치 기반 가장 가까운 대여소 3개 검색 - 실시간 정보 포함
+   * 위치 기반 가장 가까운 대여소 3개 검색 - 실시간 정보 및 거리 포함
    */
   async findNearbyStations(
     latitude: number,
@@ -76,9 +76,13 @@ export class StationQueryService {
         .limit(searchLimit);
 
       const rawResults = await query.getRawMany();
-      const stationResults = rawResults.map((row: StationRawQueryResult) =>
-        this.stationMapperService.mapRawQueryToResponse(row),
-      );
+      const stationResults = rawResults.map((row: StationRawQueryResult) => {
+        const station = this.stationMapperService.mapRawQueryToResponse(row);
+        return {
+          ...station,
+          distance: Math.round(parseFloat(row.distance as string)), // 거리 정보 추가 (정수로 반올림)
+        };
+      });
 
       // 실시간 대여정보 동기화
       await this.stationRealtimeService.syncRealtimeInfoForStations(
@@ -152,6 +156,48 @@ export class StationQueryService {
   }
 
   /**
+   * 대여소 번호로 조회 - 현재 위치 기준 거리 포함
+   */
+  async findByNumberWithDistance(
+    number: string,
+    latitude?: number,
+    longitude?: number,
+  ): Promise<(StationResponseDto & { distance?: number }) | null> {
+    const baseQuery = this.createBaseStationQuery().where(
+      'station.number = :number',
+      { number },
+    );
+
+    // 위치가 제공된 경우 거리 계산 추가
+    if (latitude !== undefined && longitude !== undefined) {
+      baseQuery
+        .addSelect(
+          'ST_Distance(station.location, ST_MakePoint(:longitude, :latitude)::geography) as distance',
+        )
+        .setParameters({ longitude, latitude });
+    }
+
+    const result =
+      (await baseQuery.getRawOne()) as StationRawQueryResult | null;
+
+    if (!result) {
+      return null;
+    }
+
+    const station = this.stationMapperService.mapRawQueryToResponse(result);
+
+    // 거리 정보가 있으면 추가
+    if (result.distance !== undefined) {
+      return {
+        ...station,
+        distance: Math.round(parseFloat(result.distance)), // 정수로 반올림
+      };
+    }
+
+    return station;
+  }
+
+  /**
    * 지도 영역 내 모든 대여소 조회 - DB 데이터만 (성능 최적화)
    */
   async findStationsInMapArea(
@@ -177,9 +223,12 @@ export class StationQueryService {
       });
 
     const rawResults = await query.getRawMany();
-    const stationResults = rawResults.map((row: StationRawQueryResult) =>
-      this.stationMapperService.mapRawQueryToResponse(row),
-    );
+    const stationResults = rawResults.map((row: StationRawQueryResult) => {
+      const station = this.stationMapperService.mapRawQueryToResponse(row);
+      return {
+        ...station,
+      };
+    });
 
     return stationResults;
   }
