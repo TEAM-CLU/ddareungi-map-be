@@ -279,18 +279,7 @@ export class AuthController {
     @Query('state') state: string,
     @Res() res: Response
   ) {
-    try {
-      // 회원가입/로그인 처리하고 state에 정보 저장
-      const resultState = await this.authService.handleGooglePKCECallback(code, state);
-      
-      // 딥링크로 state 전달 (프론트에서 codeVerifier로 토큰 교환할 수 있도록)
-      const successDeepLink = `ddareungi://auth/callback?success=true&state=${resultState}&provider=google&message=${encodeURIComponent('Google 로그인 성공')}`;
-      return res.redirect(successDeepLink);
-      
-    } catch (error) {
-      const errorDeepLink = `ddareungi://auth/callback?error=auth_failed&message=${encodeURIComponent(error.message)}`;
-      return res.redirect(errorDeepLink);
-    }
+    return await this.authService.handleGooglePKCECallback(code, state);
   }
 
   @Get('kakao/pkce/callback')
@@ -303,18 +292,7 @@ export class AuthController {
     @Query('state') state: string,
     @Res() res: Response
   ) {
-    try {
-      // 회원가입/로그인 처리하고 state에 정보 저장
-      const resultState = await this.authService.handleKakaoPKCECallback(code, state);
-      
-      // 딥링크로 state 전달 (프론트에서 codeVerifier로 토큰 교환할 수 있도록)
-      const successDeepLink = `ddareungi://auth/?success=true&state=${resultState}&provider=kakao&message=${encodeURIComponent('Kakao 로그인 성공')}`;
-      return res.redirect(successDeepLink);
-      
-    } catch (error) {
-      const errorDeepLink = `ddareungi://auth/?error=auth_failed&message=${encodeURIComponent(error.message)}`;
-      return res.redirect(errorDeepLink);
-    }
+    return await this.authService.handleKakaoPKCECallback(code, state);
   }
 
   @Get('naver/pkce/callback')
@@ -327,18 +305,7 @@ export class AuthController {
     @Query('state') state: string,
     @Res() res: Response
   ) {
-    try {
-      // 회원가입/로그인 처리하고 state에 정보 저장
-      const resultState = await this.authService.handleNaverPKCECallback(code, state);
-      
-      // 딥링크로 state 전달 (프론트에서 codeVerifier로 토큰 교환할 수 있도록)
-      const successDeepLink = `ddareungi://auth/callback?success=true&state=${resultState}&provider=naver&message=${encodeURIComponent('Naver 로그인 성공')}`;
-      return res.redirect(successDeepLink);
-      
-    } catch (error) {
-      const errorDeepLink = `ddareungi://auth/callback?error=auth_failed&message=${encodeURIComponent(error.message)}`;
-      return res.redirect(errorDeepLink);
-    }
+    return await this.authService.handleNaverPKCECallback(code, state);
   }
 
   @Get('check-status')
