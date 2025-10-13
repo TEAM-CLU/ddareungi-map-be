@@ -500,10 +500,6 @@ export class AuthController {
     }
   })
   async getDebugStates() {
-    // 프로덕션 환경에서는 접근 차단
-    if (process.env.NODE_ENV === 'production') {
-      throw new BadRequestException('이 엔드포인트는 개발 환경에서만 사용할 수 있습니다.');
-    }
     
     return await this.authService.getDebugStates();
   }
@@ -536,11 +532,7 @@ export class AuthController {
     }
   })
   async getDebugStateDetail(@Param('state') state: string) {
-    // 프로덕션 환경에서는 접근 차단
-    if (process.env.NODE_ENV === 'production') {
-      throw new BadRequestException('이 엔드포인트는 개발 환경에서만 사용할 수 있습니다.');
-    }
-    
+
     return await this.authService.getDebugStateDetail(state);
   }
 }
