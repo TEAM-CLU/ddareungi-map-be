@@ -925,4 +925,115 @@ export class AuthService {
       }
     }
   }
+
+  // ==================== 디버깅용 메서드들 ====================
+
+  /**
+   * 저장된 PKCE 상태들을 조회 (디버깅용)
+   */
+  async getDebugStates(): Promise<{
+    message: string;
+    count: number;
+    states: Array<{
+      state: string;
+      isComplete: boolean;
+      expiresAt: Date;
+      hasUser: boolean;
+      hasAccessToken: boolean;
+      userEmail?: string;
+    }>;
+    verificationCodes: Array<{
+      email: string;
+      expiresAt: Date;
+      attempts: number;
+    }>;
+  }> {
+    // 만료된 데이터 먼저 정리
+    this.cleanupExpiredAuthData();
+
+    const statesList: Array<{
+      state: string;
+      isComplete: boolean;
+      expiresAt: Date;
+      hasUser: boolean;
+      hasAccessToken: boolean;
+      userEmail?: string;
+    }> = [];
+    
+    for (const [state, data] of this.pkceStates.entries()) {
+      statesList.push({
+        state: state,
+        isComplete: data.isComplete,
+        expiresAt: data.expiresAt,
+        hasUser: !!data.user,
+        hasAccessToken: !!data.accessToken,
+        userEmail: data.user?.email || data.user?.response?.email || undefined,
+      });
+    }
+
+    const verificationsList: Array<{
+      email: string;
+      expiresAt: Date;
+      attempts: number;
+    }> = [];
+    
+    for (const [email, verification] of this.verificationCodes.entries()) {
+      verificationsList.push({
+        email: verification.email,
+        expiresAt: verification.expiresAt,
+        attempts: verification.attempts,
+      });
+    }
+
+    return {
+      message: '현재 저장된 PKCE 상태들과 인증 코드들입니다.',
+      count: statesList.length,
+      states: statesList,
+      verificationCodes: verificationsList,
+    };
+  }
+
+  /**
+   * 특정 state의 상세 정보 조회 (디버깅용)
+   */
+  async getDebugStateDetail(state: string): Promise<{
+    message: string;
+    exists: boolean;
+    data?: any;
+  }> {
+    const pkceData = this.pkceStates.get(state);
+    
+    if (!pkceData) {
+      return {
+        message: '해당 state를 찾을 수 없습니다.',
+        exists: false,
+      };
+    }
+
+    // 만료 확인
+    if (pkceData.expiresAt < new Date()) {
+      this.pkceStates.delete(state);
+      return {
+        message: '해당 state는 만료되어 삭제되었습니다.',
+        exists: false,
+      };
+    }
+
+    return {
+      message: '해당 state의 상세 정보입니다.',
+      exists: true,
+      data: {
+        state: state,
+        isComplete: pkceData.isComplete,
+        expiresAt: pkceData.expiresAt,
+        hasAccessToken: !!pkceData.accessToken,
+        hasUser: !!pkceData.user,
+        userInfo: pkceData.user ? {
+          email: pkceData.user.email || pkceData.user.response?.email,
+          name: pkceData.user.name || pkceData.user.response?.nickname,
+          socialProvider: pkceData.user.socialName || 'Unknown'
+        } : null,
+      },
+    };
+  }
 }
