@@ -55,20 +55,6 @@ export class RouteConverterService {
         bbox: this.convertToBoundingBox(bikeRoute.bbox),
         geometry: this.convertToGeometry(bikeRoute.points),
         profile: this.convertToBikeProfile(bikeRoute.profile), // 자전거 프로필 정보 추가
-        startStation: {
-          station_id: startStation.id,
-          station_name: startStation.name,
-          lat: startStation.lat,
-          lng: startStation.lng,
-          current_bikes: 8,
-        },
-        endStation: {
-          station_id: endStation.id,
-          station_name: endStation.name,
-          lat: endStation.lat,
-          lng: endStation.lng,
-          current_bikes: 5,
-        },
       },
       {
         type: 'walking',
@@ -89,14 +75,18 @@ export class RouteConverterService {
         : 0;
 
     const totalSummary: SummaryDto = {
-      distance:
+      distance: Math.round(
         walkingToStart.distance + bikeRoute.distance + walkingFromEnd.distance,
+      ),
       time: Math.round(
         (walkingToStart.time + bikeRoute.time + walkingFromEnd.time) / 1000,
       ), // ms to seconds
-      ascent: walkingToStart.ascend + bikeRoute.ascend + walkingFromEnd.ascend,
-      descent:
+      ascent: Math.round(
+        walkingToStart.ascend + bikeRoute.ascend + walkingFromEnd.ascend,
+      ),
+      descent: Math.round(
         walkingToStart.descend + bikeRoute.descend + walkingFromEnd.descend,
+      ),
       bikeRoadRatio: overallBikeRoadRatio,
     };
 
@@ -108,6 +98,20 @@ export class RouteConverterService {
         bikeRoute,
         walkingFromEnd,
       ]),
+      startStation: {
+        number: startStation.number,
+        name: startStation.name,
+        lat: startStation.lat,
+        lng: startStation.lng,
+        current_bikes: startStation.current_bikes,
+      },
+      endStation: {
+        number: endStation.number,
+        name: endStation.name,
+        lat: endStation.lat,
+        lng: endStation.lng,
+        current_bikes: endStation.current_bikes,
+      },
       segments,
     };
   }
@@ -248,42 +252,16 @@ export class RouteConverterService {
   }
 
   /**
-   * 자전거 경로 세그먼트 생성 (대여소 정보 포함)
+   * 자전거 경로 세그먼트 생성
    */
-  createBikeSegmentWithStations(
-    path: GraphHopperPath,
-    startStation?: RouteStation,
-    endStation?: RouteStation,
-  ): RouteSegmentDto {
-    const segment: RouteSegmentDto = {
+  createBikeSegment(path: GraphHopperPath): RouteSegmentDto {
+    return {
       type: 'biking',
       summary: this.convertToSummary(path),
       bbox: this.convertToBoundingBox(path.bbox),
       geometry: this.convertToGeometry(path.points),
       profile: this.convertToBikeProfile(path.profile), // GraphHopper 프로필을 enum으로 변환
     };
-
-    if (startStation) {
-      segment.startStation = {
-        station_id: startStation.id,
-        station_name: startStation.name,
-        lat: startStation.lat,
-        lng: startStation.lng,
-        current_bikes: 8,
-      };
-    }
-
-    if (endStation) {
-      segment.endStation = {
-        station_id: endStation.id,
-        station_name: endStation.name,
-        lat: endStation.lat,
-        lng: endStation.lng,
-        current_bikes: 5,
-      };
-    }
-
-    return segment;
   }
 
   /**
@@ -310,13 +288,6 @@ export class RouteConverterService {
         bbox: this.convertToBoundingBox(bikeToDestination.bbox),
         geometry: this.convertToGeometry(bikeToDestination.points),
         profile: this.convertToBikeProfile(bikeToDestination.profile), // 자전거 프로필 정보 추가
-        startStation: {
-          station_id: station.id,
-          station_name: station.name,
-          lat: station.lat,
-          lng: station.lng,
-          current_bikes: 8,
-        },
       },
       {
         type: 'biking',
@@ -324,13 +295,6 @@ export class RouteConverterService {
         bbox: this.convertToBoundingBox(bikeToStation.bbox),
         geometry: this.convertToGeometry(bikeToStation.points),
         profile: this.convertToBikeProfile(bikeToStation.profile), // 자전거 프로필 정보 추가
-        endStation: {
-          station_id: station.id,
-          station_name: station.name,
-          lat: station.lat,
-          lng: station.lng,
-          current_bikes: 5,
-        },
       },
       {
         type: 'walking',
@@ -341,11 +305,12 @@ export class RouteConverterService {
     ];
 
     const totalSummary: SummaryDto = {
-      distance:
+      distance: Math.round(
         walkingToStation.distance +
-        bikeToDestination.distance +
-        bikeToStation.distance +
-        walkingToStart.distance,
+          bikeToDestination.distance +
+          bikeToStation.distance +
+          walkingToStart.distance,
+      ),
       time: Math.round(
         (walkingToStation.time +
           bikeToDestination.time +
@@ -353,16 +318,18 @@ export class RouteConverterService {
           walkingToStart.time) /
           1000,
       ), // ms to seconds
-      ascent:
+      ascent: Math.round(
         walkingToStation.ascend +
-        bikeToDestination.ascend +
-        bikeToStation.ascend +
-        walkingToStart.ascend,
-      descent:
+          bikeToDestination.ascend +
+          bikeToStation.ascend +
+          walkingToStart.ascend,
+      ),
+      descent: Math.round(
         walkingToStation.descend +
-        bikeToDestination.descend +
-        bikeToStation.descend +
-        walkingToStart.descend,
+          bikeToDestination.descend +
+          bikeToStation.descend +
+          walkingToStart.descend,
+      ),
     };
 
     return {
@@ -374,6 +341,20 @@ export class RouteConverterService {
         bikeToStation,
         walkingToStart,
       ]),
+      startStation: {
+        number: station.number,
+        name: station.name,
+        lat: station.lat,
+        lng: station.lng,
+        current_bikes: station.current_bikes,
+      },
+      endStation: {
+        number: station.number,
+        name: station.name,
+        lat: station.lat,
+        lng: station.lng,
+        current_bikes: station.current_bikes,
+      },
       segments,
     };
   }
@@ -403,20 +384,6 @@ export class RouteConverterService {
         bbox: this.convertToBoundingBox(circularBikeRoute.bbox),
         geometry: this.convertToGeometry(circularBikeRoute.points),
         profile: this.convertToBikeProfile(circularBikeRoute.profile), // 자전거 프로필 정보 추가
-        startStation: {
-          station_id: station.id,
-          station_name: station.name,
-          lat: station.lat,
-          lng: station.lng,
-          current_bikes: 8,
-        },
-        endStation: {
-          station_id: station.id,
-          station_name: station.name,
-          lat: station.lat,
-          lng: station.lng,
-          current_bikes: 5,
-        },
       },
       // 3단계: 대여소 → 출발지 (도보)
       {
@@ -428,22 +395,25 @@ export class RouteConverterService {
     ];
 
     const totalSummary: SummaryDto = {
-      distance:
+      distance: Math.round(
         walkingToStation.distance +
-        circularBikeRoute.distance +
-        walkingToStart.distance,
+          circularBikeRoute.distance +
+          walkingToStart.distance,
+      ),
       time: Math.round(
         (walkingToStation.time + circularBikeRoute.time + walkingToStart.time) /
           1000,
       ), // ms to seconds
-      ascent:
+      ascent: Math.round(
         walkingToStation.ascend +
-        circularBikeRoute.ascend +
-        walkingToStart.ascend,
-      descent:
+          circularBikeRoute.ascend +
+          walkingToStart.ascend,
+      ),
+      descent: Math.round(
         walkingToStation.descend +
-        circularBikeRoute.descend +
-        walkingToStart.descend,
+          circularBikeRoute.descend +
+          walkingToStart.descend,
+      ),
     };
 
     return {
@@ -454,6 +424,20 @@ export class RouteConverterService {
         circularBikeRoute,
         walkingToStart,
       ]),
+      startStation: {
+        number: station.number,
+        name: station.name,
+        lat: station.lat,
+        lng: station.lng,
+        current_bikes: station.current_bikes,
+      },
+      endStation: {
+        number: station.number,
+        name: station.name,
+        lat: station.lat,
+        lng: station.lng,
+        current_bikes: station.current_bikes,
+      },
       segments,
     };
   }

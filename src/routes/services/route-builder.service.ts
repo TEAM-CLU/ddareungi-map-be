@@ -5,6 +5,7 @@ import {
   SummaryDto,
   BoundingBoxDto,
   CoordinateDto,
+  StationDto,
 } from '../dto/route.dto';
 import { RouteConverterService } from './route-converter.service';
 import { GraphHopperService } from './graphhopper.service';
@@ -31,6 +32,8 @@ export class RouteBuilderService {
     category: { name: string; priority: string },
     walkingToStart?: GraphHopperPath,
     walkingFromEnd?: GraphHopperPath,
+    startStation?: StationDto,
+    endStation?: StationDto,
   ): Promise<RouteDto> {
     const segments: RouteSegmentDto[] = [];
     let totalDistance = 0;
@@ -42,16 +45,21 @@ export class RouteBuilderService {
 
     // 첫 번째 도보 구간 추가 (출발지 → 시작 대여소)
     if (walkingToStart) {
+      const walkingSummary = this.routeConverter.convertToSummary(
+        walkingToStart,
+        false,
+      );
       const walkingSegment =
         this.routeConverter.convertToRouteSegment(walkingToStart);
       // 도보 세그먼트로 타입 변경
       walkingSegment.type = 'walking';
+      walkingSegment.summary = walkingSummary;
       segments.push(walkingSegment);
 
-      totalDistance += walkingToStart.distance;
-      totalTime += walkingToStart.time;
-      totalAscent += walkingToStart.ascend || 0;
-      totalDescent += walkingToStart.descend || 0;
+      totalDistance += walkingSummary.distance;
+      totalTime += walkingSummary.time;
+      totalAscent += walkingSummary.ascent || 0;
+      totalDescent += walkingSummary.descent || 0;
     }
 
     // 각 자전거 구간별로 경로 검색
@@ -90,32 +98,37 @@ export class RouteBuilderService {
       segment.summary = bikeSummary;
       segments.push(segment);
 
-      // 총합 계산
-      totalDistance += selectedRoute.distance;
-      totalTime += selectedRoute.time;
-      totalAscent += selectedRoute.ascend || 0;
-      totalDescent += selectedRoute.descend || 0;
+      // 총합 계산 (bikeSummary 사용)
+      totalDistance += bikeSummary.distance;
+      totalTime += bikeSummary.time;
+      totalAscent += bikeSummary.ascent || 0;
+      totalDescent += bikeSummary.descent || 0;
 
       // 자전거 도로 길이 계산
-      totalBikeDistance += selectedRoute.distance;
+      totalBikeDistance += bikeSummary.distance;
       if (bikeSummary.bikeRoadRatio) {
         totalBikeRoadDistance +=
-          selectedRoute.distance * bikeSummary.bikeRoadRatio;
+          bikeSummary.distance * bikeSummary.bikeRoadRatio;
       }
     }
 
     // 마지막 도보 구간 추가 (도착 대여소 → 도착지)
     if (walkingFromEnd) {
+      const walkingSummary = this.routeConverter.convertToSummary(
+        walkingFromEnd,
+        false,
+      );
       const walkingSegment =
         this.routeConverter.convertToRouteSegment(walkingFromEnd);
       // 도보 세그먼트로 타입 변경
       walkingSegment.type = 'walking';
+      walkingSegment.summary = walkingSummary;
       segments.push(walkingSegment);
 
-      totalDistance += walkingFromEnd.distance;
-      totalTime += walkingFromEnd.time;
-      totalAscent += walkingFromEnd.ascend || 0;
-      totalDescent += walkingFromEnd.descend || 0;
+      totalDistance += walkingSummary.distance;
+      totalTime += walkingSummary.time;
+      totalAscent += walkingSummary.ascent || 0;
+      totalDescent += walkingSummary.descent || 0;
     }
 
     // 전체 경로의 자전거 도로 비율 계산
@@ -127,16 +140,20 @@ export class RouteBuilderService {
     // 전체 경계 상자 계산
     const bbox = this.calculateBoundingBox(segments);
 
+    const summary: SummaryDto = {
+      distance: Math.round(totalDistance),
+      time: Math.round(totalTime),
+      ascent: Math.round(totalAscent),
+      descent: Math.round(totalDescent),
+      bikeRoadRatio: overallBikeRoadRatio,
+    };
+
     return {
       routeCategory: category.name,
-      summary: {
-        distance: totalDistance,
-        time: totalTime,
-        ascent: totalAscent,
-        descent: totalDescent,
-        bikeRoadRatio: overallBikeRoadRatio,
-      },
+      summary,
       bbox,
+      startStation,
+      endStation,
       segments,
     };
   }
@@ -186,13 +203,21 @@ export class RouteBuilderService {
     return {
       routeCategory: forwardRoute.routeCategory,
       summary: {
-        distance: forwardRoute.summary.distance + returnRoute.summary.distance,
-        time: forwardRoute.summary.time + returnRoute.summary.time,
-        ascent: forwardRoute.summary.ascent + returnRoute.summary.ascent,
-        descent: forwardRoute.summary.descent + returnRoute.summary.descent,
+        distance: Math.round(
+          forwardRoute.summary.distance + returnRoute.summary.distance,
+        ),
+        time: Math.round(forwardRoute.summary.time + returnRoute.summary.time),
+        ascent: Math.round(
+          forwardRoute.summary.ascent + returnRoute.summary.ascent,
+        ),
+        descent: Math.round(
+          forwardRoute.summary.descent + returnRoute.summary.descent,
+        ),
         bikeRoadRatio: overallBikeRoadRatio,
       },
       bbox: this.mergeBoundingBoxes(forwardRoute.bbox, returnRoute.bbox),
+      startStation: forwardRoute.startStation,
+      endStation: returnRoute.endStation,
       segments: [...forwardRoute.segments, ...returnRoute.segments],
     };
   }
