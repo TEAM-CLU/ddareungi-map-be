@@ -77,6 +77,13 @@ export class SummaryDto {
 
   @ApiProperty({ description: '하강 고도 (미터)' })
   descent: number;
+
+  @ApiProperty({
+    description: '자전거 도로 비율 (0.00 ~ 1.00)',
+    required: false,
+    example: 0.78,
+  })
+  bikeRoadRatio?: number;
 }
 
 export class BoundingBoxDto {

@@ -5,6 +5,7 @@ import { RoutesService } from './routes.service';
 import { GraphHopperService } from './services/graphhopper.service';
 import { RouteOptimizerService } from './services/route-optimizer.service';
 import { RouteConverterService } from './services/route-converter.service';
+import { RouteBuilderService } from './services/route-builder.service';
 import { StationRouteService } from './services/station-route.service';
 import { StationsModule } from '../stations/stations.module';
 
@@ -19,6 +20,7 @@ import { StationsModule } from '../stations/stations.module';
     GraphHopperService,
     RouteOptimizerService,
     RouteConverterService,
+    RouteBuilderService,
     StationRouteService,
   ],
 })
