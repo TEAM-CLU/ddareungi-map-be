@@ -35,7 +35,7 @@ export class AuthService {
   // PKCE state별 사용자 정보 및 토큰 저장소 (codeVerifier 포함)
   private pkceStates = new Map<
     string,
-    { accessToken: string; user: any; codeVerifier: string; expiresAt: Date }
+    { accessToken: string; user: any; codeVerifier: string; expiresAt: Date; isComplete: boolean }
   >();
 
   constructor(
@@ -154,19 +154,7 @@ export class AuthService {
     };
   }
 
-  /**
-   * 만료된 인증 코드 및 토큰 정리 (실제로는 스케줄러 사용)
-   */
-  private cleanupExpiredData(): void {
-    const now = new Date();
 
-    // 만료된 인증 코드 삭제
-    for (const [email, verification] of this.verificationCodes.entries()) {
-      if (now > verification.expiresAt) {
-        this.verificationCodes.delete(email);
-      }
-    }
-  }
 
   async validateUserByToken(token: string): Promise<User> {
     try {
@@ -496,6 +484,7 @@ export class AuthService {
       user: null, // 콜백에서 채워질 예정
       codeVerifier: pkce.codeVerifier,
       expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10분
+      isComplete: false, // 초기 상태는 미완료
     });
 
     const baseUrl = 'https://accounts.google.com/o/oauth2/auth';
@@ -538,6 +527,7 @@ export class AuthService {
       user: null, // 콜백에서 채워질 예정
       codeVerifier: pkce.codeVerifier,
       expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10분
+      isComplete: false, // 초기 상태는 미완료
     });
 
     const baseUrl = 'https://kauth.kakao.com/oauth/authorize';
@@ -579,6 +569,7 @@ export class AuthService {
       user: null, // 콜백에서 채워질 예정
       codeVerifier: pkce.codeVerifier,
       expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10분
+      isComplete: false, // 초기 상태는 미완료
     });
 
     const baseUrl = 'https://nid.naver.com/oauth2.0/authorize';
@@ -665,12 +656,13 @@ export class AuthService {
       // 4. 회원가입/로그인 처리
       const authResult = await this.handleGoogleLogin(googleProfile);
 
-      // 5. 기존 state 데이터 업데이트 (codeVerifier 유지)
+      // 5. 기존 state 데이터 업데이트 (codeVerifier 유지, 로그인 완료 표시)
       this.pkceStates.set(state, {
         accessToken: authResult.accessToken,
         user: googleProfile,
         codeVerifier: existingPkceData.codeVerifier, // 기존 codeVerifier 유지
         expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5분으로 갱신
+        isComplete: true, // 로그인 완료
       });
 
       // 7. state 반환 (딥링크에 사용)
@@ -732,12 +724,13 @@ export class AuthService {
       // 3. 회원가입/로그인 처리
       const authResult = await this.handleKakaoLogin(kakaoProfile);
 
-      // 4. 기존 state 데이터 업데이트 (codeVerifier 유지)
+      // 4. 기존 state 데이터 업데이트 (codeVerifier 유지, 로그인 완료 표시)
       this.pkceStates.set(state, {
         accessToken: authResult.accessToken,
         user: kakaoProfile,
         codeVerifier: existingPkceData.codeVerifier, // 기존 codeVerifier 유지
         expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5분으로 갱신
+        isComplete: true, // 로그인 완료
       });
 
       // 5. state 반환 (딥링크에 사용)
@@ -801,12 +794,13 @@ export class AuthService {
       // 3. 회원가입/로그인 처리
       const authResult = await this.handleNaverLogin(naverProfile);
 
-      // 4. 기존 state 데이터 업데이트 (codeVerifier 유지)
+      // 4. 기존 state 데이터 업데이트 (codeVerifier 유지, 로그인 완료 표시)
       this.pkceStates.set(state, {
         accessToken: authResult.accessToken,
         user: naverProfile,
         codeVerifier: existingPkceData.codeVerifier, // 기존 codeVerifier 유지
         expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5분으로 갱신
+        isComplete: true, // 로그인 완료
       });
 
       // 5. state 반환 (딥링크에 사용)
@@ -822,33 +816,45 @@ export class AuthService {
   // 🔐 codeVerifier 검증으로 토큰 반환
   async exchangeTokenWithCodeVerifier(
     codeVerifier: string,
-    state: string,
-  ): Promise<{ accessToken: string; user: any }> {
+  ): Promise<{ accessToken: string}> {
     try {
-      // state로 저장된 사용자 정보 조회
-      const pkceData = this.pkceStates.get(state);
+      // 모든 state를 순회하여 일치하는 codeVerifier 찾기
+      let matchingState: string | null = null;
+      let matchingData: any = null;
 
-      if (!pkceData) {
-        throw new UnauthorizedException('Invalid or expired state');
+      for (const [state, pkceData] of this.pkceStates.entries()) {
+        // 만료 확인
+        if (pkceData.expiresAt < new Date()) {
+          this.pkceStates.delete(state);
+          continue;
+        }
+
+        // codeVerifier 일치 확인
+        if (pkceData.codeVerifier === codeVerifier) {
+          matchingState = state;
+          matchingData = pkceData;
+          break;
+        }
       }
 
-      if (pkceData.expiresAt < new Date()) {
-        this.pkceStates.delete(state);
-        throw new UnauthorizedException('State has expired');
+      if (!matchingData || !matchingState) {
+        throw new UnauthorizedException('Invalid or expired code verifier');
       }
 
-      // codeVerifier 일치 확인
-      if (pkceData.codeVerifier !== codeVerifier) {
-        throw new UnauthorizedException('Invalid code verifier');
+      // 로그인이 완료되지 않은 경우
+      if (!matchingData.isComplete) {
+        throw new UnauthorizedException('Social login not completed yet');
       }
 
-      // 사용된 state 삭제
-      this.pkceStates.delete(state);
-
-      return {
-        accessToken: pkceData.accessToken, // 우리 서비스 JWT 토큰
-        user: pkceData.user,
+      // 토큰 반환 데이터 저장
+      const result = {
+        accessToken: matchingData.accessToken // 우리 서비스 JWT 토큰
       };
+
+      // 성공적으로 토큰을 교환했으므로 state 삭제
+      this.pkceStates.delete(matchingState);
+
+      return result;
     } catch (error) {
       console.error('Token exchange error:', error);
       throw new UnauthorizedException('토큰 교환에 실패했습니다.');
@@ -885,5 +891,198 @@ export class AuthService {
       }
       throw new UnauthorizedException('토큰 검증에 실패했습니다.');
     }
+  }
+
+  // 🔄 폴링 API - 소셜 로그인 완료 상태 확인
+  async checkAuthStatus(clientState?: string): Promise<{
+    state: string | null;
+    isComplete: boolean;
+    message: string;
+  }> {
+    // 만료된 데이터 정리
+    this.cleanupExpiredAuthData();
+
+    // 특정 clientState가 제공된 경우 해당 state만 확인
+    if (clientState) {
+      const pkceData = this.pkceStates.get(clientState);
+      
+      if (!pkceData) {
+        return {
+          state: null,
+          isComplete: false,
+          message: '해당 상태를 찾을 수 없거나 만료되었습니다.'
+        };
+      }
+
+      if (pkceData.expiresAt < new Date()) {
+        this.pkceStates.delete(clientState);
+        return {
+          state: null,
+          isComplete: false,
+          message: '상태가 만료되었습니다.'
+        };
+      }
+
+      if (pkceData.isComplete) {
+        return {
+          state: clientState,
+          isComplete: true,
+          message: '소셜 로그인이 완료되었습니다.'
+        };
+      } else {
+        return {
+          state: null,
+          isComplete: false,
+          message: '소셜 로그인이 아직 완료되지 않았습니다.'
+        };
+      }
+    }
+
+    // clientState가 없는 경우, 완료된 state가 있는지 확인
+    for (const [state, data] of this.pkceStates.entries()) {
+      if (data.isComplete && data.expiresAt > new Date()) {
+        return {
+          state: state,
+          isComplete: true,
+          message: '소셜 로그인이 완료되었습니다.'
+        };
+      }
+    }
+
+    return {
+      state: null,
+      isComplete: false,
+      message: '진행 중인 소셜 로그인이 없거나 아직 완료되지 않았습니다.'
+    };
+  }
+
+  // 만료된 인증 데이터 정리
+  private cleanupExpiredAuthData(): void {
+    const now = new Date();
+
+    // 만료된 인증 코드 삭제
+    for (const [email, verification] of this.verificationCodes.entries()) {
+      if (now > verification.expiresAt) {
+        this.verificationCodes.delete(email);
+      }
+    }
+
+    // 만료된 PKCE 상태 삭제
+    for (const [state, data] of this.pkceStates.entries()) {
+      if (now > data.expiresAt) {
+        this.pkceStates.delete(state);
+      }
+    }
+  }
+
+  // ==================== 디버깅용 메서드들 ====================
+
+  /**
+   * 저장된 PKCE 상태들을 조회 (디버깅용)
+   */
+  async getDebugStates(): Promise<{
+    message: string;
+    count: number;
+    states: Array<{
+      state: string;
+      isComplete: boolean;
+      expiresAt: Date;
+      hasUser: boolean;
+      hasAccessToken: boolean;
+      userEmail?: string;
+    }>;
+    verificationCodes: Array<{
+      email: string;
+      expiresAt: Date;
+      attempts: number;
+    }>;
+  }> {
+    // 만료된 데이터 먼저 정리
+    this.cleanupExpiredAuthData();
+
+    const statesList: Array<{
+      state: string;
+      isComplete: boolean;
+      expiresAt: Date;
+      hasUser: boolean;
+      hasAccessToken: boolean;
+      userEmail?: string;
+    }> = [];
+    
+    for (const [state, data] of this.pkceStates.entries()) {
+      statesList.push({
+        state: state,
+        isComplete: data.isComplete,
+        expiresAt: data.expiresAt,
+        hasUser: !!data.user,
+        hasAccessToken: !!data.accessToken,
+        userEmail: data.user?.email || data.user?.response?.email || undefined,
+      });
+    }
+
+    const verificationsList: Array<{
+      email: string;
+      expiresAt: Date;
+      attempts: number;
+    }> = [];
+    
+    for (const [email, verification] of this.verificationCodes.entries()) {
+      verificationsList.push({
+        email: verification.email,
+        expiresAt: verification.expiresAt,
+        attempts: verification.attempts,
+      });
+    }
+
+    return {
+      message: '현재 저장된 PKCE 상태들과 인증 코드들입니다.',
+      count: statesList.length,
+      states: statesList,
+      verificationCodes: verificationsList,
+    };
+  }
+
+  /**
+   * 특정 state의 상세 정보 조회 (디버깅용)
+   */
+  async getDebugStateDetail(state: string): Promise<{
+    message: string;
+    exists: boolean;
+    data?: any;
+  }> {
+    const pkceData = this.pkceStates.get(state);
+    
+    if (!pkceData) {
+      return {
+        message: '해당 state를 찾을 수 없습니다.',
+        exists: false,
+      };
+    }
+
+    // 만료 확인
+    if (pkceData.expiresAt < new Date()) {
+      this.pkceStates.delete(state);
+      return {
+        message: '해당 state는 만료되어 삭제되었습니다.',
+        exists: false,
+      };
+    }
+
+    return {
+      message: '해당 state의 상세 정보입니다.',
+      exists: true,
+      data: {
+        state: state,
+        isComplete: pkceData.isComplete,
+        expiresAt: pkceData.expiresAt,
+        hasAccessToken: !!pkceData.accessToken,
+        hasUser: !!pkceData.user,
+        userInfo: pkceData.user ? {
+          email: pkceData.user.email || pkceData.user.response?.email,
+          name: pkceData.user.name || pkceData.user.response?.nickname,
+          socialProvider: pkceData.user.socialName || 'Unknown'
+        } : null,
+      },
+    };
   }
 }

@@ -1,4 +1,4 @@
-import { Controller, Post, Body, HttpCode, HttpStatus, Get, Req, Res, UseGuards, Query, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Body, HttpCode, HttpStatus, Get, Req, Res, UseGuards, Query, BadRequestException, Param } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { 
@@ -200,7 +200,8 @@ export class AuthController {
       example: {
         message: 'Google PKCE 로그인 URL입니다.',
         authUrl: 'https://accounts.google.com/o/oauth2/auth?client_id=...',
-        codeVerifier: 'xyz123...',
+        state: 'xyz123...',
+        codeVerifier: 'abc456...',
       }
     }
   })
@@ -208,7 +209,9 @@ export class AuthController {
     const result = this.authService.getGooglePKCEAuthUrl();
     return {
       message: 'Google PKCE 로그인 URL입니다.',
-      ...result
+      authUrl: result.authUrl,
+      state: result.state,
+      codeVerifier: result.codeVerifier,
     };
   }
 
@@ -224,7 +227,8 @@ export class AuthController {
       example: {
         message: 'Kakao PKCE 로그인 URL입니다.',
         authUrl: 'https://kauth.kakao.com/oauth/authorize?client_id=...',
-        codeVerifier: 'xyz123...',
+        state: 'xyz123...',
+        codeVerifier: 'abc456...',
       }
     }
   })
@@ -232,7 +236,9 @@ export class AuthController {
     const result = this.authService.getKakaoPKCEAuthUrl();
     return {
       message: 'Kakao PKCE 로그인 URL입니다.',
-      ...result
+      authUrl: result.authUrl,
+      state: result.state,
+      codeVerifier: result.codeVerifier,
     };
   }
 
@@ -248,7 +254,8 @@ export class AuthController {
       example: {
         message: 'Naver PKCE 로그인 URL입니다.',
         authUrl: 'https://nid.naver.com/oauth2.0/authorize?client_id=...',
-        codeVerifier: 'xyz123...',
+        state: 'xyz123...',
+        codeVerifier: 'abc456...',
       }
     }
   })
@@ -256,7 +263,9 @@ export class AuthController {
     const result = this.authService.getNaverPKCEAuthUrl();
     return {
       message: 'Naver PKCE 로그인 URL입니다.',
-      ...result
+      authUrl: result.authUrl,
+      state: result.state,
+      codeVerifier: result.codeVerifier,
     };
   }
 
@@ -271,16 +280,81 @@ export class AuthController {
     @Res() res: Response
   ) {
     try {
-      // 회원가입/로그인 처리하고 state에 정보 저장
-      const resultState = await this.authService.handleGooglePKCECallback(code, state);
+      // 필수 파라미터 검증
+      if (!code || !state) {
+        return res.status(400).send(`
+          <html>
+            <body>
+              <h2>로그인 실패</h2>
+              <p>필수 파라미터가 누락되었습니다.</p>
+              <script>
+                setTimeout(() => window.close(), 3000);
+              </script>
+            </body>
+          </html>
+        `);
+      }
+
+      await this.authService.handleGooglePKCECallback(code, state);
       
-      // 딥링크로 state 전달 (프론트에서 codeVerifier로 토큰 교환할 수 있도록)
-      const successDeepLink = `${process.env.GOOGLE_PKCE_CALLBACK_URL}/?success=true&state=${resultState}&provider=google&message=${encodeURIComponent('Google 로그인 성공')}`;
-      return res.redirect(successDeepLink);
-      
+      // 성공 시 사용자 친화적인 페이지 반환
+      return res.send(`
+        <html>
+          <head>
+            <meta charset="UTF-8">
+            <title>로그인 성공</title>
+          </head>
+          <body>
+            <h2>✅ 구글 로그인 성공!</h2>
+            <p>앱으로 돌아가서 계속 진행해주세요.</p>
+            <p>이 창은 3초 후 자동으로 닫힙니다.</p>
+            <script>
+              // 모바일 앱으로 데이터 전달 (선택사항)
+              if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                  type: 'GOOGLE_LOGIN_SUCCESS',
+                  state: '${state}'
+                }));
+              }
+              
+              // 창 닫기 (웹뷰에서는 부모에게 알림)
+              setTimeout(() => {
+                if (window.close) {
+                  window.close();
+                } else {
+                  window.location.href = 'about:blank';
+                }
+              }, 3000);
+            </script>
+          </body>
+        </html>
+      `);
     } catch (error) {
-      const errorDeepLink = `${process.env.GOOGLE_PKCE_CALLBACK_URL}/?error=auth_failed&message=${encodeURIComponent(error.message)}`;
-      return res.redirect(errorDeepLink);
+      console.error('Google PKCE callback error:', error);
+      
+      // 에러 시에도 명확한 응답 제공
+      return res.status(500).send(`
+        <html>
+          <head>
+            <meta charset="UTF-8">
+            <title>로그인 오류</title>
+          </head>
+          <body>
+            <h2>❌ 로그인 처리 중 오류가 발생했습니다</h2>
+            <p>잠시 후 다시 시도해주세요.</p>
+            <p>문제가 계속되면 고객센터로 문의해주세요.</p>
+            <script>
+              setTimeout(() => {
+                if (window.close) {
+                  window.close();
+                } else {
+                  window.location.href = 'about:blank';
+                }
+              }, 5000);
+            </script>
+          </body>
+        </html>
+      `);
     }
   }
 
@@ -295,16 +369,50 @@ export class AuthController {
     @Res() res: Response
   ) {
     try {
-      // 회원가입/로그인 처리하고 state에 정보 저장
-      const resultState = await this.authService.handleKakaoPKCECallback(code, state);
+      if (!code || !state) {
+        return res.status(400).send(`
+          <html>
+            <body>
+              <h2>로그인 실패</h2>
+              <p>필수 파라미터가 누락되었습니다.</p>
+              <script>setTimeout(() => window.close(), 3000);</script>
+            </body>
+          </html>
+        `);
+      }
+
+      await this.authService.handleKakaoPKCECallback(code, state);
       
-      // 딥링크로 state 전달 (프론트에서 codeVerifier로 토큰 교환할 수 있도록)
-      const successDeepLink = `ddareungi://auth/?success=true&state=${resultState}&provider=kakao&message=${encodeURIComponent('Kakao 로그인 성공')}`;
-      return res.redirect(successDeepLink);
-      
+      return res.send(`
+        <html>
+          <head><meta charset="UTF-8"><title>로그인 성공</title></head>
+          <body>
+            <h2>✅ 카카오 로그인 성공!</h2>
+            <p>앱으로 돌아가서 계속 진행해주세요.</p>
+            <script>
+              if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                  type: 'KAKAO_LOGIN_SUCCESS',
+                  state: '${state}'
+                }));
+              }
+              setTimeout(() => window.close() || (window.location.href = 'about:blank'), 3000);
+            </script>
+          </body>
+        </html>
+      `);
     } catch (error) {
-      const errorDeepLink = `ddareungi://auth/?error=auth_failed&message=${encodeURIComponent(error.message)}`;
-      return res.redirect(errorDeepLink);
+      console.error('Kakao PKCE callback error:', error);
+      return res.status(500).send(`
+        <html>
+          <head><meta charset="UTF-8"><title>로그인 오류</title></head>
+          <body>
+            <h2>❌ 로그인 처리 중 오류가 발생했습니다</h2>
+            <p>잠시 후 다시 시도해주세요.</p>
+            <script>setTimeout(() => window.close() || (window.location.href = 'about:blank'), 5000);</script>
+          </body>
+        </html>
+      `);
     }
   }
 
@@ -319,32 +427,120 @@ export class AuthController {
     @Res() res: Response
   ) {
     try {
-      // 회원가입/로그인 처리하고 state에 정보 저장
-      const resultState = await this.authService.handleNaverPKCECallback(code, state);
+      if (!code || !state) {
+        return res.status(400).send(`
+          <html>
+            <body>
+              <h2>로그인 실패</h2>
+              <p>필수 파라미터가 누락되었습니다.</p>
+              <script>setTimeout(() => window.close(), 3000);</script>
+            </body>
+          </html>
+        `);
+      }
+
+      await this.authService.handleNaverPKCECallback(code, state);
       
-      // 딥링크로 state 전달 (프론트에서 codeVerifier로 토큰 교환할 수 있도록)
-      const successDeepLink = `ddareungi://auth/callback?success=true&state=${resultState}&provider=naver&message=${encodeURIComponent('Naver 로그인 성공')}`;
-      return res.redirect(successDeepLink);
-      
+      return res.send(`
+        <html>
+          <head><meta charset="UTF-8"><title>로그인 성공</title></head>
+          <body>
+            <h2>✅ 네이버 로그인 성공!</h2>
+            <p>앱으로 돌아가서 계속 진행해주세요.</p>
+            <script>
+              if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                  type: 'NAVER_LOGIN_SUCCESS',
+                  state: '${state}'
+                }));
+              }
+              setTimeout(() => window.close() || (window.location.href = 'about:blank'), 3000);
+            </script>
+          </body>
+        </html>
+      `);
     } catch (error) {
-      const errorDeepLink = `ddareungi://auth/callback?error=auth_failed&message=${encodeURIComponent(error.message)}`;
-      return res.redirect(errorDeepLink);
+      console.error('Naver PKCE callback error:', error);
+      return res.status(500).send(`
+        <html>
+          <head><meta charset="UTF-8"><title>로그인 오류</title></head>
+          <body>
+            <h2>❌ 로그인 처리 중 오류가 발생했습니다</h2>
+            <p>잠시 후 다시 시도해주세요.</p>
+            <script>setTimeout(() => window.close() || (window.location.href = 'about:blank'), 5000);</script>
+          </body>
+        </html>
+      `);
     }
+  }
+
+  @Get('check-status')
+  @ApiOperation({ 
+    summary: '소셜 로그인 상태 폴링',
+    description: `프론트에서 소셜 로그인 완료 여부를 확인하기 위한 폴링 API입니다. 
+    서버 부하 방지를 위해 최소 2-3초 간격으로 호출하시고, 
+    clientState 파라미터를 전달하여 효율적인 상태 확인이 가능합니다.`
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: '상태 확인 성공',
+    schema: {
+      examples: {
+        incomplete: {
+          summary: '로그인 미완료',
+          value: {
+            state: null,
+            isComplete: false,
+            message: '소셜 로그인이 아직 완료되지 않았습니다.',
+            recommendedPollingInterval: 3000
+          }
+        },
+        complete: {
+          summary: '로그인 완료',
+          value: {
+            state: 'abc123xyz',
+            isComplete: true,
+            message: '소셜 로그인이 완료되었습니다.',
+            recommendedPollingInterval: 0
+          }
+        }
+      }
+    }
+  })
+  async checkAuthStatus(
+    @Res() res: Response,
+    @Query('clientState') clientState?: string
+  ) {
+    // 서버 부하 방지를 위한 캐시 헤더 설정
+    res.set({
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    });
+
+    const result = await this.authService.checkAuthStatus(clientState);
+    
+    // 폴링 간격 권장사항 추가
+    const responseWithInterval = {
+      ...result,
+      recommendedPollingInterval: result.isComplete ? 0 : 3000 // 완료되면 0, 미완료면 3초
+    };
+
+    return res.json(responseWithInterval);
   }
 
   @Post('exchange-token')
   @ApiOperation({ 
     summary: 'codeVerifier로 토큰 교환',
-    description: '프론트에서 codeVerifier와 state를 사용하여 최종 JWT 토큰을 교환합니다.'
+    description: '프론트에서 codeVerifier를 사용하여 최종 JWT 토큰을 교환합니다.'
   })
   @ApiBody({
     schema: {
       type: 'object',
       properties: {
-        codeVerifier: { type: 'string', description: 'PKCE code verifier' },
-        state: { type: 'string', description: '콜백에서 받은 state 값' }
+        codeVerifier: { type: 'string', description: 'PKCE code verifier' }
       },
-      required: ['codeVerifier', 'state']
+      required: ['codeVerifier']
     }
   })
   @ApiResponse({ 
@@ -353,11 +549,6 @@ export class AuthController {
     schema: {
       example: {
         accessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
-        user: {
-          id: 'google123',
-          name: '사용자',
-          email: 'user@example.com'
-        },
         message: '토큰 교환 성공'
       }
     }
@@ -368,23 +559,21 @@ export class AuthController {
     schema: {
       example: {
         statusCode: 401,
-        message: 'Invalid or expired state'
+        message: 'Invalid or expired code verifier'
       }
     }
   })
   async exchangeToken(
-    @Body('codeVerifier') codeVerifier: string,
-    @Body('state') state: string
+    @Body('codeVerifier') codeVerifier: string
   ) {
-    if (!codeVerifier || !state) {
-      throw new BadRequestException('codeVerifier and state are required');
+    if (!codeVerifier) {
+      throw new BadRequestException('codeVerifier is required');
     }
     
-    const result = await this.authService.exchangeTokenWithCodeVerifier(codeVerifier, state);
+    const result = await this.authService.exchangeTokenWithCodeVerifier(codeVerifier);
     
     return {
       accessToken: result.accessToken,
-      user: result.user,
       message: '토큰 교환 성공'
     };
   }
@@ -415,5 +604,68 @@ export class AuthController {
     return res.json({
       message: '로그아웃되었습니다.'
     });
+  }
+
+  // ==================== 디버깅용 엔드포인트 (개발 환경 전용) ====================
+
+  @Get('debug/states')
+  @ApiOperation({ 
+    summary: '저장된 PKCE 상태 목록 조회 (개발용)',
+    description: '현재 서버 메모리에 저장된 PKCE 상태들을 조회합니다. 개발 환경에서만 사용하세요.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'PKCE 상태 목록 조회 성공',
+    schema: {
+      example: {
+        message: '현재 저장된 PKCE 상태들입니다.',
+        count: 2,
+        states: [
+          {
+            state: 'abc123xyz',
+            isComplete: true,
+            expiresAt: '2024-01-15T12:00:00.000Z',
+            hasUser: true,
+            hasAccessToken: true
+          }
+        ]
+      }
+    }
+  })
+  async getDebugStates() {
+    
+    return await this.authService.getDebugStates();
+  }
+
+  @Get('debug/states/:state')
+  @ApiOperation({ 
+    summary: '특정 PKCE 상태 상세 조회 (개발용)',
+    description: '특정 state의 상세 정보를 조회합니다. 개발 환경에서만 사용하세요.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: '특정 PKCE 상태 조회 성공',
+    schema: {
+      example: {
+        message: '해당 state의 상세 정보입니다.',
+        exists: true,
+        data: {
+          state: 'abc123xyz',
+          isComplete: true,
+          expiresAt: '2024-01-15T12:00:00.000Z',
+          hasAccessToken: true,
+          hasUser: true,
+          userInfo: {
+            email: 'user@example.com',
+            name: 'Test User',
+            socialProvider: 'Google'
+          }
+        }
+      }
+    }
+  })
+  async getDebugStateDetail(@Param('state') state: string) {
+
+    return await this.authService.getDebugStateDetail(state);
   }
 }

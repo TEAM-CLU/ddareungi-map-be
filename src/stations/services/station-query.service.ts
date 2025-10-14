@@ -47,7 +47,7 @@ export class StationQueryService {
   }
 
   /**
-   * 위치 기반 가장 가까운 대여소 3개 검색 - 실시간 정보 포함
+   * 위치 기반 가장 가까운 대여소 3개 검색 - 실시간 정보 및 거리 포함
    */
   async findNearbyStations(
     latitude: number,
@@ -76,9 +76,13 @@ export class StationQueryService {
         .limit(searchLimit);
 
       const rawResults = await query.getRawMany();
-      const stationResults = rawResults.map((row: StationRawQueryResult) =>
-        this.stationMapperService.mapRawQueryToResponse(row),
-      );
+      const stationResults = rawResults.map((row: StationRawQueryResult) => {
+        const station = this.stationMapperService.mapRawQueryToResponse(row);
+        return {
+          ...station,
+          distance: Math.round(parseFloat(row.distance as string)), // 거리 정보 추가 (정수로 반올림)
+        };
+      });
 
       // 실시간 대여정보 동기화
       await this.stationRealtimeService.syncRealtimeInfoForStations(
@@ -152,7 +156,49 @@ export class StationQueryService {
   }
 
   /**
-   * 지도 영역 내 모든 대여소 조회 - 실시간 정보 포함
+   * 대여소 번호로 조회 - 현재 위치 기준 거리 포함
+   */
+  async findByNumberWithDistance(
+    number: string,
+    latitude?: number,
+    longitude?: number,
+  ): Promise<(StationResponseDto & { distance?: number }) | null> {
+    const baseQuery = this.createBaseStationQuery().where(
+      'station.number = :number',
+      { number },
+    );
+
+    // 위치가 제공된 경우 거리 계산 추가
+    if (latitude !== undefined && longitude !== undefined) {
+      baseQuery
+        .addSelect(
+          'ST_Distance(station.location, ST_MakePoint(:longitude, :latitude)::geography) as distance',
+        )
+        .setParameters({ longitude, latitude });
+    }
+
+    const result =
+      (await baseQuery.getRawOne()) as StationRawQueryResult | null;
+
+    if (!result) {
+      return null;
+    }
+
+    const station = this.stationMapperService.mapRawQueryToResponse(result);
+
+    // 거리 정보가 있으면 추가
+    if (result.distance !== undefined) {
+      return {
+        ...station,
+        distance: Math.round(parseFloat(result.distance)), // 정수로 반올림
+      };
+    }
+
+    return station;
+  }
+
+  /**
+   * 지도 영역 내 모든 대여소 조회 - DB 데이터만 (성능 최적화)
    */
   async findStationsInMapArea(
     latitude: number,
@@ -177,21 +223,60 @@ export class StationQueryService {
       });
 
     const rawResults = await query.getRawMany();
+    const stationResults = rawResults.map((row: StationRawQueryResult) => {
+      const station = this.stationMapperService.mapRawQueryToResponse(row);
+      return {
+        ...station,
+      };
+    });
+
+    return stationResults;
+  }
+
+  /**
+   * 대여소 번호 배열로 실시간 재고 정보 조회 및 동기화
+   * 성능 최적화를 위해 별도 엔드포인트로 분리
+   */
+  async findStationInventories(
+    stationNumbers: string[],
+  ): Promise<{ station_number: string; current_bikes: number }[]> {
+    if (!stationNumbers || stationNumbers.length === 0) {
+      return [];
+    }
+
+    // 1. 대여소 번호로 DB에서 대여소 정보 조회
+    const query = this.createBaseStationQuery().where(
+      'station.number IN (:...stationNumbers)',
+      { stationNumbers },
+    );
+
+    const rawResults = await query.getRawMany();
     const stationResults = rawResults.map((row: StationRawQueryResult) =>
       this.stationMapperService.mapRawQueryToResponse(row),
     );
 
-    // 실시간 대여정보 동기화
+    // 2. 실시간 대여정보 동기화
     await this.stationRealtimeService.syncRealtimeInfoForStations(
       stationResults,
     );
 
-    // 실시간 업데이트 후 inactive 상태인 대여소 제거
-    const activeStations = stationResults.filter(
-      (station) => station.status !== 'inactive',
-    );
+    // 3. 업데이트된 대여소 정보를 다시 조회하여 최신 current_bikes 반환
+    const updatedQuery = this.stationRepository
+      .createQueryBuilder('station')
+      .select([
+        'station.number as station_number',
+        'station.current_bikes as current_bikes',
+      ])
+      .where('station.number IN (:...stationNumbers)', { stationNumbers });
 
-    return activeStations;
+    const updatedResults = await updatedQuery.getRawMany();
+
+    return updatedResults.map(
+      (row: { station_number: string; current_bikes: number }) => ({
+        station_number: row.station_number,
+        current_bikes: row.current_bikes || 0,
+      }),
+    );
   }
 
   /**

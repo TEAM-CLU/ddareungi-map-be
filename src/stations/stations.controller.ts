@@ -15,6 +15,7 @@ import {
   ApiResponse,
   ApiParam,
   ApiQuery,
+  ApiBody,
 } from '@nestjs/swagger';
 import { StationsService } from './services/stations.service';
 import { StationSyncService } from './services/station-sync.service';
@@ -427,6 +428,132 @@ export class StationsController {
     }
   }
 
+  @Post('inventories')
+  @ApiOperation({
+    summary: '대여소 재고 정보 조회',
+    description:
+      '지정된 대여소 번호들의 실시간 재고 정보를 조회합니다. 따릉이 API를 통해 최신 정보를 동기화한 후 반환합니다.',
+  })
+  @ApiBody({
+    description: '조회할 대여소 번호 목록',
+    schema: {
+      type: 'object',
+      properties: {
+        stationNumbers: {
+          type: 'array',
+          items: {
+            type: 'string',
+          },
+          description: '대여소 번호 배열',
+          example: [
+            '01611',
+            '02914',
+            '01608',
+            '01693',
+            '02915',
+            '01655',
+            '04041',
+            '05317',
+            '04008',
+            '04025',
+            '05319',
+            '05331',
+            '02910',
+            '05341',
+            '02902',
+            '02901',
+            '04044',
+            '01616',
+            '02912',
+            '04007',
+            '01640',
+            '05323',
+          ],
+        },
+      },
+      required: ['stationNumbers'],
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: '대여소 재고 정보 조회 성공',
+    type: SuccessResponseDto,
+    schema: {
+      example: {
+        statusCode: 200,
+        message: '대여소 재고 정보 3개를 성공적으로 조회했습니다.',
+        data: [
+          {
+            station_number: '1001',
+            current_bikes: 8,
+          },
+          {
+            station_number: '1002',
+            current_bikes: 12,
+          },
+          {
+            station_number: '1003',
+            current_bikes: 3,
+          },
+        ],
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: '잘못된 요청 파라미터',
+    type: ErrorResponseDto,
+  })
+  @ApiResponse({
+    status: 500,
+    description: '서버 내부 오류',
+    type: ErrorResponseDto,
+  })
+  async getStationInventories(
+    @Body() request: { stationNumbers: string[] },
+  ): Promise<
+    SuccessResponseDto<{ station_number: string; current_bikes: number }[]>
+  > {
+    try {
+      // 입력값 검증
+      if (!request.stationNumbers || !Array.isArray(request.stationNumbers)) {
+        throw new HttpException(
+          ErrorResponseDto.create(
+            HttpStatus.BAD_REQUEST,
+            'stationNumbers는 문자열 배열이어야 합니다.',
+          ),
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      if (request.stationNumbers.length === 0) {
+        return SuccessResponseDto.create('조회할 대여소 번호가 없습니다.', []);
+      }
+
+      const inventories = await this.stationQueryService.findStationInventories(
+        request.stationNumbers,
+      );
+
+      return SuccessResponseDto.create(
+        `대여소 재고 정보 ${inventories.length}개를 성공적으로 조회했습니다.`,
+        inventories,
+      );
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      this.logger.error('대여소 재고 정보 조회 실패:', error);
+      throw new HttpException(
+        ErrorResponseDto.create(
+          HttpStatus.INTERNAL_SERVER_ERROR,
+          '대여소 재고 정보 조회에 실패했습니다.',
+        ),
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
   @Get()
   @ApiOperation({
     summary: '모든 대여소 조회',
@@ -483,9 +610,9 @@ export class StationsController {
 
   @Get(':number')
   @ApiOperation({
-    summary: '대여소 상세 조회 (실시간 정보 포함)',
+    summary: '대여소 상세 조회 (실시간 정보 + 거리 + 주소 포함)',
     description:
-      '대여소 번호로 특정 대여소의 상세 정보를 조회하고, 실시간 대여 정보를 업데이트한 후 반환합니다.',
+      '대여소 번호로 특정 대여소의 상세 정보를 조회하고, 실시간 대여 정보를 업데이트한 후 반환합니다. 현재 위치가 제공되면 거리도 함께 계산됩니다.',
   })
   @ApiParam({
     name: 'number',
@@ -498,6 +625,20 @@ export class StationsController {
     enum: ['json', 'geojson'],
     required: false,
     example: 'json',
+  })
+  @ApiQuery({
+    name: 'latitude',
+    description: '현재 위치의 위도 (거리 계산용, 선택사항)',
+    type: Number,
+    required: false,
+    example: 37.630032,
+  })
+  @ApiQuery({
+    name: 'longitude',
+    description: '현재 위치의 경도 (거리 계산용, 선택사항)',
+    type: Number,
+    required: false,
+    example: 127.076508,
   })
   @ApiResponse({
     status: 200,
@@ -517,10 +658,40 @@ export class StationsController {
   async findOne(
     @Param('number') number: string,
     @Query('format') format: 'json' | 'geojson' = 'json',
+    @Query('latitude') latitude?: number,
+    @Query('longitude') longitude?: number,
   ): Promise<SuccessResponseDto<NearbyStationResponseDto | GeoJsonResponse>> {
     try {
-      // number로 대여소 조회
-      const station = await this.stationQueryService.findByNumber(number);
+      // 위치 좌표 검증 (제공된 경우)
+      let validatedLat: number | undefined;
+      let validatedLng: number | undefined;
+
+      if (latitude !== undefined && longitude !== undefined) {
+        const lat = Number(latitude);
+        const lng = Number(longitude);
+
+        if (
+          !isNaN(lat) &&
+          !isNaN(lng) &&
+          lat >= -90 &&
+          lat <= 90 &&
+          lng >= -180 &&
+          lng <= 180
+        ) {
+          validatedLat = lat;
+          validatedLng = lng;
+        }
+      }
+
+      // number로 대여소 조회 (거리 포함 가능)
+      const station =
+        validatedLat !== undefined && validatedLng !== undefined
+          ? await this.stationQueryService.findByNumberWithDistance(
+              number,
+              validatedLat,
+              validatedLng,
+            )
+          : await this.stationQueryService.findByNumber(number);
 
       if (!station) {
         throw new HttpException(
@@ -537,9 +708,15 @@ export class StationsController {
         station.id,
       );
 
-      // 업데이트된 정보 다시 조회
+      // 업데이트된 정보 다시 조회 (거리 정보 유지)
       const updatedStation =
-        await this.stationQueryService.findByNumber(number);
+        validatedLat !== undefined && validatedLng !== undefined
+          ? await this.stationQueryService.findByNumberWithDistance(
+              number,
+              validatedLat,
+              validatedLng,
+            )
+          : await this.stationQueryService.findByNumber(number);
 
       if (!updatedStation) {
         throw new HttpException(
