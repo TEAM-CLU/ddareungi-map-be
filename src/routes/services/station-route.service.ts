@@ -1,21 +1,17 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { StationQueryService } from '../../stations/services/station-query.service';
 import { StationResponseDto } from '../../stations/dto/station-api.dto';
-
-export interface RouteStation {
-  id: string;
-  number: string;
-  name: string;
-  lat: number;
-  lng: number;
-  current_bikes: number;
-}
+import { RouteUtilService } from './route-util.service';
+import { RouteStationDto } from '../dto/route.dto';
 
 @Injectable()
 export class StationRouteService {
   private readonly logger = new Logger(StationRouteService.name);
-
-  constructor(private readonly stationQueryService: StationQueryService) {}
+  constructor(
+    private readonly stationQueryService: StationQueryService,
+    @Inject(forwardRef(() => RouteUtilService))
+    private readonly routeUtil: RouteUtilService,
+  ) {}
 
   /**
    * 좌표 근처의 가용한 대여소 찾기 (실시간 동기화 우선, 실패 시 DB 조회)
@@ -24,7 +20,7 @@ export class StationRouteService {
   async findNearestAvailableStation(coordinate: {
     lat: number;
     lng: number;
-  }): Promise<RouteStation | null> {
+  }): Promise<RouteStationDto | null> {
     try {
       // 1차: 실시간 동기화 포함 검색 (기존 방식)
       const nearbyStations = await this.stationQueryService.findNearbyStations(
@@ -86,7 +82,7 @@ export class StationRouteService {
   async findStartAndEndStations(
     startCoordinate: { lat: number; lng: number },
     endCoordinate: { lat: number; lng: number },
-  ): Promise<{ startStation: RouteStation; endStation: RouteStation }> {
+  ): Promise<{ startStation: RouteStationDto; endStation: RouteStationDto }> {
     // 병렬로 대여소 검색
     const [startStation, endStation] = await Promise.all([
       this.findNearestAvailableStation(startCoordinate),
@@ -115,7 +111,7 @@ export class StationRouteService {
   async findSingleStation(
     coordinate: { lat: number; lng: number },
     purpose: string = '경로',
-  ): Promise<RouteStation> {
+  ): Promise<RouteStationDto> {
     const station = await this.findNearestAvailableStation(coordinate);
 
     if (!station) {
@@ -145,11 +141,9 @@ export class StationRouteService {
         .filter((station) => station.status === 'available')
         .map((station) => ({
           ...station,
-          distance: this.calculateDistance(
-            latitude,
-            longitude,
-            station.latitude,
-            station.longitude,
+          distance: this.routeUtil.calculateDistance(
+            [latitude, longitude],
+            [station.latitude, station.longitude],
           ),
         }))
         .sort((a, b) => a.distance - b.distance)
@@ -165,33 +159,14 @@ export class StationRouteService {
   /**
    * 두 좌표 간의 거리 계산 (Haversine formula)
    */
-  private calculateDistance(
-    lat1: number,
-    lng1: number,
-    lat2: number,
-    lng2: number,
-  ): number {
-    const R = 6371e3; // Earth's radius in meters
-    const φ1 = (lat1 * Math.PI) / 180;
-    const φ2 = (lat2 * Math.PI) / 180;
-    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
-    const Δλ = ((lng2 - lng1) * Math.PI) / 180;
-
-    const a =
-      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-    return R * c;
-  }
+  // 좌표 간 거리 계산 함수는 RouteUtilService로 통합
 
   /**
    * StationResponseDto를 RouteStation으로 변환
    */
-  private convertToRouteStation(station: StationResponseDto): RouteStation {
+  private convertToRouteStation(station: StationResponseDto): RouteStationDto {
     return {
-      id: station.id,
-      number: station.number || station.id, // number가 null이면 id를 사용
+      number: station.number ?? '', // number가 null/undefined면 빈 문자열
       name: station.name,
       lat: station.latitude,
       lng: station.longitude,

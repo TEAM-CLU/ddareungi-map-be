@@ -5,18 +5,23 @@ import {
   SummaryDto,
   BoundingBoxDto,
   CoordinateDto,
-  StationDto,
+  RouteStationDto,
 } from '../dto/route.dto';
 import { RouteConverterService } from './route-converter.service';
 import { GraphHopperService } from './graphhopper.service';
 import { GraphHopperPath } from '../interfaces/graphhopper.interface';
 
 /**
- * 경로 구성 전담 서비스
- * 다구간 경로, 왕복 경로 등 복잡한 경로 구성 로직을 담당
+ * RouteBuilderService
+ * - 다구간/왕복 경로 등 복합 경로 구성 전담
  */
 @Injectable()
 export class RouteBuilderService {
+  private static readonly CATEGORY_PRIORITY = {
+    bike: 'bike_priority',
+    time: 'time',
+    distance: 'distance',
+  } as const;
   private readonly logger = new Logger(RouteBuilderService.name);
 
   constructor(
@@ -32,8 +37,8 @@ export class RouteBuilderService {
     category: { name: string; priority: string },
     walkingToStart?: GraphHopperPath,
     walkingFromEnd?: GraphHopperPath,
-    startStation?: StationDto,
-    endStation?: StationDto,
+    startStation?: RouteStationDto,
+    endStation?: RouteStationDto,
   ): Promise<RouteDto> {
     const segments: RouteSegmentDto[] = [];
     let totalDistance = 0;
@@ -42,6 +47,7 @@ export class RouteBuilderService {
     let totalDescent = 0;
     let totalBikeDistance = 0;
     let totalBikeRoadDistance = 0;
+    let maxGradient = 0; // 전체 경로의 최대 경사도
 
     // 첫 번째 도보 구간 추가 (출발지 → 시작 대여소)
     if (walkingToStart) {
@@ -110,6 +116,11 @@ export class RouteBuilderService {
         totalBikeRoadDistance +=
           bikeSummary.distance * bikeSummary.bikeRoadRatio;
       }
+
+      // 최대 경사도 업데이트 (자전거 구간에서만)
+      if (bikeSummary.maxGradient) {
+        maxGradient = Math.max(maxGradient, bikeSummary.maxGradient);
+      }
     }
 
     // 마지막 도보 구간 추가 (도착 대여소 → 도착지)
@@ -146,6 +157,7 @@ export class RouteBuilderService {
       ascent: Math.round(totalAscent),
       descent: Math.round(totalDescent),
       bikeRoadRatio: overallBikeRoadRatio,
+      maxGradient: maxGradient > 0 ? maxGradient : undefined,
     };
 
     return {
@@ -158,6 +170,9 @@ export class RouteBuilderService {
     };
   }
 
+  /**
+   * 왕복 경로 통합
+   */
   /**
    * 왕복 경로 통합
    */
@@ -225,25 +240,22 @@ export class RouteBuilderService {
   /**
    * 카테고리에 따른 최적 경로 선택
    */
+  /**
+   * 카테고리 우선순위에 따라 경로 선택
+   */
   selectRouteByCategory(
     routes: GraphHopperPath[],
     priority: string,
   ): GraphHopperPath {
     switch (priority) {
-      case 'bike_priority': {
-        // safe_bike 프로필 중 가장 안전한 경로
+      case RouteBuilderService.CATEGORY_PRIORITY.bike: {
         const safeRoutes = routes.filter((r) => r.profile === 'safe_bike');
         return safeRoutes.sort((a, b) => a.time - b.time)[0] || routes[0];
       }
-
-      case 'time':
-        // 최소 시간 경로
+      case RouteBuilderService.CATEGORY_PRIORITY.time:
         return routes.sort((a, b) => a.time - b.time)[0];
-
-      case 'distance':
-        // 최단 거리 경로
+      case RouteBuilderService.CATEGORY_PRIORITY.distance:
         return routes.sort((a, b) => a.distance - b.distance)[0];
-
       default:
         return routes[0];
     }
@@ -252,9 +264,11 @@ export class RouteBuilderService {
   /**
    * 세그먼트들의 경계 상자 계산
    */
+  /**
+   * 세그먼트들의 경계 상자 계산
+   */
   calculateBoundingBox(segments: RouteSegmentDto[]): BoundingBoxDto {
     const allBboxes = segments.map((s) => s.bbox);
-
     return {
       minLat: Math.min(...allBboxes.map((b) => b.minLat)),
       minLng: Math.min(...allBboxes.map((b) => b.minLng)),
@@ -263,6 +277,9 @@ export class RouteBuilderService {
     };
   }
 
+  /**
+   * 경계 상자 통합
+   */
   /**
    * 경계 상자 통합
    */

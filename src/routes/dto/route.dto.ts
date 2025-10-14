@@ -63,6 +63,13 @@ export class SummaryDto {
     example: 0.78,
   })
   bikeRoadRatio?: number;
+
+  @ApiProperty({
+    description: '최대 경사도 (%) - 자전거 경로의 가장 가파른 구간',
+    required: false,
+    example: 8.5,
+  })
+  maxGradient?: number;
 }
 
 export class BoundingBoxDto {
@@ -84,7 +91,7 @@ export class GeometryDto {
   points: number[][];
 }
 
-export class StationDto {
+export class RouteStationDto {
   @ApiProperty({ description: '대여소 번호' })
   number: string;
 
@@ -220,17 +227,17 @@ export class RouteDto {
 
   @ApiProperty({
     description: '시작 대여소 정보',
-    type: StationDto,
+    type: RouteStationDto,
     required: false,
   })
-  startStation?: StationDto;
+  startStation?: RouteStationDto;
 
   @ApiProperty({
     description: '도착 대여소 정보',
-    type: StationDto,
+    type: RouteStationDto,
     required: false,
   })
-  endStation?: StationDto;
+  endStation?: RouteStationDto;
 
   @ApiProperty({ description: '경로 세그먼트들', type: [RouteSegmentDto] })
   segments: RouteSegmentDto[];
