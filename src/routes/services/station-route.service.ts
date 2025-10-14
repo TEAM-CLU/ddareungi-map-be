@@ -4,9 +4,11 @@ import { StationResponseDto } from '../../stations/dto/station-api.dto';
 
 export interface RouteStation {
   id: string;
+  number: string;
   name: string;
   lat: number;
   lng: number;
+  current_bikes: number;
 }
 
 @Injectable()
@@ -189,9 +191,11 @@ export class StationRouteService {
   private convertToRouteStation(station: StationResponseDto): RouteStation {
     return {
       id: station.id,
+      number: station.number || station.id, // number가 null이면 id를 사용
       name: station.name,
       lat: station.latitude,
       lng: station.longitude,
+      current_bikes: station.current_bikes,
     };
   }
 }

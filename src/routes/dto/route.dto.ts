@@ -39,27 +39,6 @@ export class CoordinateDto {
   lng: number;
 }
 
-// 왕복 경로의 웨이포인트 타입
-export class WaypointDto {
-  @ApiProperty({
-    description: '포인트 타입',
-    enum: ['waypoint', 'return_point'],
-    example: 'waypoint',
-  })
-  @IsNotEmpty({ message: '포인트 타입은 필수값입니다.' })
-  type: 'waypoint' | 'return_point';
-
-  @ApiProperty({
-    description: '위치 좌표',
-    type: CoordinateDto,
-    example: { lat: 37.5665, lng: 126.978 },
-  })
-  @IsNotEmpty()
-  @ValidateNested()
-  @Type(() => CoordinateDto)
-  location: CoordinateDto;
-}
-
 export enum BikeProfile {
   SAFE_BIKE = 'safe_bike',
   FAST_BIKE = 'fast_bike',
@@ -69,7 +48,7 @@ export class SummaryDto {
   @ApiProperty({ description: '거리 (미터)' })
   distance: number;
 
-  @ApiProperty({ description: '시간 (밀리초)' })
+  @ApiProperty({ description: '시간 (초)' })
   time: number;
 
   @ApiProperty({ description: '상승 고도 (미터)' })
@@ -106,11 +85,11 @@ export class GeometryDto {
 }
 
 export class StationDto {
-  @ApiProperty({ description: '대여소 ID' })
-  station_id: string;
+  @ApiProperty({ description: '대여소 번호' })
+  number: string;
 
   @ApiProperty({ description: '대여소 이름' })
-  station_name: string;
+  name: string;
 
   @ApiProperty({ description: '대여소 위도' })
   lat: number;
@@ -196,40 +175,6 @@ export class CircularRouteRequestDto {
 export class RouteSearchRequestDto extends PointToPointRouteRequestDto {}
 export class FullJourneyRequestDto extends PointToPointRouteRequestDto {}
 
-// 왕복 경로 검색 요청 DTO (순서 있는 경유지 포함)
-export class RoundTripSearchRequestDto {
-  @ApiProperty({
-    description: '출발지 좌표 (도착지와 동일)',
-    type: CoordinateDto,
-    example: { lat: 37.626666, lng: 127.076764 },
-  })
-  @IsNotEmpty()
-  @ValidateNested()
-  @Type(() => CoordinateDto)
-  start: CoordinateDto;
-
-  @ApiProperty({
-    description:
-      '경유지와 반환점을 포함한 포인트 배열 (순서대로 방문, 반환점은 1개만 허용)',
-    type: [WaypointDto],
-    required: false,
-    maxItems: 4,
-    example: [
-      { type: 'waypoint', location: { lat: 37.642417, lng: 127.067248 } },
-      { type: 'return_point', location: { lat: 37.664819, lng: 127.057126 } },
-      { type: 'waypoint', location: { lat: 37.658922, lng: 127.071167 } },
-    ],
-  })
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(6)
-  @ValidateNested({ each: true })
-  @Type(() => WaypointDto)
-  waypoints?: WaypointDto[];
-}
-
-export class RoundTripRecommendRequestDto extends CircularRouteRequestDto {}
-
 // ============================================
 // 응답 DTO들
 // ============================================
@@ -257,20 +202,6 @@ export class RouteSegmentDto {
     required: false,
   })
   profile?: BikeProfile;
-
-  @ApiProperty({
-    description: '시작 대여소 정보 (자전거 구간에만 적용)',
-    type: StationDto,
-    required: false,
-  })
-  startStation?: StationDto;
-
-  @ApiProperty({
-    description: '도착 대여소 정보 (자전거 구간에만 적용)',
-    type: StationDto,
-    required: false,
-  })
-  endStation?: StationDto;
 }
 
 // 완전한 경로 DTO (여러 세그먼트로 구성)
@@ -287,6 +218,20 @@ export class RouteDto {
   @ApiProperty({ description: '전체 경로 경계 상자', type: BoundingBoxDto })
   bbox: BoundingBoxDto;
 
+  @ApiProperty({
+    description: '시작 대여소 정보',
+    type: StationDto,
+    required: false,
+  })
+  startStation?: StationDto;
+
+  @ApiProperty({
+    description: '도착 대여소 정보',
+    type: StationDto,
+    required: false,
+  })
+  endStation?: StationDto;
+
   @ApiProperty({ description: '경로 세그먼트들', type: [RouteSegmentDto] })
   segments: RouteSegmentDto[];
 }
@@ -300,7 +245,5 @@ export class RouteResponseDto {
   processingTime: number;
 }
 
-// 하위 호환성을 위한 별칭들
+// 하위 호환성을 위한 별칭
 export class FullJourneyResponseDto extends RouteResponseDto {}
-
-export class RoundTripResponseDto extends RouteResponseDto {}
