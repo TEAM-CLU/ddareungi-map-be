@@ -9,142 +9,83 @@ import {
 } from '../dto/route.dto';
 import { GraphHopperPath } from '../interfaces/graphhopper.interface';
 import { CategorizedPath } from './route-optimizer.service';
-import { RouteStation } from './station-route.service';
+import { RouteStationDto } from '../dto/route.dto';
+import { RouteUtilService } from './route-util.service';
 
 @Injectable()
 export class RouteConverterService {
+  private static readonly DEFAULT_CATEGORY = '일반 경로';
+  constructor(private readonly routeUtil: RouteUtilService) {}
+
   /**
    * GraphHopper 프로필 문자열을 BikeProfile enum으로 변환
    */
   private convertToBikeProfile(profile?: string): BikeProfile | undefined {
-    if (!profile) return undefined;
-
     switch (profile) {
       case 'safe_bike':
         return BikeProfile.SAFE_BIKE;
       case 'fast_bike':
         return BikeProfile.FAST_BIKE;
       default:
-        return BikeProfile.SAFE_BIKE; // 기본값
+        return undefined;
     }
   }
+
   /**
-   * GraphHopper 경로에서 RouteDto 생성
+   * 여러 GraphHopperPath를 받아 summary를 계산 (중복 제거)
+   */
+  private buildSummary(
+    paths: GraphHopperPath[],
+    segments: RouteSegmentDto[],
+    maxGradient?: number,
+  ): SummaryDto {
+    const totalDistance = paths.reduce((sum, p) => sum + p.distance, 0);
+    const totalTime = paths.reduce((sum, p) => sum + p.time, 0);
+    const totalAscent = paths.reduce((sum, p) => sum + p.ascend, 0);
+    const totalDescent = paths.reduce((sum, p) => sum + p.descend, 0);
+    return {
+      distance: Math.round(totalDistance),
+      time: Math.round(totalTime / 1000),
+      ascent: Math.round(totalAscent),
+      descent: Math.round(totalDescent),
+      bikeRoadRatio: this.routeUtil.calculateOverallBikeRoadRatio(segments),
+      maxGradient,
+    };
+  }
+
+  /**
+   * GraphHopper 경로 3개(도보-자전거-도보)로 RouteDto 생성
    */
   buildRouteFromGraphHopper(
     walkingToStart: GraphHopperPath,
     bikeRoute: GraphHopperPath,
     walkingFromEnd: GraphHopperPath,
-    startStation: RouteStation,
-    endStation: RouteStation,
-    routeCategory?: string, // 옵셔널 카테고리 정보
+    startStation: RouteStationDto,
+    endStation: RouteStationDto,
+    routeCategory?: string,
   ): RouteDto {
-    // 자전거 경로 요약 (자전거 도로 비율 포함)
-    const bikeSummary = this.convertToSummary(bikeRoute, true);
-
     const segments: RouteSegmentDto[] = [
-      {
-        type: 'walking',
-        summary: this.convertToSummary(walkingToStart),
-        bbox: this.convertToBoundingBox(walkingToStart.bbox),
-        geometry: this.convertToGeometry(walkingToStart.points),
-      },
-      {
-        type: 'biking',
-        summary: bikeSummary,
-        bbox: this.convertToBoundingBox(bikeRoute.bbox),
-        geometry: this.convertToGeometry(bikeRoute.points),
-        profile: this.convertToBikeProfile(bikeRoute.profile), // 자전거 프로필 정보 추가
-      },
-      {
-        type: 'walking',
-        summary: this.convertToSummary(walkingFromEnd),
-        bbox: this.convertToBoundingBox(walkingFromEnd.bbox),
-        geometry: this.convertToGeometry(walkingFromEnd.points),
-      },
+      this.buildSegment('walking', walkingToStart),
+      this.buildSegment('biking', bikeRoute),
+      this.buildSegment('walking', walkingFromEnd),
     ];
-
-    // 전체 경로의 자전거 도로 비율 계산
-    const totalBikeDistance = bikeRoute.distance;
-    const totalBikeRoadDistance = bikeSummary.bikeRoadRatio
-      ? totalBikeDistance * bikeSummary.bikeRoadRatio
-      : 0;
-    const overallBikeRoadRatio =
-      totalBikeDistance > 0
-        ? Math.round((totalBikeRoadDistance / totalBikeDistance) * 100) / 100
-        : 0;
-
-    const totalSummary: SummaryDto = {
-      distance: Math.round(
-        walkingToStart.distance + bikeRoute.distance + walkingFromEnd.distance,
-      ),
-      time: Math.round(
-        (walkingToStart.time + bikeRoute.time + walkingFromEnd.time) / 1000,
-      ), // ms to seconds
-      ascent: Math.round(
-        walkingToStart.ascend + bikeRoute.ascend + walkingFromEnd.ascend,
-      ),
-      descent: Math.round(
-        walkingToStart.descend + bikeRoute.descend + walkingFromEnd.descend,
-      ),
-      bikeRoadRatio: overallBikeRoadRatio,
-    };
-
+    const summary = this.buildSummary(
+      [walkingToStart, bikeRoute, walkingFromEnd],
+      segments,
+      segments[1].summary.maxGradient,
+    );
     return {
-      routeCategory: routeCategory || '일반 경로',
-      summary: totalSummary,
+      routeCategory: routeCategory || RouteConverterService.DEFAULT_CATEGORY,
+      summary,
       bbox: this.calculateBoundingBoxFromPaths([
         walkingToStart,
         bikeRoute,
         walkingFromEnd,
       ]),
-      startStation: {
-        number: startStation.number,
-        name: startStation.name,
-        lat: startStation.lat,
-        lng: startStation.lng,
-        current_bikes: startStation.current_bikes,
-      },
-      endStation: {
-        number: endStation.number,
-        name: endStation.name,
-        lat: endStation.lat,
-        lng: endStation.lng,
-        current_bikes: endStation.current_bikes,
-      },
+      startStation,
+      endStation,
       segments,
     };
-  }
-
-  /**
-   * 자전거 도로 비율 계산 (소수점 둘째자리까지)
-   */
-  private calculateBikeRoadRatio(path: GraphHopperPath): number {
-    // GraphHopper에서 자전거 도로 비율 정보를 제공하지 않으므로
-    // 프로필과 경로 특성에 따라 추정값 계산
-    const profile = path.profile;
-    const distance = path.distance;
-
-    let estimatedRatio = 0;
-
-    if (profile === 'safe_bike') {
-      // safe_bike 프로필은 자전거 도로를 우선하므로 높은 비율
-      estimatedRatio = Math.min(0.85 + Math.random() * 0.1, 1);
-    } else if (profile === 'fast_bike') {
-      // fast_bike 프로필은 속도 우선이므로 중간 비율
-      estimatedRatio = 0.6 + Math.random() * 0.25;
-    } else {
-      // 기본값
-      estimatedRatio = 0.5 + Math.random() * 0.3;
-    }
-
-    // 거리가 짧을수록 자전거 도로 비율이 낮을 가능성
-    if (distance < 1000) {
-      estimatedRatio *= 0.8;
-    }
-
-    // 소수점 둘째자리까지 반올림
-    return Math.round(estimatedRatio * 100) / 100;
   }
 
   /**
@@ -156,19 +97,18 @@ export class RouteConverterService {
   ): SummaryDto {
     const summary: SummaryDto = {
       distance: Math.round(path.distance),
-      time: Math.round(path.time / 1000), // ms to seconds
+      time: Math.round(path.time / 1000),
       ascent: Math.round(path.ascend),
       descent: Math.round(path.descend),
     };
-
-    // 자전거 경로인 경우 자전거 도로 비율 추가
     if (
       includeBikeRoadRatio &&
       (path.profile === 'safe_bike' || path.profile === 'fast_bike')
     ) {
-      summary.bikeRoadRatio = this.calculateBikeRoadRatio(path);
+      summary.bikeRoadRatio =
+        Math.round(this.routeUtil.calculateBikeRoadRatio(path) * 100) / 100;
+      summary.maxGradient = this.routeUtil.calculateMaxGradient(path);
     }
-
     return summary;
   }
 
@@ -209,269 +149,134 @@ export class RouteConverterService {
    * 모든 GraphHopper 경로의 좌표점으로부터 전체 bbox 계산
    */
   calculateBoundingBoxFromPaths(paths: GraphHopperPath[]): BoundingBoxDto {
-    const allPoints: number[][] = [];
-
-    // 모든 경로의 좌표점을 수집
-    paths.forEach((path) => {
-      if (path.points && path.points.coordinates) {
-        allPoints.push(...path.points.coordinates);
-      }
-    });
-
-    if (allPoints.length === 0) {
-      return {
-        minLat: 0,
-        minLng: 0,
-        maxLat: 0,
-        maxLng: 0,
-      };
-    }
-
-    // 모든 좌표점에서 최소/최대 lat, lng 찾기
-    const lngs = allPoints.map((point) => point[0]); // longitude
-    const lats = allPoints.map((point) => point[1]); // latitude
-
-    return {
-      minLng: Math.min(...lngs),
-      minLat: Math.min(...lats),
-      maxLng: Math.max(...lngs),
-      maxLat: Math.max(...lats),
-    };
+    return this.routeUtil.calculateOverallBounds(paths);
   }
 
   /**
-   * 도보 경로 세그먼트 생성
+   * 경로 세그먼트 생성 (type에 따라 분기)
    */
-  buildWalkingSegment(path: GraphHopperPath): RouteSegmentDto {
+  buildSegment(
+    type: 'walking' | 'biking',
+    path: GraphHopperPath,
+  ): RouteSegmentDto {
     return {
-      type: 'walking',
-      summary: this.convertToSummary(path),
+      type,
+      summary: this.convertToSummary(path, type === 'biking'),
       bbox: this.convertToBoundingBox(path.bbox),
       geometry: this.convertToGeometry(path.points),
+      profile:
+        type === 'biking' ? this.convertToBikeProfile(path.profile) : undefined,
     };
   }
 
   /**
-   * 자전거 경로 세그먼트 생성
-   */
-  createBikeSegment(path: GraphHopperPath): RouteSegmentDto {
-    return {
-      type: 'biking',
-      summary: this.convertToSummary(path),
-      bbox: this.convertToBoundingBox(path.bbox),
-      geometry: this.convertToGeometry(path.points),
-      profile: this.convertToBikeProfile(path.profile), // GraphHopper 프로필을 enum으로 변환
-    };
-  }
-
-  /**
-   * 왕복 경로를 RouteDto로 변환 (4단계: 도보→자전거→자전거→도보)
+   * 왕복 경로를 RouteDto로 변환 (도보→자전거→자전거→도보)
    */
   buildDirectRoundTripRoute(
     walkingToStation: GraphHopperPath,
     bikeToDestination: GraphHopperPath,
     bikeToStation: GraphHopperPath,
     walkingToStart: GraphHopperPath,
-    station: RouteStation,
+    station: RouteStationDto,
     routeCategory?: string,
   ): RouteDto {
     const segments: RouteSegmentDto[] = [
-      {
-        type: 'walking',
-        summary: this.convertToSummary(walkingToStation),
-        bbox: this.convertToBoundingBox(walkingToStation.bbox),
-        geometry: this.convertToGeometry(walkingToStation.points),
-      },
-      {
-        type: 'biking',
-        summary: this.convertToSummary(bikeToDestination),
-        bbox: this.convertToBoundingBox(bikeToDestination.bbox),
-        geometry: this.convertToGeometry(bikeToDestination.points),
-        profile: this.convertToBikeProfile(bikeToDestination.profile), // 자전거 프로필 정보 추가
-      },
-      {
-        type: 'biking',
-        summary: this.convertToSummary(bikeToStation),
-        bbox: this.convertToBoundingBox(bikeToStation.bbox),
-        geometry: this.convertToGeometry(bikeToStation.points),
-        profile: this.convertToBikeProfile(bikeToStation.profile), // 자전거 프로필 정보 추가
-      },
-      {
-        type: 'walking',
-        summary: this.convertToSummary(walkingToStart),
-        bbox: this.convertToBoundingBox(walkingToStart.bbox),
-        geometry: this.convertToGeometry(walkingToStart.points),
-      },
+      this.buildSegment('walking', walkingToStation),
+      this.buildSegment('biking', bikeToDestination),
+      this.buildSegment('biking', bikeToStation),
+      this.buildSegment('walking', walkingToStart),
     ];
-
-    const totalSummary: SummaryDto = {
-      distance: Math.round(
-        walkingToStation.distance +
-          bikeToDestination.distance +
-          bikeToStation.distance +
-          walkingToStart.distance,
-      ),
-      time: Math.round(
-        (walkingToStation.time +
-          bikeToDestination.time +
-          bikeToStation.time +
-          walkingToStart.time) /
-          1000,
-      ), // ms to seconds
-      ascent: Math.round(
-        walkingToStation.ascend +
-          bikeToDestination.ascend +
-          bikeToStation.ascend +
-          walkingToStart.ascend,
-      ),
-      descent: Math.round(
-        walkingToStation.descend +
-          bikeToDestination.descend +
-          bikeToStation.descend +
-          walkingToStart.descend,
-      ),
-    };
-
+    const maxBikeGradient = Math.max(
+      this.routeUtil.calculateMaxGradient(bikeToDestination),
+      this.routeUtil.calculateMaxGradient(bikeToStation),
+    );
+    const summary = this.buildSummary(
+      [walkingToStation, bikeToDestination, bikeToStation, walkingToStart],
+      segments,
+      maxBikeGradient > 0 ? maxBikeGradient : undefined,
+    );
     return {
-      routeCategory: routeCategory || '일반 경로',
-      summary: totalSummary,
+      routeCategory: routeCategory || RouteConverterService.DEFAULT_CATEGORY,
+      summary,
       bbox: this.calculateBoundingBoxFromPaths([
         walkingToStation,
         bikeToDestination,
         bikeToStation,
         walkingToStart,
       ]),
-      startStation: {
-        number: station.number,
-        name: station.name,
-        lat: station.lat,
-        lng: station.lng,
-        current_bikes: station.current_bikes,
-      },
-      endStation: {
-        number: station.number,
-        name: station.name,
-        lat: station.lat,
-        lng: station.lng,
-        current_bikes: station.current_bikes,
-      },
+      startStation: station,
+      endStation: station,
       segments,
     };
   }
 
   /**
-   * 원형 경로를 RouteDto로 변환 (3단계: 도보→자전거→도보)
+   * 원형 경로를 RouteDto로 변환 (도보→자전거→도보)
    */
   buildCircularRoute(
     walkingToStation: GraphHopperPath,
     circularBikeRoute: GraphHopperPath,
     walkingToStart: GraphHopperPath,
-    station: RouteStation,
+    station: RouteStationDto,
     routeCategory?: string,
   ): RouteDto {
     const segments: RouteSegmentDto[] = [
-      // 1단계: 출발지 → 대여소 (도보)
-      {
-        type: 'walking',
-        summary: this.convertToSummary(walkingToStation),
-        bbox: this.convertToBoundingBox(walkingToStation.bbox),
-        geometry: this.convertToGeometry(walkingToStation.points),
-      },
-      // 2단계: 대여소 → 원형 경로 → 대여소 (자전거)
-      {
-        type: 'biking',
-        summary: this.convertToSummary(circularBikeRoute),
-        bbox: this.convertToBoundingBox(circularBikeRoute.bbox),
-        geometry: this.convertToGeometry(circularBikeRoute.points),
-        profile: this.convertToBikeProfile(circularBikeRoute.profile), // 자전거 프로필 정보 추가
-      },
-      // 3단계: 대여소 → 출발지 (도보)
-      {
-        type: 'walking',
-        summary: this.convertToSummary(walkingToStart),
-        bbox: this.convertToBoundingBox(walkingToStart.bbox),
-        geometry: this.convertToGeometry(walkingToStart.points),
-      },
+      this.buildSegment('walking', walkingToStation),
+      this.buildSegment('biking', circularBikeRoute),
+      this.buildSegment('walking', walkingToStart),
     ];
-
-    const totalSummary: SummaryDto = {
-      distance: Math.round(
-        walkingToStation.distance +
-          circularBikeRoute.distance +
-          walkingToStart.distance,
-      ),
-      time: Math.round(
-        (walkingToStation.time + circularBikeRoute.time + walkingToStart.time) /
-          1000,
-      ), // ms to seconds
-      ascent: Math.round(
-        walkingToStation.ascend +
-          circularBikeRoute.ascend +
-          walkingToStart.ascend,
-      ),
-      descent: Math.round(
-        walkingToStation.descend +
-          circularBikeRoute.descend +
-          walkingToStart.descend,
-      ),
-    };
-
+    const summary = this.buildSummary(
+      [walkingToStation, circularBikeRoute, walkingToStart],
+      segments,
+      segments[1].summary.maxGradient,
+    );
+    // CategorizedPath 타입이면 circularBikeRoute.routeCategory를 우선 사용
+    let category = routeCategory;
+    if (
+      !category &&
+      'routeCategory' in circularBikeRoute &&
+      typeof (circularBikeRoute as CategorizedPath).routeCategory === 'string'
+    ) {
+      category = (circularBikeRoute as CategorizedPath).routeCategory;
+    }
     return {
-      routeCategory: routeCategory || '일반 경로',
-      summary: totalSummary,
+      routeCategory: category || RouteConverterService.DEFAULT_CATEGORY,
+      summary,
       bbox: this.calculateBoundingBoxFromPaths([
         walkingToStation,
         circularBikeRoute,
         walkingToStart,
       ]),
-      startStation: {
-        number: station.number,
-        name: station.name,
-        lat: station.lat,
-        lng: station.lng,
-        current_bikes: station.current_bikes,
-      },
-      endStation: {
-        number: station.number,
-        name: station.name,
-        lat: station.lat,
-        lng: station.lng,
-        current_bikes: station.current_bikes,
-      },
+      startStation: station,
+      endStation: station,
       segments,
     };
   }
 
   /**
-   * 왕복 경로의 outbound와 return 경로를 카테고리별로 매칭하여 RouteDto 생성
+   * 왕복 경로의 outbound와 return 경로를 카테고리별로 매칭하여 RouteDto[] 생성
    */
   buildRoundTripRoutesFromPaths(
     outboundPaths: CategorizedPath[],
     returnPaths: CategorizedPath[],
     walkingToStation: GraphHopperPath,
     walkingFromStation: GraphHopperPath,
-    station: RouteStation,
+    station: RouteStationDto,
   ): RouteDto[] {
     const roundTripRoutes: RouteDto[] = [];
-
     const maxRoutes = Math.min(outboundPaths.length, returnPaths.length);
-
     for (let i = 0; i < maxRoutes; i++) {
-      const outboundPath = outboundPaths[i];
-      const returnPath = returnPaths[i];
-
-      const roundTripRoute = this.buildDirectRoundTripRoute(
-        walkingToStation,
-        outboundPath, // 대여소 → 반환점
-        returnPath, // 반환점 → 대여소
-        walkingFromStation,
-        station,
-        outboundPath.routeCategory,
+      roundTripRoutes.push(
+        this.buildDirectRoundTripRoute(
+          walkingToStation,
+          outboundPaths[i],
+          returnPaths[i],
+          walkingFromStation,
+          station,
+          outboundPaths[i].routeCategory,
+        ),
       );
-
-      roundTripRoutes.push(roundTripRoute);
     }
-
     return roundTripRoutes;
   }
 
@@ -480,14 +285,6 @@ export class RouteConverterService {
    */
   convertToRouteSegment(routeData: GraphHopperPath): RouteSegmentDto {
     const isWalking = routeData.profile === 'foot';
-    return {
-      type: isWalking ? 'walking' : 'biking',
-      summary: this.convertToSummary(routeData, !isWalking), // 자전거 구간인 경우에만 자전거 도로 비율 포함
-      bbox: this.convertToBoundingBox(routeData.bbox),
-      geometry: this.convertToGeometry(routeData.points),
-      profile: isWalking
-        ? undefined
-        : this.convertToBikeProfile(routeData.profile),
-    };
+    return this.buildSegment(isWalking ? 'walking' : 'biking', routeData);
   }
 }

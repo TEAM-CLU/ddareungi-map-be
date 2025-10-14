@@ -7,6 +7,7 @@ import { RouteOptimizerService } from './services/route-optimizer.service';
 import { RouteConverterService } from './services/route-converter.service';
 import { RouteBuilderService } from './services/route-builder.service';
 import { StationRouteService } from './services/station-route.service';
+import { RouteUtilService } from './services/route-util.service';
 import { StationsModule } from '../stations/stations.module';
 
 @Module({
@@ -22,6 +23,7 @@ import { StationsModule } from '../stations/stations.module';
     RouteConverterService,
     RouteBuilderService,
     StationRouteService,
+    RouteUtilService,
   ],
 })
 export class RoutesModule {}

@@ -100,13 +100,19 @@ export class RoutesService {
         `원형 경로 추천 완료 - 대여소: ${station.name}, GraphHopper API 호출: 도보 2회, 원형 경로 ${optimalCircularPaths.length}개 생성`,
       );
 
-      // 각 원형 경로에 대해 RouteDto 생성
-      return optimalCircularPaths.map((circularPath) =>
+      // 각 원형 경로에 대해 RouteDto 생성 (카테고리 반영)
+      const fallbackCategories = [
+        '자전거 도로 우선 경로',
+        '최단 거리 경로',
+        '최소 시간 경로',
+      ];
+      return optimalCircularPaths.map((circularPath, idx) =>
         this.routeConverter.buildCircularRoute(
           walkingToStation,
           circularPath,
           walkingFromStation,
           station,
+          circularPath.routeCategory || fallbackCategories[idx] || '일반 경로',
         ),
       );
     } catch (error) {
