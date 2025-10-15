@@ -43,12 +43,14 @@ export class RouteConverterService {
     const totalTime = paths.reduce((sum, p) => sum + p.time, 0);
     const totalAscent = paths.reduce((sum, p) => sum + p.ascend, 0);
     const totalDescent = paths.reduce((sum, p) => sum + p.descend, 0);
+    // 자전거 구간만 추출
+    const bikeSegments = segments.filter((s) => s.type === 'biking');
     return {
       distance: Math.round(totalDistance),
       time: Math.round(totalTime / 1000),
       ascent: Math.round(totalAscent),
       descent: Math.round(totalDescent),
-      bikeRoadRatio: this.routeUtil.calculateOverallBikeRoadRatio(segments),
+      bikeRoadRatio: this.routeUtil.calculateOverallBikeRoadRatio(bikeSegments),
       maxGradient,
     };
   }
