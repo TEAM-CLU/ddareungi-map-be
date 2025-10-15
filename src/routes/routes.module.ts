@@ -5,13 +5,15 @@ import { RoutesService } from './routes.service';
 import { GraphHopperService } from './services/graphhopper.service';
 import { RouteOptimizerService } from './services/route-optimizer.service';
 import { RouteConverterService } from './services/route-converter.service';
-import { StationMockService } from './services/station-mock.service';
+import { RouteBuilderService } from './services/route-builder.service';
+import { StationRouteService } from './services/station-route.service';
+import { RouteUtilService } from './services/route-util.service';
+import { StationsModule } from '../stations/stations.module';
 
 @Module({
   imports: [
     HttpModule,
-    // 실제 엔티티가 있다면 여기에 추가
-    // TypeOrmModule.forFeature([Station]),
+    StationsModule, // StationQueryService를 사용하기 위해 추가
   ],
   controllers: [RoutesController],
   providers: [
@@ -19,7 +21,9 @@ import { StationMockService } from './services/station-mock.service';
     GraphHopperService,
     RouteOptimizerService,
     RouteConverterService,
-    StationMockService,
+    RouteBuilderService,
+    StationRouteService,
+    RouteUtilService,
   ],
 })
 export class RoutesModule {}

@@ -56,5 +56,5 @@ pids
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
-/.github/copilot-instructions.md
 Gemini.md
+/.github/copilot-instructions.md
