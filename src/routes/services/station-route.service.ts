@@ -138,12 +138,15 @@ export class StationRouteService {
 
       // 거리 계산하여 정렬
       const stationsWithDistance = allNearbyStations
-        .filter((station) => station.status === 'available')
+        .filter(
+          (station) =>
+            station.status === 'available' && station.current_bikes > 0,
+        )
         .map((station) => ({
           ...station,
           distance: this.routeUtil.calculateDistance(
-            [latitude, longitude],
-            [station.latitude, station.longitude],
+            [longitude, latitude],
+            [station.longitude, station.latitude],
           ),
         }))
         .sort((a, b) => a.distance - b.distance)
@@ -155,12 +158,6 @@ export class StationRouteService {
       return [];
     }
   }
-
-  /**
-   * 두 좌표 간의 거리 계산 (Haversine formula)
-   */
-  // 좌표 간 거리 계산 함수는 RouteUtilService로 통합
-
   /**
    * StationResponseDto를 RouteStation으로 변환
    */
