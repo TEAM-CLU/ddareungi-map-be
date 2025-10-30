@@ -18,7 +18,11 @@ export class JwtNaverStrategy extends PassportStrategy(Strategy, 'naver') {
     });
   }
 
-  async validate(accessToken: string, refreshToken: string, profile: any): Promise<any> {
+  async validate(
+    accessToken: string,
+    refreshToken: string,
+    profile: any,
+  ): Promise<any> {
     try {
       // Fetch user profile from Naver API using accessToken
       const response = await axios.get('https://openapi.naver.com/v1/nid/me', {

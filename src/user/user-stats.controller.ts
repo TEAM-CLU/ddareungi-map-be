@@ -16,7 +16,10 @@ import {
   ApiBearerAuth,
   ApiBody,
 } from '@nestjs/swagger';
-import type { Request } from 'express';
+import { Request as ExpressRequest } from 'express';
+interface AuthRequest extends ExpressRequest {
+  user?: { userId: number };
+}
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { UserStatsService } from './services/user-stats.service';
 import { UpdateUserStatsDto } from './dto/update-user-stats.dto';
@@ -33,7 +36,8 @@ export class UserStatsController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: '사용자 통계 업데이트',
-    description: '사용자의 이용 통계를 업데이트합니다. 기존 데이터에 누적됩니다.',
+    description:
+      '사용자의 이용 통계를 업데이트합니다. 기존 데이터에 누적됩니다.',
   })
   @ApiBody({ type: UpdateUserStatsDto })
   @ApiResponse({
@@ -63,11 +67,17 @@ export class UserStatsController {
     },
   })
   async updateStats(
-    @Req() req: Request,
+    @Req() req: AuthRequest,
     @Body() updateUserStatsDto: UpdateUserStatsDto,
   ): Promise<UserStatsResponseDto> {
-    const userId = (req.user as any).userId;
-    return await this.userStatsService.updateUserStats(userId, updateUserStatsDto);
+    const userId = req.user?.userId;
+    if (typeof userId !== 'number') {
+      throw new Error('유저 정보가 올바르지 않습니다.');
+    }
+    return await this.userStatsService.updateUserStats(
+      userId,
+      updateUserStatsDto,
+    );
   }
 
   @Get()
@@ -100,8 +110,11 @@ export class UserStatsController {
       },
     },
   })
-  async getStats(@Req() req: Request): Promise<UserStatsResponseDto> {
-    const userId = (req.user as any).userId;
+  async getStats(@Req() req: AuthRequest): Promise<UserStatsResponseDto> {
+    const userId = req.user?.userId;
+    if (typeof userId !== 'number') {
+      throw new Error('유저 정보가 올바르지 않습니다.');
+    }
     return await this.userStatsService.getUserStats(userId);
   }
 
@@ -135,8 +148,11 @@ export class UserStatsController {
       },
     },
   })
-  async resetStats(@Req() req: Request): Promise<void> {
-    const userId = (req.user as any).userId;
+  async resetStats(@Req() req: AuthRequest): Promise<void> {
+    const userId = req.user?.userId;
+    if (typeof userId !== 'number') {
+      throw new Error('유저 정보가 올바르지 않습니다.');
+    }
     await this.userStatsService.resetUserStats(userId);
   }
 }

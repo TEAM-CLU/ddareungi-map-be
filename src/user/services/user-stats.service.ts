@@ -15,12 +15,21 @@ export class UserStatsService {
   /**
    * 사용자 통계 업데이트 또는 생성
    */
-  async updateUserStats(userId: number, updateUserStatsDto: UpdateUserStatsDto): Promise<UserStatsResponseDto> {
-    const { totalDistance, totalTime, calories, plantingTree, carbonReduction } = updateUserStatsDto;
+  async updateUserStats(
+    userId: number,
+    updateUserStatsDto: UpdateUserStatsDto,
+  ): Promise<UserStatsResponseDto> {
+    const {
+      totalDistance,
+      totalTime,
+      calories,
+      plantingTree,
+      carbonReduction,
+    } = updateUserStatsDto;
 
     // 기존 사용자 통계 조회
     let userStats = await this.userStatsRepository.findOne({
-      where: { userId }
+      where: { userId },
     });
 
     if (!userStats) {
@@ -61,7 +70,7 @@ export class UserStatsService {
    */
   async getUserStats(userId: number): Promise<UserStatsResponseDto> {
     const userStats = await this.userStatsRepository.findOne({
-      where: { userId }
+      where: { userId },
     });
 
     if (!userStats) {
@@ -84,7 +93,7 @@ export class UserStatsService {
    */
   async resetUserStats(userId: number): Promise<void> {
     const userStats = await this.userStatsRepository.findOne({
-      where: { userId }
+      where: { userId },
     });
 
     if (!userStats) {

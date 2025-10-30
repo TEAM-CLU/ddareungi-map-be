@@ -8,7 +8,7 @@ import { UserService } from './user.service';
 import { UserController } from './user.controller';
 import { UserStatsController } from './user-stats.controller';
 import { UserStatsService } from './services/user-stats.service';
-import { AuthModule } from '../auth/auth.module'; // 추가
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
@@ -18,7 +18,9 @@ import { AuthModule } from '../auth/auth.module'; // 추가
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         secret: configService.get<string>('JWT_SECRET'), // 환경 변수에서 JWT 비밀 키 가져오기
-        signOptions: { expiresIn: configService.get<string>('JWT_EXPIRATION_TIME') }, // 환경 변수에서 만료 시간 가져오기
+        signOptions: {
+          expiresIn: configService.get<string>('JWT_EXPIRATION_TIME'),
+        }, // 환경 변수에서 만료 시간 가져오기
       }),
     }),
     AuthModule, // 추가

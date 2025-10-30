@@ -35,7 +35,13 @@ export class AuthService {
   // PKCE state별 사용자 정보 및 토큰 저장소 (codeVerifier 포함)
   private pkceStates = new Map<
     string,
-    { accessToken: string; user: any; codeVerifier: string; expiresAt: Date; isComplete: boolean }
+    {
+      accessToken: string;
+      user: any;
+      codeVerifier: string;
+      expiresAt: Date;
+      isComplete: boolean;
+    }
   >();
 
   constructor(
@@ -94,8 +100,7 @@ export class AuthService {
       );
 
       return {
-        message:
-          '인증코드 발송완료. 10분내 인증 필요',
+        message: '인증코드 발송완료. 10분내 인증 필요',
       };
     } catch (error) {
       // 이메일 발송 실패 시 저장된 인증 정보 삭제
@@ -154,8 +159,6 @@ export class AuthService {
     };
   }
 
-
-
   async validateUserByToken(token: string): Promise<User> {
     try {
       // 토큰 검증 및 디코딩
@@ -199,11 +202,11 @@ export class AuthService {
       // 2. 이메일 중복 확인 (소셜 로그인도 이메일 유니크 제약 준수)
       const normalizedEmail = email ? email.toLowerCase() : null;
       if (normalizedEmail) {
-        const existingEmailUser = await this.userRepository.findOne({ 
+        const existingEmailUser = await this.userRepository.findOne({
           where: { email: normalizedEmail },
-          select: ['userId', 'socialName']
+          select: ['userId', 'socialName'],
         });
-        
+
         if (existingEmailUser) {
           throw new ConflictException({
             statusCode: 409,
@@ -267,11 +270,11 @@ export class AuthService {
       // 2. 이메일 중복 확인 (소셜 로그인도 이메일 유니크 제약 준수)
       const normalizedEmail = email ? email.toLowerCase() : null;
       if (normalizedEmail) {
-        const existingEmailUser = await this.userRepository.findOne({ 
+        const existingEmailUser = await this.userRepository.findOne({
           where: { email: normalizedEmail },
-          select: ['userId', 'socialName']
+          select: ['userId', 'socialName'],
         });
-        
+
         if (existingEmailUser) {
           throw new ConflictException({
             statusCode: 409,
@@ -337,11 +340,11 @@ export class AuthService {
       // 2. 이메일 중복 확인 (소셜 로그인도 이메일 유니크 제약 준수)
       const normalizedEmail = email ? email.toLowerCase() : null;
       if (normalizedEmail) {
-        const existingEmailUser = await this.userRepository.findOne({ 
+        const existingEmailUser = await this.userRepository.findOne({
           where: { email: normalizedEmail },
-          select: ['userId', 'socialName']
+          select: ['userId', 'socialName'],
         });
-        
+
         if (existingEmailUser) {
           throw new ConflictException({
             statusCode: 409,
@@ -816,7 +819,7 @@ export class AuthService {
   // 🔐 codeVerifier 검증으로 토큰 반환
   async exchangeTokenWithCodeVerifier(
     codeVerifier: string,
-  ): Promise<{ accessToken: string}> {
+  ): Promise<{ accessToken: string }> {
     try {
       // 모든 state를 순회하여 일치하는 codeVerifier 찾기
       let matchingState: string | null = null;
@@ -848,7 +851,7 @@ export class AuthService {
 
       // 토큰 반환 데이터 저장
       const result = {
-        accessToken: matchingData.accessToken // 우리 서비스 JWT 토큰
+        accessToken: matchingData.accessToken, // 우리 서비스 JWT 토큰
       };
 
       // 성공적으로 토큰을 교환했으므로 state 삭제
@@ -905,12 +908,12 @@ export class AuthService {
     // 특정 clientState가 제공된 경우 해당 state만 확인
     if (clientState) {
       const pkceData = this.pkceStates.get(clientState);
-      
+
       if (!pkceData) {
         return {
           state: null,
           isComplete: false,
-          message: '해당 상태를 찾을 수 없거나 만료되었습니다.'
+          message: '해당 상태를 찾을 수 없거나 만료되었습니다.',
         };
       }
 
@@ -919,7 +922,7 @@ export class AuthService {
         return {
           state: null,
           isComplete: false,
-          message: '상태가 만료되었습니다.'
+          message: '상태가 만료되었습니다.',
         };
       }
 
@@ -927,13 +930,13 @@ export class AuthService {
         return {
           state: clientState,
           isComplete: true,
-          message: '소셜 로그인이 완료되었습니다.'
+          message: '소셜 로그인이 완료되었습니다.',
         };
       } else {
         return {
           state: null,
           isComplete: false,
-          message: '소셜 로그인이 아직 완료되지 않았습니다.'
+          message: '소셜 로그인이 아직 완료되지 않았습니다.',
         };
       }
     }
@@ -944,7 +947,7 @@ export class AuthService {
         return {
           state: state,
           isComplete: true,
-          message: '소셜 로그인이 완료되었습니다.'
+          message: '소셜 로그인이 완료되었습니다.',
         };
       }
     }
@@ -952,7 +955,7 @@ export class AuthService {
     return {
       state: null,
       isComplete: false,
-      message: '진행 중인 소셜 로그인이 없거나 아직 완료되지 않았습니다.'
+      message: '진행 중인 소셜 로그인이 없거나 아직 완료되지 않았습니다.',
     };
   }
 
@@ -1008,7 +1011,7 @@ export class AuthService {
       hasAccessToken: boolean;
       userEmail?: string;
     }> = [];
-    
+
     for (const [state, data] of this.pkceStates.entries()) {
       statesList.push({
         state: state,
@@ -1025,7 +1028,7 @@ export class AuthService {
       expiresAt: Date;
       attempts: number;
     }> = [];
-    
+
     for (const [email, verification] of this.verificationCodes.entries()) {
       verificationsList.push({
         email: verification.email,
@@ -1051,7 +1054,7 @@ export class AuthService {
     data?: any;
   }> {
     const pkceData = this.pkceStates.get(state);
-    
+
     if (!pkceData) {
       return {
         message: '해당 state를 찾을 수 없습니다.',
@@ -1077,11 +1080,13 @@ export class AuthService {
         expiresAt: pkceData.expiresAt,
         hasAccessToken: !!pkceData.accessToken,
         hasUser: !!pkceData.user,
-        userInfo: pkceData.user ? {
-          email: pkceData.user.email || pkceData.user.response?.email,
-          name: pkceData.user.name || pkceData.user.response?.nickname,
-          socialProvider: pkceData.user.socialName || 'Unknown'
-        } : null,
+        userInfo: pkceData.user
+          ? {
+              email: pkceData.user.email || pkceData.user.response?.email,
+              name: pkceData.user.name || pkceData.user.response?.nickname,
+              socialProvider: pkceData.user.socialName || 'Unknown',
+            }
+          : null,
       },
     };
   }
