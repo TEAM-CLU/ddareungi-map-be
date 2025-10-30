@@ -6,7 +6,6 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
 import { MailModule } from './mail/mail.module';
 import { AuthModule } from './auth/auth.module';
-import { RoutesModule } from './routes/routes.module';
 import { UserModule } from './user/user.module';
 import { StationsModule } from './stations/stations.module';
 import { HttpExceptionFilter } from './common/http-exceptioin.filter';
@@ -46,7 +45,6 @@ import { HttpExceptionFilter } from './common/http-exceptioin.filter';
     // 이메일 및 인증 모듈
     MailModule,
     AuthModule,
-    RoutesModule,
     UserModule,
     StationsModule,
   ],
