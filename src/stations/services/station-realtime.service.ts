@@ -100,7 +100,7 @@ export class StationRealtimeService {
   /**
    * ID 기반 실시간 정보 동기화 (순수 동기화 로직)
    */
-  private async syncRealtimeInfoByIds(
+  public async syncRealtimeInfoByIds(
     stationIds: string[],
   ): Promise<Map<string, SeoulBikeRealtimeInfo>> {
     if (stationIds.length === 0) {

@@ -1,6 +1,14 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNumber, IsOptional, IsArray } from 'class-validator';
+import {
+  IsString,
+  IsNumber,
+  IsOptional,
+  IsArray,
+  ArrayNotEmpty,
+} from 'class-validator';
 import type { StationStatus, StationId } from '../types/station.types';
+
+// 1. 주요 요청/응답 DTO (생성, 조회)
 
 /**
  * API 요청용 DTO
@@ -161,6 +169,78 @@ export class StationResponseDto {
   last_updated_at: Date | null;
 }
 
+// 2. 실시간/배치/재고 관련 DTO
+
+/**
+ * 대여소 번호 목록 DTO (실시간 동기화 등에서 사용)
+ */
+export class StationNumbersDto {
+  @ApiProperty({
+    type: [String],
+    description: '동기화할 대여소 번호 목록',
+    example: [
+      '01611',
+      '02914',
+      '01608',
+      '01693',
+      '02915',
+      '01655',
+      '04041',
+      '05317',
+      '04008',
+      '04025',
+      '05319',
+      '05331',
+      '02910',
+      '05341',
+      '02902',
+      '02901',
+      '04044',
+      '01616',
+      '02912',
+      '04007',
+      '01640',
+      '05323',
+    ],
+  })
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsString({ each: true })
+  stationNumbers: string[];
+}
+
+/**
+ * 대여소 재고 조회 요청 DTO
+ */
+export class StationInventoryRequestDto {
+  @ApiProperty({
+    description: '대여소 번호 배열',
+    example: ['1001', '1002', '1003'],
+    type: [String],
+  })
+  @IsArray()
+  stationNumbers: string[];
+}
+
+/**
+ * 대여소 재고 조회 응답 DTO
+ */
+export class StationInventoryResponseDto {
+  @ApiProperty({
+    description: '대여소 번호',
+    example: '1001',
+  })
+  station_number: string;
+
+  @ApiProperty({
+    description: '현재 가용 가능한 자전거 수',
+    example: 8,
+  })
+  current_bikes: number;
+}
+
+// 3. 기타(근처 대여소 등)
+
 /**
  * 근처 대여소 및 지도 영역 조회용 응답 DTO (실시간 정보, 거리, 주소 포함)
  */
@@ -214,34 +294,4 @@ export class NearbyStationResponseDto {
     required: false,
   })
   distance?: number;
-}
-
-/**
- * 대여소 재고 조회 요청 DTO
- */
-export class StationInventoryRequestDto {
-  @ApiProperty({
-    description: '대여소 번호 배열',
-    example: ['1001', '1002', '1003'],
-    type: [String],
-  })
-  @IsArray()
-  stationNumbers: string[];
-}
-
-/**
- * 대여소 재고 조회 응답 DTO
- */
-export class StationInventoryResponseDto {
-  @ApiProperty({
-    description: '대여소 번호',
-    example: '1001',
-  })
-  station_number: string;
-
-  @ApiProperty({
-    description: '현재 가용 가능한 자전거 수',
-    example: 8,
-  })
-  current_bikes: number;
 }
