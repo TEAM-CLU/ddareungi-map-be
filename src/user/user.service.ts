@@ -1,4 +1,10 @@
-import { HttpException, Injectable, UnauthorizedException, NotFoundException, ConflictException } from '@nestjs/common';
+import {
+  HttpException,
+  Injectable,
+  ConflictException,
+  UnauthorizedException,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
@@ -12,7 +18,6 @@ import { CheckEmailDto } from './dto/check-email.dto';
 import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
 
-
 @Injectable()
 export class UserService {
   constructor(
@@ -21,31 +26,51 @@ export class UserService {
     private readonly jwtService: JwtService, // JwtService 주입
   ) {}
 
+  /**
+   * 회원 탈퇴 (자기 자신)
+   */
+  async withdraw(userId: number): Promise<void> {
+    const user = await this.userRepository.findOne({ where: { userId } });
+    if (!user) {
+      throw new NotFoundException({
+        statusCode: 404,
+        message: '사용자를 찾을 수 없습니다.',
+      });
+    }
+    await this.userRepository.remove(user); // onDelete: 'CASCADE'로 연관 데이터도 삭제
+  }
+
   async register(createUserDto: CreateUserDto): Promise<{ message: string }> {
-    const { email, password, socialUid } = createUserDto;
+    const { email, password } = createUserDto;
     const normalizedEmail = email.toLowerCase(); // 이메일 정규화
 
     // 이메일 유효성 검사
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      throw new HttpException({
-        statusCode: 400,
-        message: '올바르지 않은 이메일 구조입니다. 다시 확인해주세요.',
-      }, 400);
+      throw new HttpException(
+        {
+          statusCode: 400,
+          message: '올바르지 않은 이메일 구조입니다. 다시 확인해주세요.',
+        },
+        400,
+      );
     }
 
     // 비밀번호 길이 검사
     if (password.length < 8 || password.length > 255) {
-      throw new HttpException({
-        statusCode: 400,
-        message: '비밀번호는 최소 8글자 이상, 최대 255글자 이하여야 합니다.',
-      }, 400);
+      throw new HttpException(
+        {
+          statusCode: 400,
+          message: '비밀번호는 최소 8글자 이상, 최대 255글자 이하여야 합니다.',
+        },
+        400,
+      );
     }
 
     // 중복 이메일 검사 (정규화된 이메일 사용)
-    const existingUser = await this.userRepository.findOne({ 
+    const existingUser = await this.userRepository.findOne({
       where: { email: normalizedEmail },
-      select: ['userId']
+      select: ['userId'],
     });
     if (existingUser) {
       throw new ConflictException({
@@ -56,21 +81,24 @@ export class UserService {
 
     // 비밀번호 해싱
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = this.userRepository.create({ 
-      ...createUserDto, 
+    const user = this.userRepository.create({
+      ...createUserDto,
       email: normalizedEmail, // 정규화된 이메일 저장
-      passwordHash: hashedPassword, 
-      socialName: 'SocialUser' 
+      passwordHash: hashedPassword,
+      socialName: 'SocialUser',
     });
 
     try {
       await this.userRepository.save(user);
       return { message: '회원가입이 완료되었습니다.' };
-    } catch (error) {
-      throw new HttpException({
-        statusCode: 400,
-        message: '사용자 등록 중 문제가 발생했습니다. 다시 시도해주세요.',
-      }, 400);
+    } catch {
+      throw new HttpException(
+        {
+          statusCode: 400,
+          message: '사용자 등록 중 문제가 발생했습니다. 다시 시도해주세요.',
+        },
+        400,
+      );
     }
   }
 
@@ -79,7 +107,9 @@ export class UserService {
     const normalizedEmail = email.toLowerCase(); // 이메일 정규화
 
     // 이메일로 사용자 찾기 (정규화된 이메일 사용)
-    const user = await this.userRepository.findOne({ where: { email: normalizedEmail } });
+    const user = await this.userRepository.findOne({
+      where: { email: normalizedEmail },
+    });
     if (!user) {
       throw new UnauthorizedException({
         statusCode: 401,
@@ -111,7 +141,7 @@ export class UserService {
   async getUserInfo(userId: number): Promise<UserInfoResponseDto> {
     const user = await this.userRepository.findOne({
       where: { userId },
-      select: ['name', 'birthDate', 'gender', 'address']
+      select: ['name', 'birthDate', 'gender', 'address'],
     });
 
     if (!user) {
@@ -120,10 +150,10 @@ export class UserService {
         message: '사용자를 찾을 수 없습니다.',
       });
     }
-    
+
     // birthDate를 안전하게 문자열로 변환
     let formattedBirthDate: string;
-    
+
     if (!user.birthDate) {
       formattedBirthDate = '1970-01-01';
     } else if (user.birthDate instanceof Date) {
@@ -158,10 +188,13 @@ export class UserService {
   /**
    * 사용자 정보 업데이트
    */
-  async updateUserInfo(userId: number, updateUserInfoDto: UpdateUserInfoDto): Promise<UserInfoResponseDto> {
+  async updateUserInfo(
+    userId: number,
+    updateUserInfoDto: UpdateUserInfoDto,
+  ): Promise<UserInfoResponseDto> {
     // 사용자 존재 여부 확인
     const user = await this.userRepository.findOne({
-      where: { userId }
+      where: { userId },
     });
 
     if (!user) {
@@ -174,10 +207,13 @@ export class UserService {
     // 생년월일 문자열을 Date 객체로 변환
     const birthDate = new Date(updateUserInfoDto.birthDate);
     if (isNaN(birthDate.getTime())) {
-      throw new HttpException({
-        statusCode: 400,
-        message: '올바르지 않은 생년월일 형식입니다.',
-      }, 400);
+      throw new HttpException(
+        {
+          statusCode: 400,
+          message: '올바르지 않은 생년월일 형식입니다.',
+        },
+        400,
+      );
     }
 
     // 사용자 정보 업데이트 (updatedAt은 @UpdateDateColumn으로 자동 업데이트됨)
@@ -201,13 +237,16 @@ export class UserService {
   /**
    * 비밀번호 변경
    */
-  async changePassword(userId: number, changePasswordDto: ChangePasswordDto): Promise<{ message: string }> {
+  async changePassword(
+    userId: number,
+    changePasswordDto: ChangePasswordDto,
+  ): Promise<{ message: string }> {
     const { currentPassword, newPassword } = changePasswordDto;
 
     // 사용자 존재 여부 확인
     const user = await this.userRepository.findOne({
       where: { userId },
-      select: ['userId', 'passwordHash']
+      select: ['userId', 'passwordHash'],
     });
 
     if (!user) {
@@ -218,7 +257,10 @@ export class UserService {
     }
 
     // 현재 비밀번호 확인
-    const isCurrentPasswordValid = await bcrypt.compare(currentPassword, user.passwordHash);
+    const isCurrentPasswordValid = await bcrypt.compare(
+      currentPassword,
+      user.passwordHash,
+    );
     if (!isCurrentPasswordValid) {
       throw new UnauthorizedException({
         statusCode: 401,
@@ -229,10 +271,13 @@ export class UserService {
     // 새로운 비밀번호가 현재 비밀번호와 같은지 확인
     const isSamePassword = await bcrypt.compare(newPassword, user.passwordHash);
     if (isSamePassword) {
-      throw new HttpException({
-        statusCode: 400,
-        message: '같은 비밀번호입니다. 다른 비밀번호를 입력해주세요.',
-      }, 400);
+      throw new HttpException(
+        {
+          statusCode: 400,
+          message: '같은 비밀번호입니다. 다른 비밀번호를 입력해주세요.',
+        },
+        400,
+      );
     }
 
     // 새로운 비밀번호 해싱
@@ -254,7 +299,7 @@ export class UserService {
   async getMyPageInfo(userId: number): Promise<MyPageInfoResponseDto> {
     const user = await this.userRepository.findOne({
       where: { userId },
-      select: ['name', 'email']
+      select: ['name', 'email', 'birthDate', 'gender', 'address'],
     });
 
     if (!user) {
@@ -264,9 +309,20 @@ export class UserService {
       });
     }
 
+    // birthDate를 문자열로 변환
+    let formattedBirthDate: string | null = null;
+    if (user.birthDate instanceof Date) {
+      formattedBirthDate = user.birthDate.toISOString().split('T')[0];
+    } else if (typeof user.birthDate === 'string') {
+      formattedBirthDate = user.birthDate;
+    }
+
     return {
       name: user.name,
       email: user.email,
+      birthDate: formattedBirthDate,
+      gender: user.gender ?? null,
+      address: user.address ?? null,
       totalDistance: null,
       totalTime: null,
       calories: null,
@@ -278,13 +334,15 @@ export class UserService {
   /**
    * 이메일 중복 확인
    */
-  async checkEmailExists(checkEmailDto: CheckEmailDto): Promise<{ message: string }> {
+  async checkEmailExists(
+    checkEmailDto: CheckEmailDto,
+  ): Promise<{ message: string }> {
     const { email } = checkEmailDto;
     const normalizedEmail = email.toLowerCase();
 
-    const existingUser = await this.userRepository.findOne({ 
+    const existingUser = await this.userRepository.findOne({
       where: { email: normalizedEmail },
-      select: ['userId']
+      select: ['userId'],
     });
 
     if (existingUser) {
@@ -298,5 +356,4 @@ export class UserService {
       message: '사용 가능한 이메일입니다.',
     };
   }
-
 }

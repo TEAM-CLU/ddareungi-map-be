@@ -1,4 +1,10 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 
 @Entity('users')
 export class User {
@@ -11,28 +17,36 @@ export class User {
   @Column({ type: 'varchar', length: 255, nullable: true, name: 'social_uid' })
   socialUid: string;
 
-  @Column({ type: 'varchar', length: 255, unique: true})
+  @Column({ type: 'varchar', length: 255, unique: true })
   email: string;
 
-  @Column({ type: 'varchar', length: 255, name: 'password_hash'})
+  @Column({ type: 'varchar', length: 255, name: 'password_hash' })
   passwordHash: string;
 
   @Column({ type: 'varchar', length: 100 })
   name: string;
 
-  @Column({ type: 'varchar', length: 10})
+  @Column({ type: 'varchar', length: 10 })
   gender: string;
 
-  @Column({ type: 'date', name: 'birth_date'})
+  @Column({ type: 'date', name: 'birth_date' })
   birthDate: Date;
 
   @Column({ type: 'varchar', length: 255, nullable: true, name: 'address' })
   address: string;
 
-  @CreateDateColumn({ type: 'timestamptz', name: 'created_at', default: () => 'CURRENT_TIMESTAMP' })
+  @CreateDateColumn({
+    type: 'timestamptz',
+    name: 'created_at',
+    default: () => 'CURRENT_TIMESTAMP',
+  })
   createdAt: Date;
 
-  @UpdateDateColumn({ type: 'timestamptz', name: 'updated_at', default: () => 'CURRENT_TIMESTAMP' })
+  @UpdateDateColumn({
+    type: 'timestamptz',
+    name: 'updated_at',
+    default: () => 'CURRENT_TIMESTAMP',
+  })
   updatedAt: Date;
 
   @Column({ type: 'timestamptz', name: 'last_login', nullable: true })

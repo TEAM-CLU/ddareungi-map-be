@@ -24,7 +24,10 @@ export class MailService {
    * @param to 받는 사람 이메일
    * @param verificationCode 인증 코드
    */
-  async sendVerificationEmail(to: string, verificationCode: string): Promise<void> {
+  async sendVerificationEmail(
+    to: string,
+    verificationCode: string,
+  ): Promise<void> {
     const mailOptions = {
       from: this.configService.get<string>('MAIL_USER'), // 발송자 이메일
       to: to, // 받는 사람 이메일
@@ -67,7 +70,11 @@ export class MailService {
    * @param subject 제목
    * @param content 내용
    */
-  async sendNotificationEmail(to: string, subject: string, content: string): Promise<void> {
+  async sendNotificationEmail(
+    to: string,
+    subject: string,
+    content: string,
+  ): Promise<void> {
     const mailOptions = {
       from: this.configService.get<string>('MAIL_USER'),
       to: to,

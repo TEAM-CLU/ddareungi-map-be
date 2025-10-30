@@ -10,22 +10,28 @@ import { JwtNaverStrategy } from './strategies/naver.strategy';
 import { JwtKakaoStrategy } from './strategies/kakao.strategy';
 import { JwtGoogleStrategy } from './strategies/google.strategy';
 
-
 @Module({
   imports: [
     MailModule,
     TypeOrmModule.forFeature([User]),
     JwtModule.registerAsync({
-          imports: [ConfigModule],
-          inject: [ConfigService],
-          useFactory: (configService: ConfigService) => ({
-            secret: configService.get<string>('JWT_SECRET'), // 환경 변수에서 JWT 비밀 키 가져오기
-            signOptions: { expiresIn: configService.get<string>('JWT_EXPIRATION_TIME') }, // 환경 변수에서 만료 시간 가져오기
-          }),
-        }),
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        secret: configService.get<string>('JWT_SECRET'), // 환경 변수에서 JWT 비밀 키 가져오기
+        signOptions: {
+          expiresIn: configService.get<string>('JWT_EXPIRATION_TIME'),
+        }, // 환경 변수에서 만료 시간 가져오기
+      }),
+    }),
   ],
-  controllers: [AuthController],  
-  providers: [AuthService, JwtNaverStrategy, JwtKakaoStrategy, JwtGoogleStrategy],
+  controllers: [AuthController],
+  providers: [
+    AuthService,
+    JwtNaverStrategy,
+    JwtKakaoStrategy,
+    JwtGoogleStrategy,
+  ],
   exports: [AuthService],
 })
 export class AuthModule {}
