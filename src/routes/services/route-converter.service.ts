@@ -5,7 +5,6 @@ import {
   SummaryDto,
   BoundingBoxDto,
   GeometryDto,
-  InstructionDto,
   BikeProfile,
 } from '../dto/route.dto';
 import { GraphHopperPath } from '../interfaces/graphhopper.interface';

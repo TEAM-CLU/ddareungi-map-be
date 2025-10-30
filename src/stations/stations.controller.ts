@@ -27,6 +27,7 @@ import { StationResponseDto } from './dto/station-api.dto';
 import {
   CreateStationDto,
   NearbyStationResponseDto,
+  StationNumbersDto,
 } from './dto/station-api.dto';
 import {
   DeleteAllResult,
@@ -44,7 +45,7 @@ export class StationsController {
   private readonly logger = new Logger(StationsController.name);
 
   constructor(
-    private readonly stationsService: StationsService, // 애플리케이션 생명주기용
+    private readonly stationsService: StationsService, // 생명주기 관리용
     private readonly stationSyncService: StationSyncService,
     private readonly stationQueryService: StationQueryService,
     private readonly stationManagementService: StationManagementService,
@@ -70,9 +71,8 @@ export class StationsController {
   })
   async syncStations(): Promise<SuccessResponseDto<null>> {
     try {
-      this.logger.log('수동 대여소 동기화 요청 받음');
+      this.logger.log('수동 대여소 동기화 요청');
       await this.stationSyncService.handleWeeklySync();
-
       return SuccessResponseDto.create(
         '대여소 동기화가 성공적으로 완료되었습니다.',
         null,
@@ -91,80 +91,124 @@ export class StationsController {
 
   @Post('realtime-sync')
   @ApiOperation({
-    summary: '실시간 대여정보 동기화',
+    summary: '전체 대여소 실시간 대여정보 동기화',
     description:
-      '서울시 공공자전거 실시간 대여정보 API를 호출하여 특정 대여소의 현재 자전거 수와 거치대 수를 업데이트합니다.',
-  })
-  @ApiQuery({
-    name: 'stationId',
-    description: '동기화할 대여소의 외부 스테이션 ID',
-    type: String,
-    required: false,
+      '서울시 공공자전거 실시간 대여정보 API를 호출하여 현재 DB에 존재하는 모든 대여소의 자전거 수, 거치대 수, 상태(status)를 최신화합니다.',
   })
   @ApiResponse({
     status: 200,
-    description: '실시간 동기화 성공',
+    description: '전체 대여소 실시간 동기화 성공',
     type: SuccessResponseDto,
-  })
-  @ApiResponse({
-    status: 404,
-    description: '대여소를 찾을 수 없음',
-    type: ErrorResponseDto,
   })
   @ApiResponse({
     status: 500,
     description: '서버 내부 오류',
     type: ErrorResponseDto,
   })
-  async syncRealtimeStationInfo(
-    @Query('stationId') stationId?: string,
-  ): Promise<SuccessResponseDto<object>> {
+  async syncAllStationsRealtimeInfo(): Promise<SuccessResponseDto<object>> {
     try {
-      this.logger.log(
-        `실시간 대여정보 동기화 요청: ${stationId || '전체 대여소'}`,
+      this.logger.log('전체 대여소 실시간 대여정보 동기화 요청');
+      const result =
+        await this.stationRealtimeService.syncAllStationsRealtimeInfo();
+      return SuccessResponseDto.create(
+        `전체 대여소 실시간 대여정보 동기화가 완료되었습니다. (성공: ${result.successCount}개, 실패: ${result.failureCount}개)`,
+        {
+          successCount: result.successCount,
+          failureCount: result.failureCount,
+          details: result.details,
+        },
       );
-
-      if (stationId) {
-        // 특정 대여소만 동기화
-        const realtimeInfo =
-          await this.stationRealtimeService.syncSingleStationRealtimeInfo(
-            stationId,
-          );
-
-        if (!realtimeInfo) {
-          throw new HttpException(
-            ErrorResponseDto.create(
-              HttpStatus.NOT_FOUND,
-              `대여소 ID ${stationId}를 찾을 수 없습니다.`,
-            ),
-            HttpStatus.NOT_FOUND,
-          );
-        }
-
-        return SuccessResponseDto.create(
-          '실시간 대여정보 동기화가 성공적으로 완료되었습니다.',
-          realtimeInfo,
-        );
-      } else {
-        // 전체 대여소 동기화 (개발/테스트 용도)
-        const result =
-          await this.stationRealtimeService.syncAllStationsRealtimeInfo();
-
-        return SuccessResponseDto.create(
-          `실시간 대여정보 동기화가 완료되었습니다. (성공: ${result.successCount}개, 실패: ${result.failureCount}개)`,
-          result,
-        );
-      }
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-
-      this.logger.error('실시간 대여정보 동기화 실패:', error);
+      this.logger.error('전체 대여소 실시간 대여정보 동기화 실패:', error);
       throw new HttpException(
         ErrorResponseDto.create(
           HttpStatus.INTERNAL_SERVER_ERROR,
-          '실시간 대여정보 동기화에 실패했습니다.',
+          '전체 대여소 실시간 대여정보 동기화에 실패했습니다.',
+        ),
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+  @Post('realtime-sync/batch')
+  @ApiOperation({
+    summary: '특정 대여소(들) 실시간 대여정보 동기화',
+    description:
+      '지정한 대여소 번호(stationNumbers) 목록에 대해 실시간 대여정보를 동기화합니다.',
+  })
+  @ApiBody({
+    description: '부분 동기화할 대여소 번호(number) 목록 예시',
+    schema: {
+      type: 'object',
+      properties: {
+        stationNumbers: {
+          type: 'array',
+          items: { type: 'string' },
+          description: '동기화할 대여소 번호 목록',
+          example: [
+            '01611',
+            '02914',
+            '01608',
+            '01693',
+            '02915',
+            '01655',
+            '04041',
+            '05317',
+            '04008',
+            '04025',
+            '05319',
+            '05331',
+            '02910',
+            '05341',
+            '02902',
+            '02901',
+            '04044',
+            '01616',
+            '02912',
+            '04007',
+            '01640',
+            '05323',
+          ],
+        },
+      },
+      required: ['stationNumbers'],
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: '특정 대여소 실시간 동기화 성공',
+    type: SuccessResponseDto,
+  })
+  @ApiResponse({
+    status: 500,
+    description: '서버 내부 오류',
+    type: ErrorResponseDto,
+  })
+  async syncBatchStationsRealtimeInfo(
+    @Body() body: StationNumbersDto,
+  ): Promise<SuccessResponseDto<object>> {
+    try {
+      const stationNumbers = body.stationNumbers;
+      // 대여소 번호를 id로 변환
+      const stationIds: string[] = [];
+      for (const number of stationNumbers) {
+        const station = await this.stationQueryService.findByNumber(number);
+        if (station) stationIds.push(String(station.id));
+      }
+      const result =
+        await this.stationRealtimeService.syncRealtimeInfoByIds(stationIds);
+      return SuccessResponseDto.create(
+        `부분 대여소 실시간 대여정보 동기화가 완료되었습니다. (성공: ${result.size}개, 실패: ${stationIds.length - result.size}개)`,
+        {
+          successCount: result.size,
+          failureCount: stationIds.length - result.size,
+        },
+      );
+    } catch (error) {
+      this.logger.error('부분 대여소 실시간 대여정보 동기화 실패:', error);
+      throw new HttpException(
+        ErrorResponseDto.create(
+          HttpStatus.INTERNAL_SERVER_ERROR,
+          '부분 대여소 실시간 대여정보 동기화에 실패했습니다.',
         ),
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
@@ -198,7 +242,7 @@ export class StationsController {
   })
   @ApiResponse({
     status: 200,
-    description: '근처 대여소 조회 성공',
+    description: '가장 가까운 대여소 3개 조회 성공',
     type: SuccessResponseDto,
   })
   @ApiResponse({
@@ -211,7 +255,7 @@ export class StationsController {
     description: '서버 내부 오류',
     type: ErrorResponseDto,
   })
-  async findNearbyStations(
+  async getNearbyStations(
     @Query('latitude') latitude: number,
     @Query('longitude') longitude: number,
     @Query('format') format: 'json' | 'geojson' = 'json',
@@ -219,46 +263,42 @@ export class StationsController {
     try {
       const lat = Number(latitude);
       const lng = Number(longitude);
-
-      // 좌표 유효성 검증
-      if (
-        isNaN(lat) ||
-        isNaN(lng) ||
-        lat < -90 ||
-        lat > 90 ||
-        lng < -180 ||
-        lng > 180
-      ) {
+      if (isNaN(lat) || isNaN(lng)) {
         throw new HttpException(
           ErrorResponseDto.create(
             HttpStatus.BAD_REQUEST,
-            '유효하지 않은 좌표입니다. latitude는 -90~90, longitude는 -180~180 범위여야 합니다.',
+            '유효하지 않은 위도/경도 값입니다.',
           ),
           HttpStatus.BAD_REQUEST,
         );
       }
-
+      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        throw new HttpException(
+          ErrorResponseDto.create(
+            HttpStatus.BAD_REQUEST,
+            '위도는 -90~90, 경도는 -180~180 범위여야 합니다.',
+          ),
+          HttpStatus.BAD_REQUEST,
+        );
+      }
       const stations = await this.stationQueryService.findNearbyStations(
         lat,
         lng,
       );
 
-      // 조회된 대여소가 없을 때 예외처리
-      if (stations.length === 0) {
-        throw new HttpException(
-          ErrorResponseDto.create(
-            HttpStatus.NOT_FOUND,
-            '주변에 이용 가능한 대여소가 없습니다.',
-          ),
-          HttpStatus.NOT_FOUND,
-        );
+      for (const station of stations) {
+        if (station && station.id) {
+          await this.stationRealtimeService.syncSingleStationRealtimeInfo(
+            station.id,
+          );
+        }
       }
 
       if (format === 'geojson') {
         const geoJsonData =
           this.stationQueryService.convertStationsToGeoJSON(stations);
         return SuccessResponseDto.create(
-          'GeoJSON 형태로 가장 가까운 대여소 3개를 성공적으로 조회했습니다.',
+          `GeoJSON 형태로 가장 가까운 대여소 ${stations.length}개를 성공적으로 조회했습니다.`,
           geoJsonData,
         );
       }
@@ -267,11 +307,14 @@ export class StationsController {
         this.stationMapperService.mapToNearbyResponseArray(stations);
 
       return SuccessResponseDto.create(
-        '가장 가까운 대여소 3개를 성공적으로 조회했습니다.',
+        `근처 대여소 ${stations.length}개를 성공적으로 조회했습니다.`,
         nearbyStations,
       );
     } catch (error) {
-      this.logger.error('근처 대여소 조회 실패:', error);
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      this.logger.error('가장 가까운 대여소 조회 실패:', error);
       throw new HttpException(
         ErrorResponseDto.create(
           HttpStatus.INTERNAL_SERVER_ERROR,
@@ -422,132 +465,6 @@ export class StationsController {
         ErrorResponseDto.create(
           HttpStatus.INTERNAL_SERVER_ERROR,
           '지도 영역 내 대여소 조회에 실패했습니다.',
-        ),
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  @Post('inventories')
-  @ApiOperation({
-    summary: '대여소 재고 정보 조회',
-    description:
-      '지정된 대여소 번호들의 실시간 재고 정보를 조회합니다. 따릉이 API를 통해 최신 정보를 동기화한 후 반환합니다.',
-  })
-  @ApiBody({
-    description: '조회할 대여소 번호 목록',
-    schema: {
-      type: 'object',
-      properties: {
-        stationNumbers: {
-          type: 'array',
-          items: {
-            type: 'string',
-          },
-          description: '대여소 번호 배열',
-          example: [
-            '01611',
-            '02914',
-            '01608',
-            '01693',
-            '02915',
-            '01655',
-            '04041',
-            '05317',
-            '04008',
-            '04025',
-            '05319',
-            '05331',
-            '02910',
-            '05341',
-            '02902',
-            '02901',
-            '04044',
-            '01616',
-            '02912',
-            '04007',
-            '01640',
-            '05323',
-          ],
-        },
-      },
-      required: ['stationNumbers'],
-    },
-  })
-  @ApiResponse({
-    status: 200,
-    description: '대여소 재고 정보 조회 성공',
-    type: SuccessResponseDto,
-    schema: {
-      example: {
-        statusCode: 200,
-        message: '대여소 재고 정보 3개를 성공적으로 조회했습니다.',
-        data: [
-          {
-            station_number: '1001',
-            current_bikes: 8,
-          },
-          {
-            station_number: '1002',
-            current_bikes: 12,
-          },
-          {
-            station_number: '1003',
-            current_bikes: 3,
-          },
-        ],
-      },
-    },
-  })
-  @ApiResponse({
-    status: 400,
-    description: '잘못된 요청 파라미터',
-    type: ErrorResponseDto,
-  })
-  @ApiResponse({
-    status: 500,
-    description: '서버 내부 오류',
-    type: ErrorResponseDto,
-  })
-  async getStationInventories(
-    @Body() request: { stationNumbers: string[] },
-  ): Promise<
-    SuccessResponseDto<{ station_number: string; current_bikes: number }[]>
-  > {
-    try {
-      // 입력값 검증
-      if (!request.stationNumbers || !Array.isArray(request.stationNumbers)) {
-        throw new HttpException(
-          ErrorResponseDto.create(
-            HttpStatus.BAD_REQUEST,
-            'stationNumbers는 문자열 배열이어야 합니다.',
-          ),
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-
-      if (request.stationNumbers.length === 0) {
-        return SuccessResponseDto.create('조회할 대여소 번호가 없습니다.', []);
-      }
-
-      const inventories = await this.stationQueryService.findStationInventories(
-        request.stationNumbers,
-      );
-
-      return SuccessResponseDto.create(
-        `대여소 재고 정보 ${inventories.length}개를 성공적으로 조회했습니다.`,
-        inventories,
-      );
-    } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-
-      this.logger.error('대여소 재고 정보 조회 실패:', error);
-      throw new HttpException(
-        ErrorResponseDto.create(
-          HttpStatus.INTERNAL_SERVER_ERROR,
-          '대여소 재고 정보 조회에 실패했습니다.',
         ),
         HttpStatus.INTERNAL_SERVER_ERROR,
       );

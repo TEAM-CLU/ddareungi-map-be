@@ -25,8 +25,8 @@ export class SeoulApiService {
   // 설정 상수
   private readonly defaultPageSize = 1000;
   private readonly maxRetries = 3;
-  private readonly apiDelay = 100; // 기본 API 호출 간격 (ms)
-  private readonly realtimeApiDelay = 500; // 실시간 API 호출 간격 (ms)
+  private readonly apiDelay = 50; // 기본 API 호출 간격 (ms)
+  private readonly realtimeApiDelay = 59; // 실시간 API 호출 간격 (ms)
   private readonly requestTimeout = 10000; // API 요청 타임아웃 (ms)
 
   // API 응답 코드
