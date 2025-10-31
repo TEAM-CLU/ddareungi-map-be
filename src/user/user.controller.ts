@@ -273,7 +273,7 @@ export class UserController {
   @ApiResponse({
     status: 200,
     description: '마이페이지 정보 조회 성공',
-    type: MyPageInfoResponseDto,
+    type: SuccessResponseDto,
   })
   @ApiResponse({
     status: 401,
@@ -295,14 +295,14 @@ export class UserController {
       },
     },
   })
-  async getMyPageInfo(req: AuthRequest) {
+  async getMyPageInfo(@Req() req: AuthRequest) {
     const userId = req.user?.userId;
     if (typeof userId !== 'number') {
       throw new Error('유저 정보가 올바르지 않습니다.');
     }
     const myPage: MyPageInfoResponseDto =
       await this.userService.getMyPageInfo(userId);
-    return SuccessResponseDto.create('마이페이지 정보 조회 성공', [myPage]);
+    return SuccessResponseDto.create('마이페이지 정보 조회 성공', myPage);
   }
 
   @Post('check-email')
