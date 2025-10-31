@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
+import { RedisService } from '@liaoliaots/nestjs-redis';
+import type { Redis } from 'ioredis';
 import { GraphHopperPath } from '../interfaces/graphhopper.interface';
 import { GraphHopperService } from './graphhopper.service';
 import { RouteUtilService } from './route-util.service';
+import { randomUUID } from 'crypto';
 
 /**
  * 카테고리 정보가 포함된 경로 인터페이스
@@ -9,6 +12,7 @@ import { RouteUtilService } from './route-util.service';
 export interface CategorizedPath extends GraphHopperPath {
   routeCategory: string;
   bikeRoadRatio?: number;
+  routeId?: string; // Redis에 저장된 전체 경로 데이터의 키
 }
 
 const MAX_CIRCULAR_ATTEMPTS = 10;
@@ -26,10 +30,14 @@ const CATEGORY_LABELS = {
  */
 @Injectable()
 export class RouteOptimizerService {
+  private readonly redis: Redis;
   constructor(
     private readonly graphHopperService: GraphHopperService,
     private readonly routeUtil: RouteUtilService,
-  ) {}
+    redisService: RedisService,
+  ) {
+    this.redis = redisService.getOrThrow();
+  }
 
   /**
    * 두 프로필(safe_bike, fast_bike)로 경로를 검색하고 최적의 3개 경로 선택
@@ -95,57 +103,141 @@ export class RouteOptimizerService {
       ...path,
       bikeRoadRatio: this.routeUtil.calculateBikeRoadRatio(path),
     }));
-    // 카테고리별 정렬
-    const bikeRoadSorted = [...pathsWithRatio].sort(
-      (a, b) => (b.bikeRoadRatio || 0) - (a.bikeRoadRatio || 0),
-    );
-    const shortestSorted = [...pathsWithRatio].sort(
-      (a, b) => a.distance - b.distance,
-    );
-    const fastestSorted = [...pathsWithRatio].sort((a, b) => a.time - b.time);
+    return this.pickAndStoreCategoryRoutes(pathsWithRatio);
+  }
 
-    // 카테고리별 실제 경로와 라벨을 정확히 매칭해서 반환
+  /**
+   * 카테고리별로 중복 없는 경로 3개 추출, routeId 부여, Redis 저장까지 수행
+   */
+  private pickAndStoreCategoryRoutes(
+    paths: Array<GraphHopperPath & { bikeRoadRatio?: number }>,
+    duplicateThreshold: number = 0.01, // 중복 판별 허용 오차 (거리/시간 비율 등)
+  ): CategorizedPath[] {
     const used: GraphHopperPath[] = [];
-    let bikeRoadPath: GraphHopperPath | undefined;
-    let shortestPath: GraphHopperPath | undefined;
-    let fastestPath: GraphHopperPath | undefined;
-
-    for (const path of bikeRoadSorted) {
-      if (!used.some((p) => this.isSamePath(p, path))) {
-        bikeRoadPath = path;
-        used.push(path);
-        break;
-      }
-    }
-    for (const path of shortestSorted) {
-      if (!used.some((p) => this.isSamePath(p, path))) {
-        shortestPath = path;
-        used.push(path);
-        break;
-      }
-    }
-    for (const path of fastestSorted) {
-      if (!used.some((p) => this.isSamePath(p, path))) {
-        fastestPath = path;
-        used.push(path);
-        break;
-      }
-    }
     const result: CategorizedPath[] = [];
-    if (bikeRoadPath)
-      result.push({ ...bikeRoadPath, routeCategory: CATEGORY_LABELS.bikeRoad });
-    if (shortestPath)
-      result.push({ ...shortestPath, routeCategory: CATEGORY_LABELS.shortest });
-    if (fastestPath)
-      result.push({ ...fastestPath, routeCategory: CATEGORY_LABELS.fastest });
+    const categories: Array<{
+      label: string;
+      sort: (
+        a: GraphHopperPath & { bikeRoadRatio?: number },
+        b: GraphHopperPath & { bikeRoadRatio?: number },
+      ) => number;
+    }> = [
+      {
+        label: CATEGORY_LABELS.bikeRoad,
+        sort: (a, b) => (b.bikeRoadRatio || 0) - (a.bikeRoadRatio || 0),
+      },
+      {
+        label: CATEGORY_LABELS.shortest,
+        sort: (a, b) => a.distance - b.distance,
+      },
+      {
+        label: CATEGORY_LABELS.fastest,
+        sort: (a, b) => a.time - b.time,
+      },
+    ];
+    for (const { label, sort } of categories) {
+      const sorted = [...paths].sort(sort);
+      const found = sorted.find(
+        (path) =>
+          !used.some((p) => this.isSamePath(p, path, duplicateThreshold)),
+      );
+      if (found) {
+        used.push(found);
+        const routeId = this.createRouteId(found);
+        const categorized: CategorizedPath = {
+          ...found,
+          routeCategory: label,
+          routeId,
+        };
+        this.saveRouteToRedis(routeId, categorized);
+        result.push(categorized);
+      }
+    }
     return result;
+  }
+
+  /**
+   * routeId 생성 책임 분리
+   */
+  private createRouteId(path: GraphHopperPath): string {
+    // 경로 좌표, 거리, 시간, 프로필, 랜덤값 조합 (충돌 최소화)
+    const base = JSON.stringify({
+      c: path.points?.coordinates,
+      d: path.distance,
+      t: path.time,
+      p: path.profile,
+    });
+    return (
+      randomUUID() + '-' + Buffer.from(base).toString('base64url').slice(0, 16)
+    );
+  }
+
+  /**
+   * Redis 저장 책임 분리 (비동기, 예외 무시)
+   */
+  private saveRouteToRedis(routeId: string, data: CategorizedPath): void {
+    try {
+      void this.redis.setex(
+        `route:${routeId}`,
+        60 * 3, // 3분 TTL
+        JSON.stringify(data),
+      );
+    } catch (err) {
+      // 에러 로깅 (실서비스라면 logger 사용)
+      // console.error(`Redis 저장 실패: routeId=${routeId}`, err);
+    }
+  }
+
+  /**
+   * 경로별 고유 routeId 생성 (좌표+거리+시간+랜덤)
+   */
+  private generateRouteId(path: GraphHopperPath): string {
+    // 경로 좌표, 거리, 시간, 프로필, 랜덤값 조합 (충돌 최소화)
+    const base = JSON.stringify({
+      c: path.points?.coordinates,
+      d: path.distance,
+      t: path.time,
+      p: path.profile,
+    });
+    return (
+      randomUUID() + '-' + Buffer.from(base).toString('base64url').slice(0, 16)
+    );
   }
 
   /**
    * 두 경로가 같은지 비교 (거리/시간 기준)
    */
-  private isSamePath(path1: GraphHopperPath, path2: GraphHopperPath): boolean {
+  /**
+   * 두 경로가 같은지 비교 (거리/시간 기준, threshold 허용)
+   * @param path1
+   * @param path2
+   * @param threshold - 거리/시간 등 허용 오차 (기본 0.01)
+   */
+  private isSamePath(
+    path1: GraphHopperPath,
+    path2: GraphHopperPath,
+    threshold = 0.01,
+  ): boolean {
     return this.routeUtil.areSimilarPaths(path1, path2);
+  }
+
+  /**
+   * RouteDto 등으로 변환 (예시)
+   */
+  private toRouteDto(path: CategorizedPath) {
+    // 실제 GraphHopperPath/CategorizedPath 구조에 맞게 반환 (summary, startStation 등은 별도 변환 필요)
+    return {
+      routeId: path.routeId,
+      routeCategory: path.routeCategory,
+      bbox: path.bbox,
+      distance: path.distance,
+      time: path.time,
+      ascend: path.ascend,
+      descend: path.descend,
+      points: path.points,
+      profile: path.profile,
+      // summary, startStation, endStation, segments 등은 실제 변환 로직에 맞게 추가 필요
+    };
   }
 
   /**

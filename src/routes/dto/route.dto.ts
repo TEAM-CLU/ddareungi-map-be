@@ -218,6 +218,12 @@ export class RouteDto {
     example: '자전거 도로 우선',
   })
   routeCategory: string;
+  @ApiProperty({
+    description: '경로 고유 식별자 (Redis에 저장된 전체 경로 데이터 조회용)',
+    example: 'a1b2c3d4-xxxx-yyyy',
+    required: false,
+  })
+  routeId?: string;
 
   @ApiProperty({ description: '전체 경로 요약', type: SummaryDto })
   summary: SummaryDto;

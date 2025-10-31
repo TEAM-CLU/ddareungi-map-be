@@ -39,6 +39,7 @@ export class GraphHopperService {
       elevation: true,
       points_encoded: false,
       details: GraphHopperService.ROUTE_DETAILS,
+      instruction: true,
     };
     try {
       const response = await firstValueFrom(
@@ -82,6 +83,7 @@ export class GraphHopperService {
         points_encoded: false,
         details: GraphHopperService.ROUTE_DETAILS,
         'alternative_route.max_paths': GraphHopperService.DEFAULT_ALT_PATHS,
+        instruction: true,
       };
       try {
         const response = await firstValueFrom(
@@ -124,6 +126,7 @@ export class GraphHopperService {
       details: GraphHopperService.ROUTE_DETAILS,
       'alternative_route.max_paths': maxPaths,
       'ch.disable': true,
+      instruction: true,
     };
     try {
       const response = await firstValueFrom(
@@ -171,6 +174,7 @@ export class GraphHopperService {
         'round_trip.distance': targetDistance,
         'round_trip.seed': seed,
         'round_trip.points': GraphHopperService.DEFAULT_ROUNDTRIP_POINTS,
+        instruction: true,
       };
       try {
         const response = await firstValueFrom(
@@ -216,6 +220,7 @@ export class GraphHopperService {
       'round_trip.distance': targetDistance,
       'round_trip.seed': seed,
       'round_trip.points': GraphHopperService.DEFAULT_ROUNDTRIP_POINTS,
+      instruction: true,
     };
     try {
       const response = await firstValueFrom(

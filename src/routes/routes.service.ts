@@ -5,7 +5,10 @@ import {
   CircularRouteRequestDto,
   CoordinateDto,
 } from './dto/route.dto';
-import { RouteOptimizerService } from './services/route-optimizer.service';
+import {
+  RouteOptimizerService,
+  CategorizedPath,
+} from './services/route-optimizer.service';
 import { RouteConverterService } from './services/route-converter.service';
 import { RouteBuilderService } from './services/route-builder.service';
 import { GraphHopperService } from './services/graphhopper.service';
@@ -100,21 +103,33 @@ export class RoutesService {
         `원형 경로 추천 완료 - 대여소: ${station.name}, GraphHopper API 호출: 도보 2회, 원형 경로 ${optimalCircularPaths.length}개 생성`,
       );
 
-      // 각 원형 경로에 대해 RouteDto 생성 (카테고리 반영)
-      const fallbackCategories = [
-        '자전거 도로 우선 경로',
-        '최단 거리 경로',
-        '최소 시간 경로',
-      ];
-      return optimalCircularPaths.map((circularPath, idx) =>
-        this.routeConverter.buildCircularRoute(
+      // 각 원형 경로에 대해 RouteDto 생성 (routeId 순서 일치)
+      return optimalCircularPaths.map((circularPath) => {
+        const route = this.routeConverter.buildCircularRoute(
           walkingToStation,
           circularPath,
           walkingFromStation,
           station,
-          circularPath.routeCategory || fallbackCategories[idx] || '일반 경로',
-        ),
-      );
+          circularPath.routeCategory,
+        );
+        const {
+          routeCategory,
+          summary,
+          bbox,
+          startStation: sStation,
+          endStation: eStation,
+          segments,
+        } = route;
+        return {
+          routeCategory,
+          routeId: circularPath.routeId,
+          summary,
+          bbox,
+          startStation: sStation,
+          endStation: eStation,
+          segments,
+        };
+      });
     } catch (error) {
       this.logger.error('원형 경로 추천 중 GraphHopper API 호출 실패', error);
       throw error;
@@ -186,8 +201,12 @@ export class RoutesService {
       ];
 
       const routes: RouteDto[] = [];
-
-      for (const category of categories) {
+      const optimalPaths = await this.routeOptimizer.findOptimalRoutes(
+        startStation,
+        startStation,
+      );
+      for (let i = 0; i < categories.length; i++) {
+        const category = categories[i];
         const route = await this.routeBuilder.buildMultiLegRoute(
           roundTripPoints,
           category,
@@ -201,7 +220,24 @@ export class RoutesService {
             current_bikes: startStation.current_bikes,
           },
         );
-        routes.push(route);
+        const bikePath = optimalPaths[i];
+        const {
+          routeCategory,
+          summary,
+          bbox,
+          startStation: sStation,
+          endStation: eStation,
+          segments,
+        } = route;
+        routes.push({
+          routeCategory,
+          routeId: bikePath?.routeId,
+          summary,
+          bbox,
+          startStation: sStation,
+          endStation: eStation,
+          segments,
+        });
       }
 
       this.logger.debug(
@@ -226,7 +262,6 @@ export class RoutesService {
     request: FullJourneyRequestDto,
   ): Promise<RouteDto[]> {
     this.logger.debug('직접 경로 검색 시작');
-
     try {
       // 실제 대여소 검색 (에러 처리는 StationRouteService에서 담당)
       const { startStation, endStation } =
@@ -255,17 +290,34 @@ export class RoutesService {
         `직접 경로 검색 완료 - 출발 대여소: ${startStation.name}, 도착 대여소: ${endStation.name}, GraphHopper API 호출: 도보 2회, 자전거 경로 ${optimalBikePaths.length}개 생성`,
       );
 
-      // 각 자전거 경로에 대해 완전한 RouteDto 생성
-      return optimalBikePaths.map((bikePath) =>
-        this.routeConverter.buildRouteFromGraphHopper(
+      // 각 자전거 경로에 대해 RouteDto 생성 (routeId 포함, instructions 등은 Redis에만 저장)
+      return optimalBikePaths.map((bikePath: CategorizedPath) => {
+        const route = this.routeConverter.buildRouteFromGraphHopper(
           walkingToStart,
           bikePath,
           walkingFromEnd,
           startStation,
           endStation,
           bikePath.routeCategory,
-        ),
-      );
+        );
+        const {
+          routeCategory,
+          summary,
+          bbox,
+          startStation: sStation,
+          endStation: eStation,
+          segments,
+        } = route;
+        return {
+          routeCategory,
+          routeId: bikePath.routeId,
+          summary,
+          bbox,
+          startStation: sStation,
+          endStation: eStation,
+          segments,
+        };
+      });
     } catch (error) {
       this.logger.error('직접 경로 검색 중 GraphHopper API 호출 실패', error);
       throw error;
@@ -307,8 +359,12 @@ export class RoutesService {
 
       const routes: RouteDto[] = [];
       let totalApiCalls = 0;
-
-      for (const category of categories) {
+      const optimalPaths = await this.routeOptimizer.findOptimalRoutes(
+        startStation,
+        endStation,
+      );
+      for (let i = 0; i < categories.length; i++) {
+        const category = categories[i];
         const route = await this.routeBuilder.buildMultiLegRoute(
           bikeRoutePoints,
           category,
@@ -329,7 +385,24 @@ export class RoutesService {
             current_bikes: endStation.current_bikes,
           },
         );
-        routes.push(route);
+        const bikePath = optimalPaths[i];
+        const {
+          routeCategory,
+          summary,
+          bbox,
+          startStation: sStation,
+          endStation: eStation,
+          segments,
+        } = route;
+        routes.push({
+          routeCategory,
+          routeId: bikePath?.routeId,
+          summary,
+          bbox,
+          startStation: sStation,
+          endStation: eStation,
+          segments,
+        });
         totalApiCalls += bikeRoutePoints.length - 1; // 구간 수만큼 API 호출
       }
 

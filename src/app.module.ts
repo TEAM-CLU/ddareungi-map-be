@@ -11,6 +11,8 @@ import { StationsModule } from './stations/stations.module';
 import { RoutesModule } from './routes/routes.module';
 import { HttpExceptionFilter } from './common/http-exceptioin.filter';
 
+import { RedisModule } from '@liaoliaots/nestjs-redis';
+
 @Module({
   imports: [
     // 환경변수 모듈 설정
@@ -41,6 +43,16 @@ import { HttpExceptionFilter } from './common/http-exceptioin.filter';
         autoLoadEntities: true,
         synchronize: true, // 개발용으로만 true, 프로덕션에서는 false
       }),
+    }),
+
+    // Redis 모듈 글로벌 등록
+    RedisModule.forRoot({
+      config: {
+        host: process.env.REDIS_HOST || 'localhost',
+        port: process.env.REDIS_PORT ? Number(process.env.REDIS_PORT) : 6379,
+        password: process.env.REDIS_PASSWORD,
+        db: process.env.REDIS_DB ? Number(process.env.REDIS_DB) : 0,
+      },
     }),
 
     // 이메일 및 인증 모듈
