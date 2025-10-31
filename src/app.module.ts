@@ -8,6 +8,7 @@ import { MailModule } from './mail/mail.module';
 import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
 import { StationsModule } from './stations/stations.module';
+import { RoutesModule } from './routes/routes.module';
 import { HttpExceptionFilter } from './common/http-exceptioin.filter';
 
 @Module({
@@ -47,6 +48,7 @@ import { HttpExceptionFilter } from './common/http-exceptioin.filter';
     AuthModule,
     UserModule,
     StationsModule,
+    RoutesModule,
   ],
   controllers: [AppController],
   providers: [AppService, HttpExceptionFilter],
