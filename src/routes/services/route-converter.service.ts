@@ -47,7 +47,7 @@ export class RouteConverterService {
     const bikeSegments = segments.filter((s) => s.type === 'biking');
     return {
       distance: Math.round(totalDistance),
-      time: Math.round(totalTime / 1000),
+      time: Math.round(totalTime),
       ascent: Math.round(totalAscent),
       descent: Math.round(totalDescent),
       bikeRoadRatio: this.routeUtil.calculateOverallBikeRoadRatio(bikeSegments),
@@ -99,7 +99,7 @@ export class RouteConverterService {
   ): SummaryDto {
     const summary: SummaryDto = {
       distance: Math.round(path.distance),
-      time: Math.round(path.time / 1000),
+      time: Math.round(path.time),
       ascent: Math.round(path.ascend),
       descent: Math.round(path.descend),
     };

@@ -9,7 +9,7 @@ import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
 import { StationsModule } from './stations/stations.module';
 import { RoutesModule } from './routes/routes.module';
-import { HttpExceptionFilter } from './common/http-exceptioin.filter';
+import { NavigationModule } from './navigation/navigation.module';
 
 import { RedisModule } from '@liaoliaots/nestjs-redis';
 
@@ -61,8 +61,9 @@ import { RedisModule } from '@liaoliaots/nestjs-redis';
     UserModule,
     StationsModule,
     RoutesModule,
+    NavigationModule,
   ],
   controllers: [AppController],
-  providers: [AppService, HttpExceptionFilter],
+  providers: [AppService],
 })
 export class AppModule {}

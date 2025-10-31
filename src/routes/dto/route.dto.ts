@@ -48,7 +48,10 @@ export class SummaryDto {
   @ApiProperty({ description: '거리 (미터)' })
   distance: number;
 
-  @ApiProperty({ description: '시간 (초)' })
+  @ApiProperty({
+    description: '시간 (초, 항상 초 단위로 반환됩니다.)',
+    example: 1320,
+  })
   time: number;
 
   @ApiProperty({ description: '상승 고도 (미터)' })

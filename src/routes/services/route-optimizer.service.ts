@@ -4,7 +4,6 @@ import type { Redis } from 'ioredis';
 import { GraphHopperPath } from '../interfaces/graphhopper.interface';
 import { GraphHopperService } from './graphhopper.service';
 import { RouteUtilService } from './route-util.service';
-import { randomUUID } from 'crypto';
 
 /**
  * 카테고리 정보가 포함된 경로 인터페이스
@@ -158,18 +157,20 @@ export class RouteOptimizerService {
 
   /**
    * routeId 생성 책임 분리
+   *
+   * 동일한 경로(좌표, 거리, 시간, 프로필)는 항상 동일한 routeId가 생성됨
+   * - 경로 캐싱/중복 방지/재활용 목적에 적합
    */
   private createRouteId(path: GraphHopperPath): string {
-    // 경로 좌표, 거리, 시간, 프로필, 랜덤값 조합 (충돌 최소화)
+    // 경로 좌표, 거리, 시간, 프로필 조합 (충돌 최소화)
     const base = JSON.stringify({
       c: path.points?.coordinates,
       d: path.distance,
       t: path.time,
       p: path.profile,
     });
-    return (
-      randomUUID() + '-' + Buffer.from(base).toString('base64url').slice(0, 16)
-    );
+    // base64url 인코딩(특수문자 없음) + 길이 제한
+    return Buffer.from(base).toString('base64url').slice(0, 32);
   }
 
   /**
@@ -177,10 +178,18 @@ export class RouteOptimizerService {
    */
   private saveRouteToRedis(routeId: string, data: CategorizedPath): void {
     try {
+      // time, ascend, descend 등 ms 단위 필드를 초 단위로 변환
+      const dataForRedis = {
+        ...data,
+        time: Math.round(data.time / 1000),
+        ascend: data.ascend !== undefined ? Math.round(data.ascend) : undefined,
+        descend:
+          data.descend !== undefined ? Math.round(data.descend) : undefined,
+      };
       void this.redis.setex(
         `route:${routeId}`,
         60 * 3, // 3분 TTL
-        JSON.stringify(data),
+        JSON.stringify(dataForRedis),
       );
     } catch (err) {
       // 에러 로깅 (실서비스라면 logger 사용)
@@ -189,19 +198,18 @@ export class RouteOptimizerService {
   }
 
   /**
-   * 경로별 고유 routeId 생성 (좌표+거리+시간+랜덤)
+   * 경로별 고유 routeId 생성 (좌표+거리+시간+프로필)
+   *
+   * 동일한 경로는 항상 동일한 routeId가 생성됨
    */
   private generateRouteId(path: GraphHopperPath): string {
-    // 경로 좌표, 거리, 시간, 프로필, 랜덤값 조합 (충돌 최소화)
     const base = JSON.stringify({
       c: path.points?.coordinates,
       d: path.distance,
       t: path.time,
       p: path.profile,
     });
-    return (
-      randomUUID() + '-' + Buffer.from(base).toString('base64url').slice(0, 16)
-    );
+    return Buffer.from(base).toString('base64url').slice(0, 32);
   }
 
   /**
