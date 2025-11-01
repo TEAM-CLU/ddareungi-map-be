@@ -1,5 +1,12 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, IsOptional, IsIn } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsString,
+  IsOptional,
+  IsIn,
+  IsBoolean,
+  IsDateString,
+} from 'class-validator';
 
 export class UpdateUserInfoDto {
   @ApiProperty({
@@ -36,4 +43,31 @@ export class UpdateUserInfoDto {
   @IsOptional()
   @IsString({ message: '주소는 문자열이어야 합니다.' })
   address?: string;
+
+  @ApiProperty({
+    description: '동의 일시',
+    example: '2024-01-15T09:30:00Z',
+    required: false,
+  })
+  @IsOptional()
+  @IsDateString()
+  consentedAt?: string;
+
+  @ApiProperty({
+    description: '필수 약관 동의 여부',
+    example: true,
+    required: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  requiredAgreed?: boolean;
+
+  @ApiProperty({
+    description: '선택 약관 동의 여부',
+    example: false,
+    required: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  optionalAgreed?: boolean;
 }

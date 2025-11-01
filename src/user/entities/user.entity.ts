@@ -12,10 +12,10 @@ export class User {
   userId: number;
 
   @Column({ type: 'varchar', length: 255, nullable: true, name: 'social_name' })
-  socialName: string;
+  socialName: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true, name: 'social_uid' })
-  socialUid: string;
+  socialUid: string | null;
 
   @Column({ type: 'varchar', length: 255, unique: true })
   email: string;
@@ -33,7 +33,16 @@ export class User {
   birthDate: Date;
 
   @Column({ type: 'varchar', length: 255, nullable: true, name: 'address' })
-  address: string;
+  address: string | null;
+
+  @Column({ type: 'timestamptz', name: 'consented_at', nullable: true })
+  consentedAt: Date | null;
+
+  @Column({ type: 'boolean', name: 'required_agreed', default: false })
+  requiredAgreed: boolean;
+
+  @Column({ type: 'boolean', name: 'optional_agreed', default: false })
+  optionalAgreed: boolean;
 
   @CreateDateColumn({
     type: 'timestamptz',
