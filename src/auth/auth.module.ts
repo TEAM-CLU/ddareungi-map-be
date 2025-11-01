@@ -9,6 +9,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtNaverStrategy } from './strategies/naver.strategy';
 import { JwtKakaoStrategy } from './strategies/kakao.strategy';
 import { JwtGoogleStrategy } from './strategies/google.strategy';
+import { CryptoService } from '../common/crypto.service';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { JwtGoogleStrategy } from './strategies/google.strategy';
   controllers: [AuthController],
   providers: [
     AuthService,
+    CryptoService,
     JwtNaverStrategy,
     JwtKakaoStrategy,
     JwtGoogleStrategy,

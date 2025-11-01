@@ -17,7 +17,12 @@ import { AuthService } from './auth.service';
 import {
   SendVerificationEmailDto,
   VerifyEmailDto,
+  VerifyEmailResponseDto,
 } from './dto/email-verification.dto';
+import {
+  FindAccountRequestDto,
+  FindAccountResponseDto,
+} from './dto/find-account.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request, Response } from 'express';
@@ -73,7 +78,8 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: '이메일 인증 코드 확인',
-    description: '발송된 6자리 인증 코드를 확인하여 이메일 인증을 완료합니다.',
+    description:
+      '발송된 6자리 인증 코드를 확인하여 이메일 인증을 완료합니다. 응답에 포함된 securityToken을 저장했다가 find-account 요청 시 사용하세요.',
   })
   @ApiBody({ type: VerifyEmailDto })
   @ApiResponse({
@@ -83,6 +89,7 @@ export class AuthController {
       example: {
         message: '이메일 인증이 완료되었습니다.',
         isVerified: true,
+        securityToken: 'base64EncodedEncryptedEmail...',
       },
     },
   })
@@ -96,8 +103,68 @@ export class AuthController {
       },
     },
   })
-  async verifyEmail(@Body() verifyEmailDto: VerifyEmailDto) {
+  async verifyEmail(
+    @Body() verifyEmailDto: VerifyEmailDto,
+  ): Promise<VerifyEmailResponseDto> {
     return await this.authService.verifyEmail(verifyEmailDto);
+  }
+
+  @Post('find-account')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '계정 찾기 (이메일 인증 후)',
+    description:
+      'verify-email에서 받은 securityToken을 전달하여 계정의 존재 여부와 유형(소셜/자체)을 확인합니다.',
+  })
+  @ApiBody({ type: FindAccountRequestDto })
+  @ApiResponse({
+    status: 200,
+    description: '계정 조회 성공',
+    schema: {
+      examples: {
+        notRegistered: {
+          summary: '가입되지 않은 이메일',
+          value: {
+            isRegistered: false,
+            accountType: '자체',
+            message: '가입되지 않은 이메일입니다. 새로 가입해주세요.',
+          },
+        },
+        socialRegistered: {
+          summary: '소셜 계정으로 가입된 이메일',
+          value: {
+            isRegistered: true,
+            accountType: '소셜',
+            message:
+              '이미 구글 계정으로 가입된 이메일입니다. 구글 로그인을 사용해주세요.',
+          },
+        },
+        selfRegistered: {
+          summary: '자체 회원가입 계정',
+          value: {
+            isRegistered: true,
+            accountType: '자체',
+            message: '이미 가입된 이메일입니다. 로그인해주세요.',
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: '유효하지 않은 보안 토큰',
+    schema: {
+      example: {
+        statusCode: 400,
+        message:
+          '유효하지 않은 보안 토큰입니다. 이메일 인증을 다시 진행해주세요.',
+      },
+    },
+  })
+  async findAccount(
+    @Body() findAccountRequestDto: FindAccountRequestDto,
+  ): Promise<FindAccountResponseDto> {
+    return await this.authService.findAccount(findAccountRequestDto);
   }
 
   @Get('naver')
