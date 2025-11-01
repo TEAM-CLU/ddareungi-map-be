@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import {
@@ -9,7 +10,6 @@ import {
 /**
  * 상수 정의
  */
-const BASE_URL = 'http://localhost:8989';
 const PROFILES = ['safe_bike', 'fast_bike'] as const;
 const ROUTE_DETAILS = ['road_class', 'bike_network'] as const;
 const DEFAULT_ALT_PATHS = 3;
@@ -23,8 +23,17 @@ const DEFAULT_ROUNDTRIP_POINTS = 2;
 @Injectable()
 export class GraphHopperService {
   private readonly logger = new Logger(GraphHopperService.name);
+  private readonly baseUrl: string;
 
-  constructor(private readonly httpService: HttpService) {}
+  constructor(
+    private readonly httpService: HttpService,
+    private readonly configService: ConfigService,
+  ) {
+    this.baseUrl =
+      this.configService.get<string>('GRAPHHOPPER_URL') ||
+      'http://localhost:8989';
+    this.logger.log(`GraphHopper URL: ${this.baseUrl}`);
+  }
 
   // ============================================================================
   // Public API - Single Profile Routes
@@ -57,7 +66,7 @@ export class GraphHopperService {
     try {
       const response = await firstValueFrom(
         this.httpService.post<GraphHopperResponse>(
-          `${BASE_URL}/route`,
+          `${this.baseUrl}/route`,
           requestBody,
         ),
       );
@@ -110,7 +119,7 @@ export class GraphHopperService {
     try {
       const response = await firstValueFrom(
         this.httpService.post<GraphHopperResponse>(
-          `${BASE_URL}/route`,
+          `${this.baseUrl}/route`,
           requestBody,
         ),
       );
@@ -164,7 +173,7 @@ export class GraphHopperService {
     try {
       const response = await firstValueFrom(
         this.httpService.post<GraphHopperResponse>(
-          `${BASE_URL}/route`,
+          `${this.baseUrl}/route`,
           requestBody,
         ),
       );
@@ -219,7 +228,7 @@ export class GraphHopperService {
       try {
         const response = await firstValueFrom(
           this.httpService.post<GraphHopperResponse>(
-            `${BASE_URL}/route`,
+            `${this.baseUrl}/route`,
             requestBody,
           ),
         );
@@ -270,7 +279,7 @@ export class GraphHopperService {
       try {
         const response = await firstValueFrom(
           this.httpService.post<GraphHopperResponse>(
-            `${BASE_URL}/route`,
+            `${this.baseUrl}/route`,
             requestBody,
           ),
         );
