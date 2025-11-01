@@ -17,9 +17,10 @@ import { AuthModule } from '../auth/auth.module';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET'), // 환경 변수에서 JWT 비밀 키 가져오기
+        secret: configService.get<string>('JWT_SECRET') || 'default-secret', // 환경 변수에서 JWT 비밀 키 가져오기
         signOptions: {
-          expiresIn: configService.get<string>('JWT_EXPIRATION_TIME'),
+          expiresIn:
+            configService.get<string>('JWT_EXPIRATION_TIME') || '3600s',
         }, // 환경 변수에서 만료 시간 가져오기
       }),
     }),
