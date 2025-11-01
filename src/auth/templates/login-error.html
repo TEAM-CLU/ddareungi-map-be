@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title id="pageTitle">로그인 실패</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+          'Ubuntu', 'Cantarell', sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 20px;
+      }
+
+      .container {
+        background: white;
+        border-radius: 20px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        padding: 50px 40px;
+        text-align: center;
+        max-width: 400px;
+        animation: slideUp 0.6s ease-out;
+      }
+
+      @keyframes slideUp {
+        from {
+          opacity: 0;
+          transform: translateY(30px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .error-icon {
+        font-size: 70px;
+        margin-bottom: 20px;
+        animation: shake 0.6s ease-in-out;
+      }
+
+      @keyframes shake {
+        0%,
+        100% {
+          transform: translateX(0);
+        }
+        25% {
+          transform: translateX(-10px);
+        }
+        75% {
+          transform: translateX(10px);
+        }
+      }
+
+      h1 {
+        font-size: 26px;
+        color: #e74c3c;
+        margin-bottom: 15px;
+        font-weight: 700;
+      }
+
+      .subtitle {
+        font-size: 16px;
+        color: #666;
+        margin-bottom: 20px;
+        line-height: 1.6;
+      }
+
+      .error-details {
+        background: #ffe8e8;
+        border-left: 4px solid #e74c3c;
+        border-radius: 8px;
+        padding: 20px;
+        margin: 25px 0;
+        text-align: left;
+      }
+
+      .error-details p {
+        color: #555;
+        font-size: 15px;
+        line-height: 1.8;
+        margin: 8px 0;
+      }
+
+      .error-details strong {
+        color: #c0392b;
+        display: block;
+        margin-bottom: 10px;
+      }
+
+      .action-box {
+        background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+        border-radius: 8px;
+        padding: 15px;
+        margin: 20px 0;
+      }
+
+      .action-box p {
+        font-size: 14px;
+        color: #666;
+        line-height: 1.8;
+      }
+
+      .timer {
+        margin-top: 25px;
+        padding-top: 20px;
+        border-top: 1px solid #eee;
+      }
+
+      .timer-text {
+        font-size: 13px;
+        color: #999;
+        margin-bottom: 8px;
+      }
+
+      .close-hint {
+        font-size: 12px;
+        color: #bbb;
+        margin-top: 8px;
+      }
+
+      /* 반응형 디자인 */
+      @media (max-width: 480px) {
+        .container {
+          padding: 40px 25px;
+        }
+
+        h1 {
+          font-size: 22px;
+        }
+
+        .error-icon {
+          font-size: 60px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="error-icon" id="errorIcon">❌</div>
+
+      <h1 id="errorTitle">로그인 실패</h1>
+
+      <p class="subtitle" id="errorSubtitle">
+        로그인 처리 중 문제가 발생했습니다.
+      </p>
+
+      <div class="error-details" id="errorDetails">
+        <strong>❌ 오류 발생</strong>
+        <p id="errorMessage">필수 파라미터가 누락되었습니다.</p>
+        <p id="errorHint">잠시 후 다시 시도해주세요.</p>
+      </div>
+
+      <div class="action-box">
+        <p>
+          💡
+          <strong>문제가 계속되면</strong><br />
+          고객센터로 문의해주세요.
+        </p>
+      </div>
+
+      <div class="timer">
+        <p class="timer-text">필요시 이 창을 닫아주세요.</p>
+        <p class="close-hint">문제가 지속되면 고객센터에 문의해주세요.</p>
+      </div>
+    </div>
+
+    <script>
+      // 에러 타입에 따라 메시지 설정
+      function initializeError() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const errorType = urlParams.get('type') || 'param_missing';
+
+        const errorConfig = {
+          param_missing: {
+            icon: '⚠️',
+            title: '요청 오류',
+            subtitle: '필수 정보가 누락되었습니다.',
+            message: '필수 파라미터가 누락되었습니다.',
+            hint: '다시 로그인을 시도해주세요.',
+            countdown: 3,
+          },
+          auth_failed: {
+            icon: '❌',
+            title: '인증 실패',
+            subtitle: '로그인 처리에 실패했습니다.',
+            message: '소셜 로그인 인증 처리 중 오류가 발생했습니다.',
+            hint: '계정 정보를 확인하고 다시 시도해주세요.',
+            countdown: 5,
+          },
+          server_error: {
+            icon: '🔧',
+            title: '서버 오류',
+            subtitle: '일시적인 문제가 발생했습니다.',
+            message: '서버 처리 중 오류가 발생했습니다.',
+            hint: '잠시 후 다시 시도해주세요.',
+            countdown: 5,
+          },
+          timeout: {
+            icon: '⏱️',
+            title: '시간 초과',
+            subtitle: '요청 처리가 너무 오래 걸렸습니다.',
+            message: '로그인 요청이 시간을 초과했습니다.',
+            hint: '인터넷 연결을 확인하고 다시 시도해주세요.',
+            countdown: 5,
+          },
+        };
+
+        const config = errorConfig[errorType] || errorConfig.param_missing;
+
+        // UI 업데이트
+        document.getElementById('pageTitle').textContent = config.title;
+        document.getElementById('errorIcon').textContent = config.icon;
+        document.getElementById('errorTitle').textContent = config.title;
+        document.getElementById('errorSubtitle').textContent = config.subtitle;
+        document.getElementById('errorMessage').textContent = config.message;
+        document.getElementById('errorHint').textContent = config.hint;
+      }
+
+      // 초기화
+      window.addEventListener('load', () => {
+        initializeError();
+      });
+    </script>
+  </body>
+</html>

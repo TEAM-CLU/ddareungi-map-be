@@ -22,6 +22,8 @@ import { FindAccountDto } from './dto/find-account.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request, Response } from 'express';
+import * as fs from 'fs';
+import * as path from 'path';
 
 declare module 'express' {
   interface Request {
@@ -356,79 +358,47 @@ export class AuthController {
     try {
       // 필수 파라미터 검증
       if (!code || !state) {
-        return res.status(400).send(`
-          <html>
-            <body>
-              <h2>로그인 실패</h2>
-              <p>필수 파라미터가 누락되었습니다.</p>
-              <script>
-                setTimeout(() => window.close(), 3000);
-              </script>
-            </body>
-          </html>
-        `);
+        const templatePath = path.join(
+          __dirname,
+          'templates',
+          'login-error.html',
+        );
+        const html = fs.readFileSync(templatePath, 'utf-8');
+        return res.status(400).send(
+          html +
+            `<script>
+          window.__errorType = 'param_missing';
+          window.__countdownSeconds = 3;
+        </script>`,
+        );
       }
 
       await this.authService.handleGooglePKCECallback(code, state);
 
-      // 성공 시 사용자 친화적인 페이지 반환
-      return res.send(`
-        <html>
-          <head>
-            <meta charset="UTF-8">
-            <title>로그인 성공</title>
-          </head>
-          <body>
-            <h2>✅ 구글 로그인 성공!</h2>
-            <p>앱으로 돌아가서 계속 진행해주세요.</p>
-            <p>이 창은 3초 후 자동으로 닫힙니다.</p>
-            <script>
-              // 모바일 앱으로 데이터 전달 (선택사항)
-              if (window.ReactNativeWebView) {
-                window.ReactNativeWebView.postMessage(JSON.stringify({
-                  type: 'GOOGLE_LOGIN_SUCCESS',
-                  state: '${state}'
-                }));
-              }
-              
-              // 창 닫기 (웹뷰에서는 부모에게 알림)
-              setTimeout(() => {
-                if (window.close) {
-                  window.close();
-                } else {
-                  window.location.href = 'about:blank';
-                }
-              }, 3000);
-            </script>
-          </body>
-        </html>
-      `);
+      // 성공 시 템플릿 로드 및 전송
+      const templatePath = path.join(
+        __dirname,
+        'templates',
+        'login-success.html',
+      );
+      const html = fs.readFileSync(templatePath, 'utf-8');
+
+      return res.send(html);
     } catch (error) {
       console.error('Google PKCE callback error:', error);
 
-      // 에러 시에도 명확한 응답 제공
-      return res.status(500).send(`
-        <html>
-          <head>
-            <meta charset="UTF-8">
-            <title>로그인 오류</title>
-          </head>
-          <body>
-            <h2>❌ 로그인 처리 중 오류가 발생했습니다</h2>
-            <p>잠시 후 다시 시도해주세요.</p>
-            <p>문제가 계속되면 고객센터로 문의해주세요.</p>
-            <script>
-              setTimeout(() => {
-                if (window.close) {
-                  window.close();
-                } else {
-                  window.location.href = 'about:blank';
-                }
-              }, 5000);
-            </script>
-          </body>
-        </html>
-      `);
+      const templatePath = path.join(
+        __dirname,
+        'templates',
+        'login-error.html',
+      );
+      const html = fs.readFileSync(templatePath, 'utf-8');
+      return res.status(500).send(
+        html +
+          `<script>
+        new URLSearchParams(window.location.search).set('type', 'auth_failed');
+      </script>`,
+      );
     }
   }
 
@@ -444,49 +414,40 @@ export class AuthController {
   ) {
     try {
       if (!code || !state) {
-        return res.status(400).send(`
-          <html>
-            <body>
-              <h2>로그인 실패</h2>
-              <p>필수 파라미터가 누락되었습니다.</p>
-              <script>setTimeout(() => window.close(), 3000);</script>
-            </body>
-          </html>
-        `);
+        const templatePath = path.join(
+          __dirname,
+          'templates',
+          'login-error.html',
+        );
+        const html = fs.readFileSync(templatePath, 'utf-8');
+        return res
+          .status(400)
+          .send(
+            html + `<script>window.__errorType = 'param_missing';</script>`,
+          );
       }
 
       await this.authService.handleKakaoPKCECallback(code, state);
 
-      return res.send(`
-        <html>
-          <head><meta charset="UTF-8"><title>로그인 성공</title></head>
-          <body>
-            <h2>✅ 카카오 로그인 성공!</h2>
-            <p>앱으로 돌아가서 계속 진행해주세요.</p>
-            <script>
-              if (window.ReactNativeWebView) {
-                window.ReactNativeWebView.postMessage(JSON.stringify({
-                  type: 'KAKAO_LOGIN_SUCCESS',
-                  state: '${state}'
-                }));
-              }
-              setTimeout(() => window.close() || (window.location.href = 'about:blank'), 3000);
-            </script>
-          </body>
-        </html>
-      `);
+      const templatePath = path.join(
+        __dirname,
+        'templates',
+        'login-success.html',
+      );
+      const html = fs.readFileSync(templatePath, 'utf-8');
+
+      return res.send(html);
     } catch (error) {
       console.error('Kakao PKCE callback error:', error);
-      return res.status(500).send(`
-        <html>
-          <head><meta charset="UTF-8"><title>로그인 오류</title></head>
-          <body>
-            <h2>❌ 로그인 처리 중 오류가 발생했습니다</h2>
-            <p>잠시 후 다시 시도해주세요.</p>
-            <script>setTimeout(() => window.close() || (window.location.href = 'about:blank'), 5000);</script>
-          </body>
-        </html>
-      `);
+      const templatePath = path.join(
+        __dirname,
+        'templates',
+        'login-error.html',
+      );
+      const html = fs.readFileSync(templatePath, 'utf-8');
+      return res
+        .status(500)
+        .send(html + `<script>window.__errorType = 'auth_failed';</script>`);
     }
   }
 
@@ -502,49 +463,40 @@ export class AuthController {
   ) {
     try {
       if (!code || !state) {
-        return res.status(400).send(`
-          <html>
-            <body>
-              <h2>로그인 실패</h2>
-              <p>필수 파라미터가 누락되었습니다.</p>
-              <script>setTimeout(() => window.close(), 3000);</script>
-            </body>
-          </html>
-        `);
+        const templatePath = path.join(
+          __dirname,
+          'templates',
+          'login-error.html',
+        );
+        const html = fs.readFileSync(templatePath, 'utf-8');
+        return res
+          .status(400)
+          .send(
+            html + `<script>window.__errorType = 'param_missing';</script>`,
+          );
       }
 
       await this.authService.handleNaverPKCECallback(code, state);
 
-      return res.send(`
-        <html>
-          <head><meta charset="UTF-8"><title>로그인 성공</title></head>
-          <body>
-            <h2>✅ 네이버 로그인 성공!</h2>
-            <p>앱으로 돌아가서 계속 진행해주세요.</p>
-            <script>
-              if (window.ReactNativeWebView) {
-                window.ReactNativeWebView.postMessage(JSON.stringify({
-                  type: 'NAVER_LOGIN_SUCCESS',
-                  state: '${state}'
-                }));
-              }
-              setTimeout(() => window.close() || (window.location.href = 'about:blank'), 3000);
-            </script>
-          </body>
-        </html>
-      `);
+      const templatePath = path.join(
+        __dirname,
+        'templates',
+        'login-success.html',
+      );
+      const html = fs.readFileSync(templatePath, 'utf-8');
+
+      return res.send(html);
     } catch (error) {
       console.error('Naver PKCE callback error:', error);
-      return res.status(500).send(`
-        <html>
-          <head><meta charset="UTF-8"><title>로그인 오류</title></head>
-          <body>
-            <h2>❌ 로그인 처리 중 오류가 발생했습니다</h2>
-            <p>잠시 후 다시 시도해주세요.</p>
-            <script>setTimeout(() => window.close() || (window.location.href = 'about:blank'), 5000);</script>
-          </body>
-        </html>
-      `);
+      const templatePath = path.join(
+        __dirname,
+        'templates',
+        'login-error.html',
+      );
+      const html = fs.readFileSync(templatePath, 'utf-8');
+      return res
+        .status(500)
+        .send(html + `<script>window.__errorType = 'auth_failed';</script>`);
     }
   }
 
