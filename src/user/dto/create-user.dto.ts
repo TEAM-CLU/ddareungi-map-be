@@ -6,6 +6,7 @@ import {
   IsIn,
   IsDateString,
   Length,
+  IsBoolean,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
@@ -39,7 +40,39 @@ export class CreateUserDto {
   @IsDateString()
   birthDate: string;
 
-  @ApiProperty({ description: '주소', example: '서울특별시-강남구-역삼동' })
+  @ApiProperty({
+    description: '주소',
+    example: '서울특별시-강남구-역삼동',
+    required: false,
+  })
+  @IsOptional()
   @IsString()
-  address: string;
+  address?: string;
+
+  @ApiProperty({
+    description: '동의 시각',
+    example: '2024-01-01T00:00:00Z',
+    required: false,
+  })
+  @IsOptional()
+  @IsDateString()
+  consentedAt?: string;
+
+  @ApiProperty({
+    description: '필수 약관 동의 여부',
+    example: true,
+    required: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  requiredAgreed?: boolean;
+
+  @ApiProperty({
+    description: '선택 약관 동의 여부',
+    example: false,
+    required: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  optionalAgreed?: boolean;
 }
