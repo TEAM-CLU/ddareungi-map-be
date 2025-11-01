@@ -65,7 +65,7 @@ export class AuthService {
    */
   async sendVerificationEmail(
     sendVerificationEmailDto: SendVerificationEmailDto,
-  ): Promise<{ message: string }> {
+  ): Promise<void> {
     const { email } = sendVerificationEmailDto;
 
     // 이메일 주소 정규화 (소문자로 변환)
@@ -105,10 +105,6 @@ export class AuthService {
         normalizedEmail,
         verificationCode,
       );
-
-      return {
-        message: '인증코드 발송완료. 10분내 인증 필요',
-      };
     } catch (error) {
       // 이메일 발송 실패 시 저장된 인증 정보 삭제
       this.verificationCodes.delete(normalizedEmail);
@@ -414,9 +410,7 @@ export class AuthService {
   /**
    * 비밀번호 재설정 (이메일 인증 완료 후 호출)
    */
-  async resetPassword(
-    resetPasswordDto: ResetPasswordDto,
-  ): Promise<{ message: string }> {
+  async resetPassword(resetPasswordDto: ResetPasswordDto): Promise<void> {
     const { email, newPassword } = resetPasswordDto;
     const normalizedEmail = email.toLowerCase();
 
@@ -450,10 +444,6 @@ export class AuthService {
     await this.userRepository.update(user.userId, {
       passwordHash: hashedNewPassword,
     });
-
-    return {
-      message: '비밀번호가 성공적으로 재설정되었습니다.',
-    };
   }
 
   // ==================== PKCE 관련 메서드들 ====================

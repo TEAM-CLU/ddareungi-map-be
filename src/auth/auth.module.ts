@@ -18,13 +18,16 @@ import { CryptoService } from '../common/crypto.service';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET') || 'default-secret', // 환경 변수에서 JWT 비밀 키 가져오기
-        signOptions: {
-          expiresIn:
-            configService.get<string>('JWT_EXPIRATION_TIME') || '3600s',
-        }, // 환경 변수에서 만료 시간 가져오기
-      }),
+      useFactory: (configService: ConfigService) => {
+        const secret =
+          configService.get<string>('JWT_SECRET') || 'default-secret';
+        const expiresIn =
+          configService.get<string>('JWT_EXPIRATION_TIME') || '3600s';
+        return {
+          secret,
+          signOptions: { expiresIn },
+        };
+      },
     }),
   ],
   controllers: [AuthController],

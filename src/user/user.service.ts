@@ -40,7 +40,7 @@ export class UserService {
     await this.userRepository.remove(user); // onDelete: 'CASCADE'로 연관 데이터도 삭제
   }
 
-  async register(createUserDto: CreateUserDto): Promise<{ message: string }> {
+  async register(createUserDto: CreateUserDto): Promise<void> {
     const { email, password } = createUserDto;
     const normalizedEmail = email.toLowerCase(); // 이메일 정규화
 
@@ -99,7 +99,6 @@ export class UserService {
 
     try {
       await this.userRepository.save(newUser);
-      return { message: '회원가입이 완료되었습니다.' };
     } catch {
       throw new HttpException(
         {
@@ -273,7 +272,7 @@ export class UserService {
   async changePassword(
     userId: number,
     changePasswordDto: ChangePasswordDto,
-  ): Promise<{ message: string }> {
+  ): Promise<void> {
     const { currentPassword, newPassword } = changePasswordDto;
 
     // 사용자 존재 여부 확인
@@ -320,10 +319,6 @@ export class UserService {
     await this.userRepository.update(userId, {
       passwordHash: hashedNewPassword,
     });
-
-    return {
-      message: '비밀번호가 성공적으로 변경되었습니다.',
-    };
   }
 
   /**
@@ -379,9 +374,7 @@ export class UserService {
   /**
    * 이메일 중복 확인
    */
-  async checkEmailExists(
-    checkEmailDto: CheckEmailDto,
-  ): Promise<{ message: string }> {
+  async checkEmailExists(checkEmailDto: CheckEmailDto): Promise<void> {
     const { email } = checkEmailDto;
     const normalizedEmail = email.toLowerCase();
 
@@ -396,9 +389,5 @@ export class UserService {
         message: '이메일이 중복되었습니다.',
       });
     }
-
-    return {
-      message: '사용 가능한 이메일입니다.',
-    };
   }
 }

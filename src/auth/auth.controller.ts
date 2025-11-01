@@ -17,12 +17,8 @@ import { AuthService } from './auth.service';
 import {
   SendVerificationEmailDto,
   VerifyEmailDto,
-  VerifyEmailResponseDto,
 } from './dto/email-verification.dto';
-import {
-  FindAccountRequestDto,
-  FindAccountResponseDto,
-} from './dto/find-account.dto';
+import { FindAccountRequestDto } from './dto/find-account.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request, Response } from 'express';
@@ -64,12 +60,10 @@ export class AuthController {
     @Body() sendVerificationEmailDto: SendVerificationEmailDto,
   ) {
     try {
-      const result = await this.authService.sendVerificationEmail(
-        sendVerificationEmailDto,
-      );
+      await this.authService.sendVerificationEmail(sendVerificationEmailDto);
       return SuccessResponseDto.create(
-        '인증 코드가 이메일로 발송되었습니다. 10분 내에 인증을 완료해주세요.',
-        result,
+        '인증코드 발송완료. 10분내 인증 필요',
+        null,
       );
     } catch (error) {
       const message =
@@ -92,11 +86,15 @@ export class AuthController {
   @ApiResponse({
     status: 200,
     description: '이메일 인증 성공',
+    type: SuccessResponseDto,
     schema: {
       example: {
+        statusCode: 200,
         message: '이메일 인증이 완료되었습니다.',
-        isVerified: true,
-        securityToken: 'base64EncodedEncryptedEmail...',
+        data: {
+          isVerified: true,
+          securityToken: 'base64EncodedEncryptedEmail...',
+        },
       },
     },
   })
@@ -105,11 +103,13 @@ export class AuthController {
     description: '인증 실패 (잘못된 코드, 만료된 코드, 시도 횟수 초과 등)',
     type: ErrorResponseDto,
   })
-  async verifyEmail(
-    @Body() verifyEmailDto: VerifyEmailDto,
-  ): Promise<VerifyEmailResponseDto> {
+  async verifyEmail(@Body() verifyEmailDto: VerifyEmailDto) {
     try {
-      return await this.authService.verifyEmail(verifyEmailDto);
+      const result = await this.authService.verifyEmail(verifyEmailDto);
+      return SuccessResponseDto.create(result.message, {
+        isVerified: result.isVerified,
+        securityToken: result.securityToken,
+      });
     } catch (error) {
       const message =
         error instanceof Error ? error.message : '알 수 없는 오류';
@@ -131,31 +131,41 @@ export class AuthController {
   @ApiResponse({
     status: 200,
     description: '계정 조회 성공',
+    type: SuccessResponseDto,
     schema: {
       examples: {
         notRegistered: {
           summary: '가입되지 않은 이메일',
           value: {
-            isRegistered: false,
-            accountType: '자체',
+            statusCode: 200,
             message: '가입되지 않은 이메일입니다. 새로 가입해주세요.',
+            data: {
+              isRegistered: false,
+              accountType: '자체',
+            },
           },
         },
         socialRegistered: {
           summary: '소셜 계정으로 가입된 이메일',
           value: {
-            isRegistered: true,
-            accountType: '소셜',
+            statusCode: 200,
             message:
               '이미 구글 계정으로 가입된 이메일입니다. 구글 로그인을 사용해주세요.',
+            data: {
+              isRegistered: true,
+              accountType: '소셜',
+            },
           },
         },
         selfRegistered: {
           summary: '자체 회원가입 계정',
           value: {
-            isRegistered: true,
-            accountType: '자체',
+            statusCode: 200,
             message: '이미 가입된 이메일입니다. 로그인해주세요.',
+            data: {
+              isRegistered: true,
+              accountType: '자체',
+            },
           },
         },
       },
@@ -166,11 +176,13 @@ export class AuthController {
     description: '유효하지 않은 보안 토큰',
     type: ErrorResponseDto,
   })
-  async findAccount(
-    @Body() findAccountRequestDto: FindAccountRequestDto,
-  ): Promise<FindAccountResponseDto> {
+  async findAccount(@Body() findAccountRequestDto: FindAccountRequestDto) {
     try {
-      return await this.authService.findAccount(findAccountRequestDto);
+      const result = await this.authService.findAccount(findAccountRequestDto);
+      return SuccessResponseDto.create(result.message, {
+        isRegistered: result.isRegistered,
+        accountType: result.accountType,
+      });
     } catch (error) {
       const message =
         error instanceof Error ? error.message : '알 수 없는 오류';
@@ -185,27 +197,30 @@ export class AuthController {
   @UseGuards(AuthGuard('naver'))
   async naverLogin() {
     // 네이버 로그인 페이지로 리디렉션
-    return {
-      message: '네이버 로그인 페이지로 리디렉션 중입니다.',
-    };
+    return SuccessResponseDto.create(
+      '네이버 로그인 페이지로 리디렉션 중입니다.',
+      null,
+    );
   }
 
   @Get('kakao')
   @UseGuards(AuthGuard('kakao'))
   async kakaoLogin() {
     // 카카오 로그인 페이지로 리디렉션
-    return {
-      message: '카카오 로그인 페이지로 리디렉션 중입니다.',
-    };
+    return SuccessResponseDto.create(
+      '카카오 로그인 페이지로 리디렉션 중입니다.',
+      null,
+    );
   }
 
   @Get('google')
   @UseGuards(AuthGuard('google'))
   async googleLogin() {
     // 구글 로그인 페이지로 리디렉션
-    return {
-      message: '구글 로그인 페이지로 리디렉션 중입니다.',
-    };
+    return SuccessResponseDto.create(
+      '구글 로그인 페이지로 리디렉션 중입니다.',
+      null,
+    );
   }
   /* Get google Auth Callback */
   @Get('/google/callback')
@@ -271,10 +286,10 @@ export class AuthController {
   })
   async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
     try {
-      const result = await this.authService.resetPassword(resetPasswordDto);
+      await this.authService.resetPassword(resetPasswordDto);
       return SuccessResponseDto.create(
         '비밀번호가 성공적으로 재설정되었습니다.',
-        result,
+        null,
       );
     } catch (error) {
       const message =
@@ -684,9 +699,12 @@ export class AuthController {
   @ApiResponse({
     status: 200,
     description: '로그아웃 성공',
+    type: SuccessResponseDto,
     schema: {
       example: {
+        statusCode: 200,
         message: '로그아웃되었습니다.',
+        data: null,
       },
     },
   })
@@ -699,9 +717,7 @@ export class AuthController {
       path: '/',
     });
 
-    return res.json({
-      message: '로그아웃되었습니다.',
-    });
+    return res.json(SuccessResponseDto.create('로그아웃되었습니다.', null));
   }
 
   // ==================== 디버깅용 엔드포인트 (개발 환경 전용) ====================
@@ -715,24 +731,32 @@ export class AuthController {
   @ApiResponse({
     status: 200,
     description: 'PKCE 상태 목록 조회 성공',
+    type: SuccessResponseDto,
     schema: {
       example: {
+        statusCode: 200,
         message: '현재 저장된 PKCE 상태들입니다.',
-        count: 2,
-        states: [
-          {
-            state: 'abc123xyz',
-            isComplete: true,
-            expiresAt: '2024-01-15T12:00:00.000Z',
-            hasUser: true,
-            hasAccessToken: true,
-          },
-        ],
+        data: {
+          count: 2,
+          states: [
+            {
+              state: 'abc123xyz',
+              isComplete: true,
+              expiresAt: '2024-01-15T12:00:00.000Z',
+              hasUser: true,
+              hasAccessToken: true,
+            },
+          ],
+        },
       },
     },
   })
   async getDebugStates() {
-    return await this.authService.getDebugStates();
+    const result = await this.authService.getDebugStates();
+    return SuccessResponseDto.create(result.message, {
+      count: result.count,
+      states: result.states,
+    });
   }
 
   @Get('debug/states/:state')
@@ -744,11 +768,13 @@ export class AuthController {
   @ApiResponse({
     status: 200,
     description: '특정 PKCE 상태 조회 성공',
+    type: SuccessResponseDto,
     schema: {
       example: {
+        statusCode: 200,
         message: '해당 state의 상세 정보입니다.',
-        exists: true,
         data: {
+          exists: true,
           state: 'abc123xyz',
           isComplete: true,
           expiresAt: '2024-01-15T12:00:00.000Z',
@@ -764,6 +790,10 @@ export class AuthController {
     },
   })
   async getDebugStateDetail(@Param('state') state: string) {
-    return await this.authService.getDebugStateDetail(state);
+    const result = await this.authService.getDebugStateDetail(state);
+    return SuccessResponseDto.create(result.message, {
+      exists: result.exists,
+      ...result.data,
+    });
   }
 }

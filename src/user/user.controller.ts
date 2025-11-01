@@ -74,8 +74,8 @@ export class UserController {
   })
   async createUser(@Body() createUserDto: CreateUserDto) {
     try {
-      const result = await this.userService.register(createUserDto);
-      return SuccessResponseDto.create('회원가입이 완료되었습니다.', result);
+      await this.userService.register(createUserDto);
+      return SuccessResponseDto.create('회원가입이 완료되었습니다.', null);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : '알 수 없는 오류';
@@ -463,8 +463,8 @@ export class UserController {
   })
   async checkEmail(@Body() checkEmailDto: CheckEmailDto) {
     try {
-      const result = await this.userService.checkEmailExists(checkEmailDto);
-      return SuccessResponseDto.create('사용 가능한 이메일입니다.', result);
+      await this.userService.checkEmailExists(checkEmailDto);
+      return SuccessResponseDto.create('사용 가능한 이메일입니다.', null);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : '알 수 없는 오류';
