@@ -1,0 +1,66 @@
+# deploy.yml
+# main 브랜치에 push가 발생하면 CI/CD를 실행합니다.
+
+name: DdareungiMap BE CI/CD
+
+on:
+  push:
+    branches:
+      - dev # (1) 'dev' 브랜치에 푸시될 때만 실행
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest # (2) GitHub이 제공하는 가상 서버(Ubuntu)에서 실행
+
+    steps:
+      # 1. GitHub 리포지토리 코드를 가상 서버로 복사합니다.
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # 2. pnpm 설치
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      # 3. Node.js 환경을 설정합니다.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.11.0' # EC2에 설치된 Node.js 버전과 맞추세요
+          cache: 'pnpm' # pnpm 캐시 사용
+
+      # 4. GitHub 가상 서버에 의존성을 설치합니다. (빌드에 필요)
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 5. GitHub 가상 서버에서 NestJS 앱을 빌드합니다. (dist 폴더 생성)
+      - name: Build
+        run: pnpm run build
+
+      # 6. 빌드 결과물(dist)과 실행에 필요한 파일만 EC2 서버로 전송합니다.
+      - name: Transfer to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          source: 'dist/,package.json,pnpm-lock.yaml' # (A) dist와 패키지 파일만 전송
+          target: '/home/ubuntu/ddareungi-map-be/' # (B) EC2의 프로젝트 폴더 경로
+          strip_components: 0 # 폴더 구조 유지
+
+      # 7. EC2 서버에 접속하여 앱을 재시작합니다.
+      - name: Restart PM2 on EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script: |
+            cd /home/ubuntu/ddareungi-map-be
+            npm install -g pnpm                          # pnpm 글로벌 설치 (처음 한 번만 필요)
+            pnpm install --prod --frozen-lockfile        # (C) 운영에 필요한 패키지만 설치
+            pm2 reload ddareungimap-api                  # (D) PM2를 무중단 재시작
+            pm2 save                                     # (E) 재부팅 시에도 유지되도록 목록 저장
