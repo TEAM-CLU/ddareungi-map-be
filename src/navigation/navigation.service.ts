@@ -84,4 +84,25 @@ export class NavigationService {
 
     return { sessionId, segments };
   }
+
+  /**
+   * 네비게이션 세션 heartbeat (TTL 갱신)
+   * - 세션이 활성 상태임을 확인하고 TTL을 30분으로 재설정
+   * @param sessionId 세션 ID
+   * @throws 세션이 존재하지 않는 경우 에러 발생
+   */
+  async refreshSessionTTL(sessionId: string): Promise<void> {
+    const sessionKey = `navigation:session:${sessionId}`;
+    const exists = await this.redis.exists(sessionKey);
+
+    if (!exists) {
+      this.logger.error(`세션을 찾을 수 없습니다: ${sessionId}`);
+      throw new Error('해당 세션이 존재하지 않습니다.');
+    }
+
+    // TTL을 30분으로 갱신
+    await this.redis.expire(sessionKey, 1800);
+
+    this.logger.debug(`네비게이션 세션 TTL 갱신: sessionId=${sessionId}`);
+  }
 }
