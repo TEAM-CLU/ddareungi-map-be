@@ -29,3 +29,24 @@ export class VerifyEmailDto {
   @Matches(/^\d{6}$/, { message: '인증 코드는 6자리 숫자여야 합니다.' })
   verificationCode: string;
 }
+
+export class VerifyEmailResponseDto {
+  @ApiProperty({
+    description: '인증 성공 메시지',
+    example: '이메일 인증이 완료되었습니다.',
+  })
+  message: string;
+
+  @ApiProperty({
+    description: '이메일 인증 여부',
+    example: true,
+  })
+  isVerified: boolean;
+
+  @ApiProperty({
+    description:
+      '보안 토큰 (암호화된 이메일 포함, find-account 요청 시 사용)',
+    example: 'base64EncodedEncryptedEmail...',
+  })
+  securityToken: string;
+}

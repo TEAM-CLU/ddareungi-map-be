@@ -10,12 +10,18 @@ import { MailService } from '../mail/mail.service';
 import {
   SendVerificationEmailDto,
   VerifyEmailDto,
+  VerifyEmailResponseDto,
 } from './dto/email-verification.dto';
+import {
+  FindAccountRequestDto,
+  FindAccountResponseDto,
+} from './dto/find-account.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { User } from '../user/entities/user.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
+import { CryptoService } from '../common/crypto.service';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import axios from 'axios';
@@ -48,6 +54,7 @@ export class AuthService {
     private mailService: MailService,
     private configService: ConfigService,
     private readonly jwtService: JwtService,
+    private readonly cryptoService: CryptoService,
 
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
@@ -116,7 +123,7 @@ export class AuthService {
    */
   async verifyEmail(
     verifyEmailDto: VerifyEmailDto,
-  ): Promise<{ message: string; isVerified: boolean }> {
+  ): Promise<VerifyEmailResponseDto> {
     const { email, verificationCode } = verifyEmailDto;
     const normalizedEmail = email.toLowerCase();
 
@@ -153,9 +160,13 @@ export class AuthService {
     // 인증 성공 - 저장된 정보 삭제
     this.verificationCodes.delete(normalizedEmail);
 
+    // 이메일을 암호화하여 securityToken 생성
+    const securityToken = this.cryptoService.encrypt(normalizedEmail);
+
     return {
       message: '이메일 인증이 완료되었습니다.',
       isVerified: true,
+      securityToken: securityToken,
     };
   }
 
@@ -1043,6 +1054,60 @@ export class AuthService {
       states: statesList,
       verificationCodes: verificationsList,
     };
+  }
+
+  // ==================== 계정 찾기 엔드포인트 ====================
+
+  /**
+   * 이메일 인증 후 계정 찾기 (회원가입 여부 & 계정 유형 확인)
+   */
+  async findAccount(
+    findAccountRequestDto: FindAccountRequestDto,
+  ): Promise<FindAccountResponseDto> {
+    try {
+      // 1. securityToken 복호화하여 이메일 추출
+      const email = this.cryptoService.decrypt(
+        findAccountRequestDto.securityToken,
+      );
+      const normalizedEmail = email.toLowerCase();
+
+      // 2. DB에서 이메일로 사용자 조회
+      const user = await this.userRepository.findOne({
+        where: { email: normalizedEmail },
+        select: ['userId', 'email', 'socialName', 'socialUid', 'name'],
+      });
+
+      // 사용자가 없는 경우
+      if (!user) {
+        return {
+          isRegistered: false,
+          accountType: '자체',
+          message: '가입되지 않은 이메일입니다. 새로 가입해주세요.',
+        };
+      }
+
+      // 3. 사용자가 있는 경우 - 회원 유형 판별
+      const isSocialAccount = !!user.socialName && !!user.socialUid;
+
+      if (isSocialAccount) {
+        return {
+          isRegistered: true,
+          accountType: '소셜',
+          message: `이미 ${user.socialName} 계정으로 가입된 이메일입니다. ${user.socialName} 로그인을 사용해주세요.`,
+        };
+      } else {
+        return {
+          isRegistered: true,
+          accountType: '자체',
+          message: '이미 가입된 이메일입니다. 로그인해주세요.',
+        };
+      }
+    } catch (error) {
+      // 복호화 실패 또는 기타 에러
+      throw new BadRequestException(
+        '유효하지 않은 보안 토큰입니다. 이메일 인증을 다시 진행해주세요.',
+      );
+    }
   }
 
   /**
