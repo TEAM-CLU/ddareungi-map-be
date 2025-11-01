@@ -7,7 +7,21 @@ import helmet from 'helmet';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  app.use(helmet());
+  // helmet 임시 비활성화 - Swagger 테스트용
+  // app.use(
+  //   helmet({
+  //     contentSecurityPolicy: {
+  //       directives: {
+  //         ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+  //         'script-src': ["'self'", "'unsafe-inline'"], // 인라인 스크립트 허용
+  //         'style-src': ["'self'", "'unsafe-inline'"], // 인라인 스타일 허용
+  //         'img-src': ["'self'", 'data:'], // 스웨거 UI 이미지 적용
+  //       },
+  //     },
+  //     crossOriginOpenerPolicy: false, // COOP 헤더 비활성화
+  //     crossOriginResourcePolicy: false, // CORP 헤더 비활성화
+  //   }),
+  // );
 
   app.enableCors({
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
@@ -75,7 +89,17 @@ async function bootstrap() {
     })
     .build();
   const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api-docs', app, document);
+
+  // Swagger 설정 옵션 추가 - HTTP를 사용하도록 강제
+  SwaggerModule.setup('api-docs', app, document, {
+    swaggerOptions: {
+      persistAuthorization: true,
+      // 상대 경로를 사용하여 현재 프로토콜/호스트를 따르도록 설정
+      url: '/api-docs-json',
+    },
+    customSiteTitle: 'Ddareungi Map API',
+    customCss: '.swagger-ui .topbar { display: none }', // 상단바 제거 (선택사항)
+  });
 
   await app.listen(3000);
 }
