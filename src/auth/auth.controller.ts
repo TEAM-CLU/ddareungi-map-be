@@ -596,24 +596,31 @@ export class AuthController {
   @ApiResponse({
     status: 200,
     description: '상태 확인 성공',
+    type: SuccessResponseDto,
     schema: {
       examples: {
         incomplete: {
           summary: '로그인 미완료',
           value: {
-            state: null,
-            isComplete: false,
+            statusCode: 200,
             message: '소셜 로그인이 아직 완료되지 않았습니다.',
-            recommendedPollingInterval: 3000,
+            data: {
+              state: null,
+              isComplete: false,
+              recommendedPollingInterval: 3000,
+            },
           },
         },
         complete: {
           summary: '로그인 완료',
           value: {
-            state: 'abc123xyz',
-            isComplete: true,
+            statusCode: 200,
             message: '소셜 로그인이 완료되었습니다.',
-            recommendedPollingInterval: 0,
+            data: {
+              state: 'abc123xyz',
+              isComplete: true,
+              recommendedPollingInterval: 0,
+            },
           },
         },
       },
@@ -633,12 +640,13 @@ export class AuthController {
     const result = await this.authService.checkAuthStatus(clientState);
 
     // 폴링 간격 권장사항 추가
-    const responseWithInterval = {
-      ...result,
+    const data = {
+      state: result.state,
+      isComplete: result.isComplete,
       recommendedPollingInterval: result.isComplete ? 0 : 3000, // 완료되면 0, 미완료면 3초
     };
 
-    return res.json(responseWithInterval);
+    return res.json(SuccessResponseDto.create(result.message, data));
   }
 
   @Post('exchange-token')
