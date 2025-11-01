@@ -18,6 +18,7 @@ import {
   SendVerificationEmailDto,
   VerifyEmailDto,
 } from './dto/email-verification.dto';
+import { FindAccountDto } from './dto/find-account.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request, Response } from 'express';
@@ -83,6 +84,8 @@ export class AuthController {
       example: {
         message: '이메일 인증이 완료되었습니다.',
         isVerified: true,
+        securityToken:
+          'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJlbWFpbCI6InVzZXJAZXhhbXBsZS5jb20iLCJwdXJwb3NlIjoiYWNjb3VudC1maW5kIiwiaWF0IjoxNjk4ODAxMjAwLCJleHAiOjE2OTg4MDEyNjB9.signature',
       },
     },
   })
@@ -98,6 +101,51 @@ export class AuthController {
   })
   async verifyEmail(@Body() verifyEmailDto: VerifyEmailDto) {
     return await this.authService.verifyEmail(verifyEmailDto);
+  }
+
+  @Post('find-account')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '계정찾기 - 이메일로 가입된 계정 조회',
+    description:
+      '이메일 인증 완료 후 받은 보안 토큰으로 가입된 계정 정보를 조회합니다.',
+  })
+  @ApiBody({ type: FindAccountDto })
+  @ApiResponse({
+    status: 200,
+    description: '계정 조회 성공',
+    schema: {
+      examples: {
+        registered: {
+          summary: '가입된 계정이 있는 경우',
+          value: {
+            isRegistered: true,
+            accountType: '소셜',
+            message: '가입여부: 예, 가입종류: 소셜',
+          },
+        },
+        notRegistered: {
+          summary: '가입된 계정이 없는 경우',
+          value: {
+            isRegistered: false,
+            message: '가입된 이메일이 없습니다.',
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: '요청 실패 (유효하지 않은 토큰, 만료된 토큰 등)',
+    schema: {
+      example: {
+        statusCode: 400,
+        message: '유효하지 않은 토큰입니다. 이메일 인증을 다시 진행해주세요.',
+      },
+    },
+  })
+  async findAccount(@Body() findAccountDto: FindAccountDto) {
+    return await this.authService.findAccount(findAccountDto.securityToken);
   }
 
   @Get('naver')

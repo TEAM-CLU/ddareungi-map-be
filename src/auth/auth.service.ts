@@ -26,6 +26,7 @@ interface EmailVerification {
   code: string;
   expiresAt: Date;
   attempts: number;
+  securityToken?: string; // 계정찾기 보안 토큰
 }
 
 @Injectable()
@@ -116,7 +117,7 @@ export class AuthService {
    */
   async verifyEmail(
     verifyEmailDto: VerifyEmailDto,
-  ): Promise<{ message: string; isVerified: boolean }> {
+  ): Promise<{ message: string; isVerified: boolean; securityToken: string }> {
     const { email, verificationCode } = verifyEmailDto;
     const normalizedEmail = email.toLowerCase();
 
@@ -150,12 +151,19 @@ export class AuthService {
       );
     }
 
-    // 인증 성공 - 저장된 정보 삭제
+    // 인증 성공 - 보안 토큰 생성 (계정찾기용, JWT로 이메일 암호화)
+    const securityToken = this.jwtService.sign(
+      { email: normalizedEmail, purpose: 'account-find' },
+      { expiresIn: '10m' },
+    );
+
+    // 인증 정보 삭제
     this.verificationCodes.delete(normalizedEmail);
 
     return {
       message: '이메일 인증이 완료되었습니다.',
       isVerified: true,
+      securityToken,
     };
   }
 
@@ -1089,5 +1097,62 @@ export class AuthService {
           : null,
       },
     };
+  }
+
+  // ==================== 계정찾기 메서드 ====================
+
+  /**
+   * 계정찾기 - 보안 토큰(JWT)으로 사용자 계정 정보 조회
+   */
+  async findAccount(
+    securityToken: string,
+  ): Promise<{ isRegistered: boolean; accountType?: string; message: string }> {
+    try {
+      // JWT 토큰에서 이메일 복호화
+      const decoded = this.jwtService.verify(securityToken);
+
+      // 토큰의 목적 확인 (account-find 목적으로만 사용)
+      if (decoded.purpose !== 'account-find') {
+        throw new BadRequestException(
+          '유효하지 않은 토큰입니다. 이메일 인증을 다시 진행해주세요.',
+        );
+      }
+
+      const email = decoded.email as string;
+
+      // 사용자 조회
+      const user = await this.userRepository.findOne({
+        where: { email },
+        select: ['userId', 'email', 'socialName'],
+      });
+
+      if (!user) {
+        return {
+          isRegistered: false,
+          message: '가입된 이메일이 없습니다.',
+        };
+      }
+
+      // 계정 타입 결정 (소셜 / 자체)
+      const accountType = user.socialName ? '소셜' : '자체';
+
+      return {
+        isRegistered: true,
+        accountType,
+        message: `가입여부: 예, 가입종류: ${accountType}`,
+      };
+    } catch (error) {
+      if (error.name === 'TokenExpiredError') {
+        throw new BadRequestException(
+          '토큰이 만료되었습니다. 이메일 인증을 다시 진행해주세요.',
+        );
+      }
+      if (error.name === 'JsonWebTokenError') {
+        throw new BadRequestException(
+          '유효하지 않은 토큰입니다. 이메일 인증을 다시 진행해주세요.',
+        );
+      }
+      throw error;
+    }
   }
 }
