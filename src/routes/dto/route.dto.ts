@@ -94,6 +94,23 @@ export class GeometryDto {
   points: number[][];
 }
 
+export class InstructionDto {
+  @ApiProperty({ description: '이동 거리 (미터)' })
+  distance: number;
+
+  @ApiProperty({ description: '이동 시간 (초)' })
+  time: number;
+
+  @ApiProperty({ description: '안내 텍스트' })
+  text: string;
+
+  @ApiProperty({ description: '방향 표시 코드' })
+  sign: number;
+
+  @ApiProperty({ description: '좌표 인덱스 범위 [시작, 끝]', type: [Number] })
+  interval: [number, number];
+}
+
 export class RouteStationDto {
   @ApiProperty({ description: '대여소 번호' })
   number: string;
@@ -189,7 +206,7 @@ export class FullJourneyRequestDto extends PointToPointRouteRequestDto {}
 // 응답 DTO들
 // ============================================
 
-// 경로 세그먼트 DTO (도보 또는 자전거 구간)
+// 경로 세그먼트 DTO (도보 또는 자전거 구간) - API 응답용
 export class RouteSegmentDto {
   @ApiProperty({
     description: '세그먼트 타입',
@@ -212,12 +229,16 @@ export class RouteSegmentDto {
     required: false,
   })
   profile?: BikeProfile;
+
+  // Redis 저장용 필드 (API 응답에는 포함되지 않음)
+  instructions?: InstructionDto[];
 }
 
 // 완전한 경로 DTO (여러 세그먼트로 구성)
 export class RouteDto {
   @ApiProperty({
-    description: '경로 카테고리',
+    description:
+      '경로 카테고리 (API 응답 시 한글로 변환됨: bike_priority→자전거 도로 우선, fastest→최소 시간, shortest→최단 거리)',
     example: '자전거 도로 우선',
   })
   routeCategory: string;
@@ -263,3 +284,30 @@ export class RouteResponseDto {
 
 // 하위 호환성을 위한 별칭
 export class FullJourneyResponseDto extends RouteResponseDto {}
+
+/**
+ * 경로 카테고리 영어 → 한글 변환 맵
+ */
+export const ROUTE_CATEGORY_LABELS: Record<string, string> = {
+  bike_priority: '자전거 도로 우선',
+  fastest: '최소 시간',
+  shortest: '최단 거리',
+} as const;
+
+/**
+ * RouteDto의 카테고리를 한글로 변환하는 헬퍼 함수
+ */
+export function translateRouteCategory(route: RouteDto): RouteDto {
+  return {
+    ...route,
+    routeCategory:
+      ROUTE_CATEGORY_LABELS[route.routeCategory] || route.routeCategory,
+  };
+}
+
+/**
+ * RouteDto 배열의 카테고리를 한글로 변환하는 헬퍼 함수
+ */
+export function translateRouteCategories(routes: RouteDto[]): RouteDto[] {
+  return routes.map(translateRouteCategory);
+}

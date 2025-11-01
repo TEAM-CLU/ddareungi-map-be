@@ -4,6 +4,7 @@ import {
   RouteDto,
   CircularRouteRequestDto,
   CoordinateDto,
+  translateRouteCategories,
 } from './dto/route.dto';
 import {
   RouteOptimizerService,
@@ -26,55 +27,66 @@ export class RoutesService {
     private readonly stationRouteService: StationRouteService,
   ) {}
 
-  // ============================================
-  // 컨트롤러 호출 메서드 (Public API)
-  // ============================================
+  // ===== 컨트롤러 호출 메서드 (Public API) =====
 
-  /**
-   * 통합 경로 검색 (A → B, 왕복 경로, 경유지 포함 가능)
-   */
+  /** 통합 경로 검색 (A → B, 왕복, 경유지 포함) */
   async findFullJourney(request: FullJourneyRequestDto): Promise<RouteDto[]> {
     try {
-      // 출발지와 도착지가 같은 경우 (왕복 경로)
+      this.validateCoordinates(request.start, '출발지');
+      this.validateCoordinates(request.end, '도착지');
+
       const isRoundTrip = this.isSameLocation(request.start, request.end);
 
       if (isRoundTrip) {
-        // 왕복 경로인 경우 경유지가 반드시 필요
         if (!request.waypoints || request.waypoints.length === 0) {
           throw new Error(
             '왕복 경로 검색에는 최소한 하나의 경유지가 필요합니다.',
           );
         }
-
-        // 왕복 경로를 다구간 경로로 처리
-        return this.findRoundTripJourney(request);
+        const routes = await this.findRoundTripJourney(request);
+        const withoutInstructions =
+          RouteConverterService.removeInstructionsFromRoutes(routes);
+        return translateRouteCategories(withoutInstructions);
       }
 
-      // 일반 경로 처리
       if (request.waypoints && request.waypoints.length > 0) {
-        return this.findMultiLegJourney(request);
+        request.waypoints.forEach((wp, idx) =>
+          this.validateCoordinates(wp, `경유지 ${idx + 1}`),
+        );
+        const routes = await this.findMultiLegJourney(request);
+        const withoutInstructions =
+          RouteConverterService.removeInstructionsFromRoutes(routes);
+        return translateRouteCategories(withoutInstructions);
       }
 
-      // 기존 A-B 직접 경로 처리
-      return this.findDirectJourney(request);
+      const routes = await this.findDirectJourney(request);
+      const withoutInstructions =
+        RouteConverterService.removeInstructionsFromRoutes(routes);
+      return translateRouteCategories(withoutInstructions);
     } catch (error) {
-      this.logger.error('Full journey search failed', error);
+      this.logger.error(
+        '통합 경로 검색 실패',
+        error instanceof Error ? error.stack : error,
+      );
       throw error;
     }
   }
 
-  /**
-   * 원형 경로 추천 (지정된 거리의 원형 코스)
-   */
+  /** 원형 경로 추천 (지정 거리 원형 코스) */
   async findRoundTripRecommendations(
     request: CircularRouteRequestDto,
   ): Promise<RouteDto[]> {
-    this.logger.debug(
-      `원형 경로 추천 시작 - 목표 거리: ${request.targetDistance}m`,
-    );
-
     try {
-      // 실제 대여소 검색 (에러 처리는 StationRouteService에서 담당)
+      this.validateCoordinates(request.start, '시작 위치');
+
+      if (request.targetDistance <= 0) {
+        throw new Error('목표 거리는 0보다 커야 합니다.');
+      }
+
+      this.logger.debug(
+        `원형 경로 추천 시작 - 목표 거리: ${request.targetDistance}m`,
+      );
+
       const station =
         await this.stationRouteService.findNearestAvailableStation(
           request.start,
@@ -82,29 +94,30 @@ export class RoutesService {
 
       if (!station) {
         throw new Error(
-          `원형 경로 시작지 근처에 이용 가능한 대여소를 찾을 수 없습니다. 좌표: ${request.start.lat}, ${request.start.lng}`,
+          `원형 경로 시작지 근처에 이용 가능한 대여소를 찾을 수 없습니다.`,
         );
       }
 
-      // 도보 구간들
       const [walkingToStation, walkingFromStation] = await Promise.all([
         this.graphHopperService.getSingleRoute(request.start, station, 'foot'),
         this.graphHopperService.getSingleRoute(station, request.start, 'foot'),
       ]);
 
-      // 원형 경로 최적 검색 (safe_bike + fast_bike)
       const optimalCircularPaths =
         await this.routeOptimizer.findOptimalCircularRoutes(
           station,
           request.targetDistance,
         );
 
+      if (optimalCircularPaths.length === 0) {
+        throw new Error('조건에 맞는 원형 경로를 찾을 수 없습니다.');
+      }
+
       this.logger.debug(
-        `원형 경로 추천 완료 - 대여소: ${station.name}, GraphHopper API 호출: 도보 2회, 원형 경로 ${optimalCircularPaths.length}개 생성`,
+        `원형 경로 추천 완료 - 대여소: ${station.name}, 경로 ${optimalCircularPaths.length}개 생성`,
       );
 
-      // 각 원형 경로에 대해 RouteDto 생성 (routeId 순서 일치)
-      return optimalCircularPaths.map((circularPath) => {
+      const routes = optimalCircularPaths.map((circularPath) => {
         const route = this.routeConverter.buildCircularRoute(
           walkingToStation,
           circularPath,
@@ -120,7 +133,8 @@ export class RoutesService {
           endStation: eStation,
           segments,
         } = route;
-        return {
+
+        const routeDto = {
           routeCategory,
           routeId: circularPath.routeId,
           summary,
@@ -129,31 +143,57 @@ export class RoutesService {
           endStation: eStation,
           segments,
         };
+
+        // Redis에 instructions 포함하여 저장
+        if (circularPath.routeId) {
+          this.routeOptimizer.saveRouteToRedis(circularPath.routeId, routeDto);
+        }
+
+        return routeDto;
       });
+
+      // API 응답: instructions 제거 및 카테고리 한글 변환
+      const withoutInstructions =
+        RouteConverterService.removeInstructionsFromRoutes(routes);
+      return translateRouteCategories(withoutInstructions);
     } catch (error) {
-      this.logger.error('원형 경로 추천 중 GraphHopper API 호출 실패', error);
+      this.logger.error(
+        '원형 경로 추천 실패',
+        error instanceof Error ? error.stack : error,
+      );
       throw error;
     }
   }
 
-  // ============================================
-  // 경로 검색 타입 판별 및 라우팅
-  // ============================================
+  // ===== 경로 검색 타입 판별 및 라우팅 =====
 
-  /**
-   * 두 좌표가 같은 위치인지 확인 (왕복 경로 판별)
-   */
+  /** 좌표 유효성 검증 */
+  private validateCoordinates(coord: CoordinateDto, label: string): void {
+    if (
+      !coord ||
+      typeof coord.lat !== 'number' ||
+      typeof coord.lng !== 'number'
+    ) {
+      throw new Error(`${label} 좌표가 올바르지 않습니다.`);
+    }
+    if (coord.lat < -90 || coord.lat > 90) {
+      throw new Error(`${label} 위도는 -90 ~ 90 사이여야 합니다.`);
+    }
+    if (coord.lng < -180 || coord.lng > 180) {
+      throw new Error(`${label} 경도는 -180 ~ 180 사이여야 합니다.`);
+    }
+  }
+
+  /** 두 좌표가 같은 위치인지 확인 (왕복 판별) */
   private isSameLocation(start: CoordinateDto, end: CoordinateDto): boolean {
-    const TOLERANCE = 0.0001; // 약 10미터 정도의 허용 오차
+    const TOLERANCE = 0.0001;
     return (
       Math.abs(start.lat - end.lat) < TOLERANCE &&
       Math.abs(start.lng - end.lng) < TOLERANCE
     );
   }
 
-  /**
-   * 왕복 경로 검색 (출발지 = 도착지인 경우)
-   */
+  /** 왕복 경로 검색 (출발=도착) */
   private async findRoundTripJourney(
     request: FullJourneyRequestDto,
   ): Promise<RouteDto[]> {
@@ -166,52 +206,56 @@ export class RoutesService {
     this.logger.debug(`왕복 경로 검색 시작 - 경유지: ${waypoints.length}개`);
 
     try {
-      // 실제 대여소 검색
       const startStation =
         await this.stationRouteService.findNearestAvailableStation(start);
 
       if (!startStation) {
-        throw new Error(
-          `시작지 근처에 이용 가능한 대여소를 찾을 수 없습니다. 좌표: ${start.lat}, ${start.lng}`,
-        );
+        throw new Error('시작지 근처에 이용 가능한 대여소를 찾을 수 없습니다.');
       }
 
-      // 도보 구간들 (출발지⇄시작 대여소)
       const [walkingToStation, walkingFromStation] = await Promise.all([
         this.graphHopperService.getSingleRoute(start, startStation, 'foot'),
         this.graphHopperService.getSingleRoute(startStation, start, 'foot'),
       ]);
 
-      // 왕복 경로: 시작 대여소 → 경유지들 → 시작 대여소
       const roundTripPoints: CoordinateDto[] = [
         startStation,
         ...waypoints,
         startStation,
       ];
 
-      this.logger.debug(
-        `왕복 경로 - 총 ${roundTripPoints.length}개 포인트 (경유지: ${waypoints.length}개)`,
-      );
+      const segmentCount = roundTripPoints.length - 1;
+      const allSegmentPaths: CategorizedPath[][] = [];
 
-      // 각 카테고리별 최적 왕복 경로 생성
+      for (let i = 0; i < segmentCount; i++) {
+        const from = roundTripPoints[i];
+        const to = roundTripPoints[i + 1];
+        const paths = await this.routeOptimizer.findOptimalRoutes(from, to);
+
+        if (paths.length === 0) {
+          throw new Error(
+            `구간 ${i + 1}의 경로를 찾을 수 없습니다. (${from.lat},${from.lng}) → (${to.lat},${to.lng})`,
+          );
+        }
+        allSegmentPaths.push(paths);
+      }
+
       const categories = [
-        { name: '자전거 도로 우선', priority: 'bike_priority' },
-        { name: '최소 시간', priority: 'time' },
-        { name: '최단 거리', priority: 'distance' },
+        { name: 'bike_priority', priority: 'bike_priority' },
+        { name: 'fastest', priority: 'time' },
+        { name: 'shortest', priority: 'distance' },
       ];
-
       const routes: RouteDto[] = [];
-      const optimalPaths = await this.routeOptimizer.findOptimalRoutes(
-        startStation,
-        startStation,
-      );
-      for (let i = 0; i < categories.length; i++) {
-        const category = categories[i];
+
+      for (let catIdx = 0; catIdx < categories.length; catIdx++) {
+        const bikePaths: CategorizedPath[] = allSegmentPaths.map(
+          (paths) => paths[catIdx],
+        );
         const route = await this.routeBuilder.buildMultiLegRoute(
           roundTripPoints,
-          category,
-          walkingToStation, // 출발 시 도보
-          walkingFromStation, // 복귀 시 도보
+          categories[catIdx],
+          walkingToStation,
+          walkingFromStation,
           {
             number: startStation.number,
             name: startStation.name,
@@ -220,24 +264,20 @@ export class RoutesService {
             current_bikes: startStation.current_bikes,
           },
         );
-        const bikePath = optimalPaths[i];
-        const {
-          routeCategory,
-          summary,
-          bbox,
-          startStation: sStation,
-          endStation: eStation,
-          segments,
-        } = route;
-        routes.push({
-          routeCategory,
-          routeId: bikePath?.routeId,
-          summary,
-          bbox,
-          startStation: sStation,
-          endStation: eStation,
-          segments,
-        });
+
+        const routeId = bikePaths.map((p) => p?.routeId).join('-');
+        const routeDto = {
+          routeCategory: route.routeCategory,
+          routeId,
+          summary: route.summary,
+          bbox: route.bbox,
+          startStation: route.startStation,
+          endStation: route.endStation,
+          segments: route.segments,
+        };
+
+        this.routeOptimizer.saveRouteToRedis(routeId, routeDto);
+        routes.push(routeDto);
       }
 
       this.logger.debug(
@@ -246,31 +286,29 @@ export class RoutesService {
 
       return routes;
     } catch (error) {
-      this.logger.error('왕복 경로 검색 중 오류 발생', error);
+      this.logger.error(
+        '왕복 경로 검색 실패',
+        error instanceof Error ? error.stack : error,
+      );
       throw error;
     }
   }
 
-  // ============================================
-  // 구체적인 경로 검색 구현 메서드 (Private)
-  // ============================================
+  // ===== 구체적 경로 검색 구현 (Private) =====
 
-  /**
-   * 직접 경로 검색 (A → B, 경유지 없음)
-   */
+  /** 직접 경로 검색 (A → B, 경유지 없음) */
   private async findDirectJourney(
     request: FullJourneyRequestDto,
   ): Promise<RouteDto[]> {
     this.logger.debug('직접 경로 검색 시작');
+
     try {
-      // 실제 대여소 검색 (에러 처리는 StationRouteService에서 담당)
       const { startStation, endStation } =
         await this.stationRouteService.findStartAndEndStations(
           request.start,
           request.end,
         );
 
-      // 도보 구간 (출발지 → 시작 대여소, 도착 대여소 → 도착지)
       const [walkingToStart, walkingFromEnd] = await Promise.all([
         this.graphHopperService.getSingleRoute(
           request.start,
@@ -280,17 +318,19 @@ export class RoutesService {
         this.graphHopperService.getSingleRoute(endStation, request.end, 'foot'),
       ]);
 
-      // 자전거 구간 최적 경로 검색 (safe_bike + fast_bike)
       const optimalBikePaths = await this.routeOptimizer.findOptimalRoutes(
         startStation,
         endStation,
       );
 
+      if (optimalBikePaths.length === 0) {
+        throw new Error('조건에 맞는 자전거 경로를 찾을 수 없습니다.');
+      }
+
       this.logger.debug(
-        `직접 경로 검색 완료 - 출발 대여소: ${startStation.name}, 도착 대여소: ${endStation.name}, GraphHopper API 호출: 도보 2회, 자전거 경로 ${optimalBikePaths.length}개 생성`,
+        `직접 경로 검색 완료 - 출발: ${startStation.name}, 도착: ${endStation.name}, 경로 ${optimalBikePaths.length}개`,
       );
 
-      // 각 자전거 경로에 대해 RouteDto 생성 (routeId 포함, instructions 등은 Redis에만 저장)
       return optimalBikePaths.map((bikePath: CategorizedPath) => {
         const route = this.routeConverter.buildRouteFromGraphHopper(
           walkingToStart,
@@ -300,33 +340,35 @@ export class RoutesService {
           endStation,
           bikePath.routeCategory,
         );
-        const {
-          routeCategory,
-          summary,
-          bbox,
-          startStation: sStation,
-          endStation: eStation,
-          segments,
-        } = route;
-        return {
-          routeCategory,
-          routeId: bikePath.routeId,
-          summary,
-          bbox,
-          startStation: sStation,
-          endStation: eStation,
-          segments,
+
+        const routeId =
+          bikePath.routeId || this.routeOptimizer.createRouteId(bikePath);
+
+        const routeDto = {
+          routeCategory: route.routeCategory,
+          routeId,
+          summary: route.summary,
+          bbox: route.bbox,
+          startStation: route.startStation,
+          endStation: route.endStation,
+          segments: route.segments,
         };
+
+        // Redis에 instructions 포함하여 저장
+        this.routeOptimizer.saveRouteToRedis(routeId, routeDto);
+
+        return routeDto;
       });
     } catch (error) {
-      this.logger.error('직접 경로 검색 중 GraphHopper API 호출 실패', error);
+      this.logger.error(
+        '직접 경로 검색 실패',
+        error instanceof Error ? error.stack : error,
+      );
       throw error;
     }
   }
 
-  /**
-   * 다구간 경로 검색 (A → 경유지들 → B)
-   */
+  /** 다구간 경로 검색 (A → 경유지들 → B) */
   private async findMultiLegJourney(
     request: FullJourneyRequestDto,
   ): Promise<RouteDto[]> {
@@ -337,32 +379,31 @@ export class RoutesService {
     );
 
     try {
-      // 실제 대여소 검색 (에러 처리는 StationRouteService에서 담당)
       const { startStation, endStation } =
         await this.stationRouteService.findStartAndEndStations(start, end);
 
-      // 도보 구간들 (출발지→시작 대여소, 도착 대여소→도착지)
       const [walkingToStart, walkingFromEnd] = await Promise.all([
         this.graphHopperService.getSingleRoute(start, startStation, 'foot'),
         this.graphHopperService.getSingleRoute(endStation, end, 'foot'),
       ]);
 
-      // 자전거 경로 포인트 생성: 시작 대여소 → 경유지들 → 도착 대여소
       const bikeRoutePoints = [startStation, ...(waypoints || []), endStation];
-
-      // 각 카테고리별 최적 경로 생성
       const categories = [
-        { name: '자전거 도로 우선', priority: 'bike_priority' },
-        { name: '최소 시간', priority: 'time' },
-        { name: '최단 거리', priority: 'distance' },
+        { name: 'bike_priority', priority: 'bike_priority' },
+        { name: 'fastest', priority: 'time' },
+        { name: 'shortest', priority: 'distance' },
       ];
 
       const routes: RouteDto[] = [];
-      let totalApiCalls = 0;
       const optimalPaths = await this.routeOptimizer.findOptimalRoutes(
         startStation,
         endStation,
       );
+
+      if (optimalPaths.length === 0) {
+        throw new Error('조건에 맞는 자전거 경로를 찾을 수 없습니다.');
+      }
+
       for (let i = 0; i < categories.length; i++) {
         const category = categories[i];
         const route = await this.routeBuilder.buildMultiLegRoute(
@@ -385,34 +426,38 @@ export class RoutesService {
             current_bikes: endStation.current_bikes,
           },
         );
+
         const bikePath = optimalPaths[i];
-        const {
-          routeCategory,
-          summary,
-          bbox,
-          startStation: sStation,
-          endStation: eStation,
-          segments,
-        } = route;
-        routes.push({
-          routeCategory,
-          routeId: bikePath?.routeId,
-          summary,
-          bbox,
-          startStation: sStation,
-          endStation: eStation,
-          segments,
-        });
-        totalApiCalls += bikeRoutePoints.length - 1; // 구간 수만큼 API 호출
+        const routeId =
+          bikePath?.routeId ||
+          this.routeOptimizer.createRouteId(bikePath ?? route);
+
+        const routeDto = {
+          routeCategory: route.routeCategory,
+          routeId,
+          summary: route.summary,
+          bbox: route.bbox,
+          startStation: route.startStation,
+          endStation: route.endStation,
+          segments: route.segments,
+        };
+
+        // Redis에 instructions 포함하여 저장
+        this.routeOptimizer.saveRouteToRedis(routeId, routeDto);
+
+        routes.push(routeDto);
       }
 
       this.logger.debug(
-        `다구간 경로 검색 완료 - 출발 대여소: ${startStation.name}, 도착 대여소: ${endStation.name}, GraphHopper API 호출: 도보 2회, 자전거 구간 ${totalApiCalls}회, 총 ${routes.length}개 경로 생성`,
+        `다구간 경로 검색 완료 - 출발: ${startStation.name}, 도착: ${endStation.name}, 경로 ${routes.length}개`,
       );
 
       return routes;
     } catch (error) {
-      this.logger.error('다구간 경로 검색 중 GraphHopper API 호출 실패', error);
+      this.logger.error(
+        '다구간 경로 검색 실패',
+        error instanceof Error ? error.stack : error,
+      );
       throw error;
     }
   }
