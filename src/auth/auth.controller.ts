@@ -9,8 +9,8 @@ import {
   Res,
   UseGuards,
   Query,
-  BadRequestException,
   Param,
+  HttpException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
@@ -26,6 +26,10 @@ import {
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request, Response } from 'express';
+import {
+  SuccessResponseDto,
+  ErrorResponseDto,
+} from '../common/api-response.dto';
 
 declare module 'express' {
   interface Request {
@@ -49,29 +53,32 @@ export class AuthController {
   @ApiResponse({
     status: 200,
     description: '인증 코드 발송 성공',
-    schema: {
-      example: {
-        message:
-          '인증 코드가 이메일로 발송되었습니다. 10분 내에 인증을 완료해주세요.',
-      },
-    },
+    type: SuccessResponseDto,
   })
   @ApiResponse({
     status: 400,
     description: '잘못된 요청 (이메일 형식 오류, 재전송 시간 제한 등)',
-    schema: {
-      example: {
-        statusCode: 400,
-        message: '인증 코드는 1분에 한 번만 요청할 수 있습니다.',
-      },
-    },
+    type: ErrorResponseDto,
   })
   async sendVerificationEmail(
     @Body() sendVerificationEmailDto: SendVerificationEmailDto,
   ) {
-    return await this.authService.sendVerificationEmail(
-      sendVerificationEmailDto,
-    );
+    try {
+      const result = await this.authService.sendVerificationEmail(
+        sendVerificationEmailDto,
+      );
+      return SuccessResponseDto.create(
+        '인증 코드가 이메일로 발송되었습니다. 10분 내에 인증을 완료해주세요.',
+        result,
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : '알 수 없는 오류';
+      throw new HttpException(
+        ErrorResponseDto.create(HttpStatus.BAD_REQUEST, message),
+        HttpStatus.BAD_REQUEST,
+      );
+    }
   }
 
   @Post('verify-email')
@@ -96,17 +103,21 @@ export class AuthController {
   @ApiResponse({
     status: 400,
     description: '인증 실패 (잘못된 코드, 만료된 코드, 시도 횟수 초과 등)',
-    schema: {
-      example: {
-        statusCode: 400,
-        message: '인증 코드가 일치하지 않습니다. (3/5)',
-      },
-    },
+    type: ErrorResponseDto,
   })
   async verifyEmail(
     @Body() verifyEmailDto: VerifyEmailDto,
   ): Promise<VerifyEmailResponseDto> {
-    return await this.authService.verifyEmail(verifyEmailDto);
+    try {
+      return await this.authService.verifyEmail(verifyEmailDto);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : '알 수 없는 오류';
+      throw new HttpException(
+        ErrorResponseDto.create(HttpStatus.BAD_REQUEST, message),
+        HttpStatus.BAD_REQUEST,
+      );
+    }
   }
 
   @Post('find-account')
@@ -153,18 +164,21 @@ export class AuthController {
   @ApiResponse({
     status: 400,
     description: '유효하지 않은 보안 토큰',
-    schema: {
-      example: {
-        statusCode: 400,
-        message:
-          '유효하지 않은 보안 토큰입니다. 이메일 인증을 다시 진행해주세요.',
-      },
-    },
+    type: ErrorResponseDto,
   })
   async findAccount(
     @Body() findAccountRequestDto: FindAccountRequestDto,
   ): Promise<FindAccountResponseDto> {
-    return await this.authService.findAccount(findAccountRequestDto);
+    try {
+      return await this.authService.findAccount(findAccountRequestDto);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : '알 수 없는 오류';
+      throw new HttpException(
+        ErrorResponseDto.create(HttpStatus.BAD_REQUEST, message),
+        HttpStatus.BAD_REQUEST,
+      );
+    }
   }
 
   @Get('naver')
@@ -243,37 +257,36 @@ export class AuthController {
   @ApiResponse({
     status: 200,
     description: '비밀번호 재설정 성공',
-    schema: {
-      example: {
-        message: '비밀번호가 성공적으로 재설정되었습니다.',
-      },
-    },
+    type: SuccessResponseDto,
   })
   @ApiResponse({
     status: 400,
     description: '잘못된 요청 (현재 비밀번호와 동일, 유효성 검사 실패 등)',
-    schema: {
-      example: {
-        statusCode: 400,
-        message:
-          '현재 사용 중인 비밀번호와 동일합니다. 다른 비밀번호를 입력해주세요.',
-      },
-    },
+    type: ErrorResponseDto,
   })
   @ApiResponse({
     status: 404,
     description: '사용자를 찾을 수 없음',
-    schema: {
-      example: {
-        statusCode: 404,
-        message: '해당 이메일로 등록된 사용자를 찾을 수 없습니다.',
-      },
-    },
+    type: ErrorResponseDto,
   })
-  async resetPassword(
-    @Body() resetPasswordDto: ResetPasswordDto,
-  ): Promise<{ message: string }> {
-    return await this.authService.resetPassword(resetPasswordDto);
+  async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
+    try {
+      const result = await this.authService.resetPassword(resetPasswordDto);
+      return SuccessResponseDto.create(
+        '비밀번호가 성공적으로 재설정되었습니다.',
+        result,
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : '알 수 없는 오류';
+      const statusCode = message.includes('찾을 수 없습니다')
+        ? HttpStatus.NOT_FOUND
+        : HttpStatus.BAD_REQUEST;
+      throw new HttpException(
+        ErrorResponseDto.create(statusCode, message),
+        statusCode,
+      );
+    }
   }
 
   // ==================== PKCE 소셜 로그인 엔드포인트들 ====================
@@ -287,23 +300,20 @@ export class AuthController {
   @ApiResponse({
     status: 200,
     description: 'Google PKCE 로그인 URL 생성 성공',
-    schema: {
-      example: {
-        message: 'Google PKCE 로그인 URL입니다.',
-        authUrl: 'https://accounts.google.com/o/oauth2/auth?client_id=...',
-        state: 'xyz123...',
-        codeVerifier: 'abc456...',
-      },
-    },
+    type: SuccessResponseDto,
   })
   async getGooglePKCEUrl() {
-    const result = this.authService.getGooglePKCEAuthUrl();
-    return {
-      message: 'Google PKCE 로그인 URL입니다.',
-      authUrl: result.authUrl,
-      state: result.state,
-      codeVerifier: result.codeVerifier,
-    };
+    try {
+      const result = this.authService.getGooglePKCEAuthUrl();
+      return SuccessResponseDto.create('Google PKCE 로그인 URL입니다.', result);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : '알 수 없는 오류';
+      throw new HttpException(
+        ErrorResponseDto.create(HttpStatus.BAD_REQUEST, message),
+        HttpStatus.BAD_REQUEST,
+      );
+    }
   }
 
   @Get('kakao/pkce')
@@ -315,23 +325,20 @@ export class AuthController {
   @ApiResponse({
     status: 200,
     description: 'Kakao PKCE 로그인 URL 생성 성공',
-    schema: {
-      example: {
-        message: 'Kakao PKCE 로그인 URL입니다.',
-        authUrl: 'https://kauth.kakao.com/oauth/authorize?client_id=...',
-        state: 'xyz123...',
-        codeVerifier: 'abc456...',
-      },
-    },
+    type: SuccessResponseDto,
   })
   async getKakaoPKCEUrl() {
-    const result = this.authService.getKakaoPKCEAuthUrl();
-    return {
-      message: 'Kakao PKCE 로그인 URL입니다.',
-      authUrl: result.authUrl,
-      state: result.state,
-      codeVerifier: result.codeVerifier,
-    };
+    try {
+      const result = this.authService.getKakaoPKCEAuthUrl();
+      return SuccessResponseDto.create('Kakao PKCE 로그인 URL입니다.', result);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : '알 수 없는 오류';
+      throw new HttpException(
+        ErrorResponseDto.create(HttpStatus.BAD_REQUEST, message),
+        HttpStatus.BAD_REQUEST,
+      );
+    }
   }
 
   @Get('naver/pkce')
@@ -343,23 +350,20 @@ export class AuthController {
   @ApiResponse({
     status: 200,
     description: 'Naver PKCE 로그인 URL 생성 성공',
-    schema: {
-      example: {
-        message: 'Naver PKCE 로그인 URL입니다.',
-        authUrl: 'https://nid.naver.com/oauth2.0/authorize?client_id=...',
-        state: 'xyz123...',
-        codeVerifier: 'abc456...',
-      },
-    },
+    type: SuccessResponseDto,
   })
   async getNaverPKCEUrl() {
-    const result = this.authService.getNaverPKCEAuthUrl();
-    return {
-      message: 'Naver PKCE 로그인 URL입니다.',
-      authUrl: result.authUrl,
-      state: result.state,
-      codeVerifier: result.codeVerifier,
-    };
+    try {
+      const result = this.authService.getNaverPKCEAuthUrl();
+      return SuccessResponseDto.create('Naver PKCE 로그인 URL입니다.', result);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : '알 수 없는 오류';
+      throw new HttpException(
+        ErrorResponseDto.create(HttpStatus.BAD_REQUEST, message),
+        HttpStatus.BAD_REQUEST,
+      );
+    }
   }
 
   @Get('google/pkce/callback')
@@ -640,35 +644,36 @@ export class AuthController {
   @ApiResponse({
     status: 200,
     description: '토큰 교환 성공',
-    schema: {
-      example: {
-        accessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
-        message: '토큰 교환 성공',
-      },
-    },
+    type: SuccessResponseDto,
   })
   @ApiResponse({
     status: 401,
     description: '토큰 교환 실패',
-    schema: {
-      example: {
-        statusCode: 401,
-        message: 'Invalid or expired code verifier',
-      },
-    },
+    type: ErrorResponseDto,
   })
   async exchangeToken(@Body('codeVerifier') codeVerifier: string) {
     if (!codeVerifier) {
-      throw new BadRequestException('codeVerifier is required');
+      throw new HttpException(
+        ErrorResponseDto.create(
+          HttpStatus.BAD_REQUEST,
+          'codeVerifier is required',
+        ),
+        HttpStatus.BAD_REQUEST,
+      );
     }
 
-    const result =
-      await this.authService.exchangeTokenWithCodeVerifier(codeVerifier);
-
-    return {
-      accessToken: result.accessToken,
-      message: '토큰 교환 성공',
-    };
+    try {
+      const result =
+        await this.authService.exchangeTokenWithCodeVerifier(codeVerifier);
+      return SuccessResponseDto.create('토큰 교환 성공', result);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : '알 수 없는 오류';
+      throw new HttpException(
+        ErrorResponseDto.create(HttpStatus.UNAUTHORIZED, message),
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
   }
 
   @Post('logout')

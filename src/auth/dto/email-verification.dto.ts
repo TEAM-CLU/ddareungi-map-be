@@ -44,8 +44,7 @@ export class VerifyEmailResponseDto {
   isVerified: boolean;
 
   @ApiProperty({
-    description:
-      '보안 토큰 (암호화된 이메일 포함, find-account 요청 시 사용)',
+    description: '보안 토큰 (암호화된 이메일 포함, find-account 요청 시 사용)',
     example: 'base64EncodedEncryptedEmail...',
   })
   securityToken: string;

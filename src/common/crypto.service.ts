@@ -18,7 +18,7 @@ export class CryptoService {
 
     if (this.encryptionKey.length !== 32) {
       throw new Error(
-        'ENCRYPTION_KEY must be 32 bytes (64 hex characters). Generate it with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"',
+        "ENCRYPTION_KEY must be 32 bytes (64 hex characters). Generate it with: node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"",
       );
     }
   }
@@ -30,7 +30,11 @@ export class CryptoService {
    */
   encrypt(data: string): string {
     const iv = crypto.randomBytes(16); // 16바이트 IV
-    const cipher = crypto.createCipheriv(this.algorithm, this.encryptionKey, iv);
+    const cipher = crypto.createCipheriv(
+      this.algorithm,
+      this.encryptionKey,
+      iv,
+    );
 
     let encrypted = cipher.update(data, 'utf8', 'hex');
     encrypted += cipher.final('hex');
@@ -38,7 +42,11 @@ export class CryptoService {
     const authTag = cipher.getAuthTag();
 
     // IV + 암호문 + authTag를 결합하여 Base64로 인코딩
-    const combined = Buffer.concat([iv, Buffer.from(encrypted, 'hex'), authTag]);
+    const combined = Buffer.concat([
+      iv,
+      Buffer.from(encrypted, 'hex'),
+      authTag,
+    ]);
     return combined.toString('base64');
   }
 
