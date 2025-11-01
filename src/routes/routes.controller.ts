@@ -98,7 +98,7 @@ export class RoutesController {
     }
   }
 
-  @Post('circular')
+  @Post('circular-journey')
   @ApiOperation({
     summary: '원형 경로 추천',
     description:

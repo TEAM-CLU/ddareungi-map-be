@@ -4,36 +4,48 @@ import { StationResponseDto } from '../../stations/dto/station-api.dto';
 import { RouteUtilService } from './route-util.service';
 import { RouteStationDto } from '../dto/route.dto';
 
+/**
+ * StationRouteService
+ * 경로 생성을 위한 대여소 검색 및 변환을 담당하는 서비스
+ */
 @Injectable()
 export class StationRouteService {
   private readonly logger = new Logger(StationRouteService.name);
+
   constructor(
     private readonly stationQueryService: StationQueryService,
     @Inject(forwardRef(() => RouteUtilService))
     private readonly routeUtil: RouteUtilService,
   ) {}
 
+  // ============================================================================
+  // Public API - Station Search
+  // ============================================================================
+
   /**
-   * 좌표 근처의 가용한 대여소 찾기 (실시간 동기화 우선, 실패 시 DB 조회)
-   * 출발지와 도착지 모두 동일한 로직 사용
+   * 좌표 근처의 가용한 대여소 찾기 (3단계 폴백 전략)
+   * 1차: 실시간 동기화 포함 검색
+   * 2차: DB 직접 조회
+   * 3차: 에러 시 DB 직접 조회 재시도
+   * @param coordinate 검색 좌표
+   * @returns 가용한 대여소 또는 null
    */
   async findNearestAvailableStation(coordinate: {
     lat: number;
     lng: number;
   }): Promise<RouteStationDto | null> {
     try {
-      // 1차: 실시간 동기화 포함 검색 (기존 방식)
+      // 1차: 실시간 동기화 포함 검색
       const nearbyStations = await this.stationQueryService.findNearbyStations(
         coordinate.lat,
         coordinate.lng,
       );
 
       if (nearbyStations.length > 0) {
-        // 첫 번째 available 대여소 반환
         return this.convertToRouteStation(nearbyStations[0]);
       }
 
-      // 2차: 실시간 동기화 없이 DB에서 직접 조회 (폴백)
+      // 2차: DB 직접 조회 (폴백)
       this.logger.warn(
         `실시간 동기화로 대여소를 찾을 수 없어 DB 직접 조회를 시도합니다. 좌표: ${coordinate.lat}, ${coordinate.lng}`,
       );
@@ -54,7 +66,7 @@ export class StationRouteService {
     } catch (error) {
       this.logger.error('근처 대여소 검색 실패', error);
 
-      // 3차: 에러 발생 시 DB 직접 조회 시도
+      // 3차: 에러 발생 시 DB 직접 조회 재시도
       try {
         this.logger.warn(
           `에러 발생으로 DB 직접 조회를 시도합니다. 좌표: ${coordinate.lat}, ${coordinate.lng}`,
@@ -77,19 +89,21 @@ export class StationRouteService {
   }
 
   /**
-   * 출발지와 도착지 대여소를 한 번에 검색
+   * 출발지와 도착지 대여소를 병렬로 검색
+   * @param startCoordinate 출발지 좌표
+   * @param endCoordinate 도착지 좌표
+   * @returns 시작 및 도착 대여소
+   * @throws 대여소를 찾을 수 없는 경우 에러 발생
    */
   async findStartAndEndStations(
     startCoordinate: { lat: number; lng: number },
     endCoordinate: { lat: number; lng: number },
   ): Promise<{ startStation: RouteStationDto; endStation: RouteStationDto }> {
-    // 병렬로 대여소 검색
     const [startStation, endStation] = await Promise.all([
       this.findNearestAvailableStation(startCoordinate),
       this.findNearestAvailableStation(endCoordinate),
     ]);
 
-    // 대여소를 찾을 수 없는 경우 에러 발생
     if (!startStation) {
       throw new Error(
         `출발지 근처에 이용 가능한 대여소를 찾을 수 없습니다. 좌표: ${startCoordinate.lat}, ${startCoordinate.lng}`,
@@ -107,6 +121,10 @@ export class StationRouteService {
 
   /**
    * 단일 대여소 검색 (왕복/원형 경로용)
+   * @param coordinate 검색 좌표
+   * @param purpose 용도 (에러 메시지용)
+   * @returns 가용한 대여소
+   * @throws 대여소를 찾을 수 없는 경우 에러 발생
    */
   async findSingleStation(
     coordinate: { lat: number; lng: number },
@@ -123,20 +141,24 @@ export class StationRouteService {
     return station;
   }
 
+  // ============================================================================
+  // Private Methods
+  // ============================================================================
+
   /**
-   * DB에서 직접 available 대여소 조회 (실시간 동기화 없음)
-   * StationQueryService의 findNearbyStations와 동일하지만 실시간 동기화 제외
+   * DB에서 직접 available 대여소 조회 (실시간 동기화 제외)
+   * @param latitude 위도
+   * @param longitude 경도
+   * @returns 가용한 대여소 배열 (상위 10개)
    */
   private async findNearbyAvailableStationsFromDB(
     latitude: number,
     longitude: number,
   ): Promise<StationResponseDto[]> {
-    // StationQueryService.findNearbyStations 로직을 단순화하여 사용
-    // 실시간 동기화 없이 DB에서 바로 available 상태인 대여소만 조회
     try {
       const allNearbyStations = await this.stationQueryService.findAll();
 
-      // 거리 계산하여 정렬
+      // 거리 계산 및 정렬
       const stationsWithDistance = allNearbyStations
         .filter(
           (station) =>
@@ -150,7 +172,7 @@ export class StationRouteService {
           ),
         }))
         .sort((a, b) => a.distance - b.distance)
-        .slice(0, 10); // 상위 10개만
+        .slice(0, 10);
 
       return stationsWithDistance;
     } catch (error) {
@@ -158,12 +180,15 @@ export class StationRouteService {
       return [];
     }
   }
+
   /**
-   * StationResponseDto를 RouteStation으로 변환
+   * StationResponseDto를 RouteStationDto로 변환
+   * @param station 대여소 응답 DTO
+   * @returns 경로용 대여소 DTO
    */
   private convertToRouteStation(station: StationResponseDto): RouteStationDto {
     return {
-      number: station.number ?? '', // number가 null/undefined면 빈 문자열
+      number: station.number ?? '',
       name: station.name,
       lat: station.latitude,
       lng: station.longitude,

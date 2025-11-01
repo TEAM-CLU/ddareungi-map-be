@@ -8,7 +8,10 @@ import { MailModule } from './mail/mail.module';
 import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
 import { StationsModule } from './stations/stations.module';
-import { HttpExceptionFilter } from './common/http-exceptioin.filter';
+import { RoutesModule } from './routes/routes.module';
+import { NavigationModule } from './navigation/navigation.module';
+
+import { RedisModule } from '@liaoliaots/nestjs-redis';
 
 @Module({
   imports: [
@@ -42,13 +45,25 @@ import { HttpExceptionFilter } from './common/http-exceptioin.filter';
       }),
     }),
 
+    // Redis 모듈 글로벌 등록
+    RedisModule.forRoot({
+      config: {
+        host: process.env.REDIS_HOST || 'localhost',
+        port: process.env.REDIS_PORT ? Number(process.env.REDIS_PORT) : 6379,
+        password: process.env.REDIS_PASSWORD,
+        db: process.env.REDIS_DB ? Number(process.env.REDIS_DB) : 0,
+      },
+    }),
+
     // 이메일 및 인증 모듈
     MailModule,
     AuthModule,
     UserModule,
     StationsModule,
+    RoutesModule,
+    NavigationModule,
   ],
   controllers: [AppController],
-  providers: [AppService, HttpExceptionFilter],
+  providers: [AppService],
 })
 export class AppModule {}

@@ -118,3 +118,19 @@ pnpm run test:cov    # Coverage report
 - `src/common/api-response.dto.ts`: Standard response patterns
 - `ENVIRONMENT_GUIDE.md`: Environment configuration details
 - `docker-compose.yml`: Local database setup
+
+## Error Handling & API Response Policy
+
+> **For all AI coding assistants and contributors:**  
+> Always follow these conventions for error handling and API responses throughout the project.
+>
+> - **Error Handling:**
+>   - Services must throw plain `Error` objects for all error cases.
+>   - Controllers must catch these errors and rethrow them as `HttpException` with appropriate status codes and messages.
+>   - Do not use global exception filters unless explicitly specified in this document.
+> - **API Response:**
+>   - All successful responses must use `SuccessResponseDto.create(message, data)`.
+>   - All error responses must use `ErrorResponseDto.create(statusCode, message)`.
+>   - These DTOs are defined in `src/common/api-response.dto.ts`.
+> - **Reference:**
+>   - This policy must be automatically referenced by all AI coding assistants and contributors for every code or documentation change related to error handling or API responses.

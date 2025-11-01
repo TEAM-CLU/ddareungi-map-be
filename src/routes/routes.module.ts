@@ -10,10 +10,13 @@ import { StationRouteService } from './services/station-route.service';
 import { RouteUtilService } from './services/route-util.service';
 import { StationsModule } from '../stations/stations.module';
 
+import { RedisModule } from '@liaoliaots/nestjs-redis';
+
 @Module({
   imports: [
     HttpModule,
     StationsModule, // StationQueryService를 사용하기 위해 추가
+    RedisModule,
   ],
   controllers: [RoutesController],
   providers: [
