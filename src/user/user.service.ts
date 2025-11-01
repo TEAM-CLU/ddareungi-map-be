@@ -81,15 +81,24 @@ export class UserService {
 
     // 비밀번호 해싱
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = this.userRepository.create({
-      ...createUserDto,
-      email: normalizedEmail, // 정규화된 이메일 저장
-      passwordHash: hashedPassword,
-      socialName: 'SocialUser',
-    });
+
+    const newUser = new User();
+    newUser.socialUid = createUserDto.socialUid ?? null;
+    newUser.email = normalizedEmail;
+    newUser.passwordHash = hashedPassword;
+    newUser.name = createUserDto.name;
+    newUser.gender = createUserDto.gender;
+    newUser.birthDate = new Date(createUserDto.birthDate);
+    newUser.address = createUserDto.address ?? null;
+    newUser.consentedAt = createUserDto.consentedAt
+      ? new Date(createUserDto.consentedAt)
+      : null;
+    newUser.requiredAgreed = createUserDto.requiredAgreed ?? false;
+    newUser.optionalAgreed = createUserDto.optionalAgreed ?? false;
+    newUser.socialName = 'SocialUser';
 
     try {
-      await this.userRepository.save(user);
+      await this.userRepository.save(newUser);
       return { message: '회원가입이 완료되었습니다.' };
     } catch {
       throw new HttpException(
@@ -141,7 +150,15 @@ export class UserService {
   async getUserInfo(userId: number): Promise<UserInfoResponseDto> {
     const user = await this.userRepository.findOne({
       where: { userId },
-      select: ['name', 'birthDate', 'gender', 'address'],
+      select: [
+        'name',
+        'birthDate',
+        'gender',
+        'address',
+        'consentedAt',
+        'requiredAgreed',
+        'optionalAgreed',
+      ],
     });
 
     if (!user) {
@@ -182,6 +199,9 @@ export class UserService {
       birthDate: formattedBirthDate,
       gender: user.gender,
       address: user.address,
+      consentedAt: user.consentedAt,
+      requiredAgreed: user.requiredAgreed,
+      optionalAgreed: user.optionalAgreed,
     };
   }
 
@@ -226,6 +246,19 @@ export class UserService {
     // address가 제공된 경우에만 업데이트
     if (updateUserInfoDto.address !== undefined) {
       updateData.address = updateUserInfoDto.address;
+    }
+
+    // 동의 정보가 제공된 경우 업데이트
+    if (updateUserInfoDto.consentedAt !== undefined) {
+      updateData.consentedAt = new Date(updateUserInfoDto.consentedAt);
+    }
+
+    if (updateUserInfoDto.requiredAgreed !== undefined) {
+      updateData.requiredAgreed = updateUserInfoDto.requiredAgreed;
+    }
+
+    if (updateUserInfoDto.optionalAgreed !== undefined) {
+      updateData.optionalAgreed = updateUserInfoDto.optionalAgreed;
     }
 
     await this.userRepository.update(userId, updateData);
@@ -299,7 +332,16 @@ export class UserService {
   async getMyPageInfo(userId: number): Promise<MyPageInfoResponseDto> {
     const user = await this.userRepository.findOne({
       where: { userId },
-      select: ['name', 'email', 'birthDate', 'gender', 'address'],
+      select: [
+        'name',
+        'email',
+        'birthDate',
+        'gender',
+        'address',
+        'consentedAt',
+        'requiredAgreed',
+        'optionalAgreed',
+      ],
     });
 
     if (!user) {
@@ -328,6 +370,9 @@ export class UserService {
       calories: null,
       plantingTree: null,
       carbonReduction: null,
+      consentedAt: user.consentedAt,
+      requiredAgreed: user.requiredAgreed,
+      optionalAgreed: user.optionalAgreed,
     };
   }
 

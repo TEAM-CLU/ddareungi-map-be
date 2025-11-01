@@ -68,4 +68,23 @@ export class MyPageInfoResponseDto {
     nullable: true,
   })
   carbonReduction: number | null;
+
+  @ApiProperty({
+    description: '동의 일시',
+    example: '2024-01-15T09:30:00Z',
+    nullable: true,
+  })
+  consentedAt: Date | null;
+
+  @ApiProperty({
+    description: '필수 약관 동의 여부',
+    example: true,
+  })
+  requiredAgreed: boolean;
+
+  @ApiProperty({
+    description: '선택 약관 동의 여부',
+    example: false,
+  })
+  optionalAgreed: boolean;
 }
