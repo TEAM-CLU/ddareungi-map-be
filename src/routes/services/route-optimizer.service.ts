@@ -2,10 +2,14 @@ import { Injectable, Logger } from '@nestjs/common';
 import { RedisService } from '@liaoliaots/nestjs-redis';
 import type { Redis } from 'ioredis';
 import { randomUUID } from 'crypto';
-import type { RouteDto } from '../dto/route.dto';
+import type { RouteDto, CoordinateDto } from '../dto/route.dto';
 import { GraphHopperPath } from '../interfaces/graphhopper.interface';
 import { GraphHopperService } from './graphhopper.service';
 import { RouteUtilService } from './route-util.service';
+import type {
+  NavigationRouteRedis,
+  RouteType,
+} from '../../navigation/dto/navigation-route-redis.interface';
 
 /**
  * 카테고리 정보가 포함된 경로 인터페이스
@@ -131,13 +135,21 @@ export class RouteOptimizerService {
   }
 
   /**
-   * Redis에 경로 데이터 저장
+   * Redis에 경로 데이터 저장 (메타데이터 포함)
    * @param routeId 경로 고유 ID
    * @param data CategorizedPath 또는 RouteDto
+   * @param metadata 경로 재검색을 위한 메타데이터
    */
   public saveRouteToRedis(
     routeId: string,
     data: CategorizedPath | RouteDto,
+    metadata?: {
+      routeType: RouteType;
+      origin: CoordinateDto;
+      destination: CoordinateDto;
+      waypoints?: CoordinateDto[];
+      targetDistance?: number;
+    },
   ): void {
     try {
       let dataForRedis: any;
@@ -184,11 +196,31 @@ export class RouteOptimizerService {
         );
       }
 
+      // 메타데이터 추가 (NavigationRouteRedis 형식)
+      if (metadata) {
+        dataForRedis = {
+          ...dataForRedis,
+          routeType: metadata.routeType,
+          origin: metadata.origin,
+          destination: metadata.destination,
+          waypoints: metadata.waypoints,
+          targetDistance: metadata.targetDistance,
+        } as NavigationRouteRedis;
+
+        this.logger.debug(
+          `Redis 저장 [메타데이터]: routeType=${metadata.routeType}, ` +
+            `waypoints=${metadata.waypoints?.length || 0}개, ` +
+            `targetDistance=${metadata.targetDistance || 'N/A'}`,
+        );
+      }
+
+      const ttl = 600; // 10분 (네비게이션 세션 TTL과 동일)
       void this.redis.setex(
         `route:${routeId}`,
-        60 * 3,
+        ttl,
         JSON.stringify(dataForRedis),
       );
+      this.logger.debug(`Redis 저장 완료: routeId=${routeId}, ttl=${ttl}초`);
     } catch (error) {
       this.logger.error(
         `Redis 저장 실패 [routeId: ${routeId}]`,

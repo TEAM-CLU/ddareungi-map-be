@@ -28,5 +28,9 @@ import { RedisModule } from '@liaoliaots/nestjs-redis';
     StationRouteService,
     RouteUtilService,
   ],
+  exports: [
+    RoutesService, // NavigationModule에서 사용
+    GraphHopperService, // NavigationReturnService에서 사용
+  ],
 })
 export class RoutesModule {}

@@ -144,9 +144,32 @@ export class RoutesService {
           segments,
         };
 
-        // Redis에 instructions 포함하여 저장
+        // Redis에 instructions 및 메타데이터 포함하여 저장
         if (circularPath.routeId) {
-          this.routeOptimizer.saveRouteToRedis(circularPath.routeId, routeDto);
+          // 원형 경로의 waypoints는 자전거 구간의 중간 지점들을 추출
+          const bikeSegment = segments.find((s) => s.type === 'biking');
+          const waypoints: CoordinateDto[] = [];
+
+          if (
+            bikeSegment?.geometry?.points &&
+            Array.isArray(bikeSegment.geometry.points)
+          ) {
+            // 자전거 경로의 중간 지점들을 waypoints로 추출 (시작/끝 제외)
+            const geometryPoints = bikeSegment.geometry.points.slice(1, -1);
+            const step = Math.max(1, Math.floor(geometryPoints.length / 4)); // 최대 4개 정도 추출
+            for (let i = 0; i < geometryPoints.length; i += step) {
+              const [lng, lat] = geometryPoints[i];
+              waypoints.push({ lat, lng });
+            }
+          }
+
+          this.routeOptimizer.saveRouteToRedis(circularPath.routeId, routeDto, {
+            routeType: 'circular',
+            origin: request.start,
+            destination: request.start,
+            waypoints,
+            targetDistance: request.targetDistance,
+          });
         }
 
         return routeDto;
@@ -276,7 +299,14 @@ export class RoutesService {
           segments: route.segments,
         };
 
-        this.routeOptimizer.saveRouteToRedis(routeId, routeDto);
+        // Redis에 instructions 및 메타데이터 포함하여 저장
+        this.routeOptimizer.saveRouteToRedis(routeId, routeDto, {
+          routeType: 'roundtrip',
+          origin: start,
+          destination: start,
+          waypoints: waypoints,
+        });
+
         routes.push(routeDto);
       }
 
@@ -331,7 +361,7 @@ export class RoutesService {
         `직접 경로 검색 완료 - 출발: ${startStation.name}, 도착: ${endStation.name}, 경로 ${optimalBikePaths.length}개`,
       );
 
-      return optimalBikePaths.map((bikePath: CategorizedPath) => {
+      const routes = optimalBikePaths.map((bikePath: CategorizedPath) => {
         const route = this.routeConverter.buildRouteFromGraphHopper(
           walkingToStart,
           bikePath,
@@ -354,11 +384,17 @@ export class RoutesService {
           segments: route.segments,
         };
 
-        // Redis에 instructions 포함하여 저장
-        this.routeOptimizer.saveRouteToRedis(routeId, routeDto);
+        // Redis에 instructions 및 메타데이터 포함하여 저장
+        this.routeOptimizer.saveRouteToRedis(routeId, routeDto, {
+          routeType: 'direct',
+          origin: request.start,
+          destination: request.end,
+        });
 
         return routeDto;
       });
+
+      return routes;
     } catch (error) {
       this.logger.error(
         '직접 경로 검색 실패',
@@ -442,8 +478,13 @@ export class RoutesService {
           segments: route.segments,
         };
 
-        // Redis에 instructions 포함하여 저장
-        this.routeOptimizer.saveRouteToRedis(routeId, routeDto);
+        // Redis에 instructions 및 메타데이터 포함하여 저장
+        this.routeOptimizer.saveRouteToRedis(routeId, routeDto, {
+          routeType: 'multi-leg',
+          origin: start,
+          destination: end,
+          waypoints: waypoints,
+        });
 
         routes.push(routeDto);
       }
