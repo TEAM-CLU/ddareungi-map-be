@@ -5,11 +5,13 @@ import {
   HttpException,
   HttpStatus,
   Param,
+  Delete,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBody, ApiResponse } from '@nestjs/swagger';
 import { NavigationService } from './navigation.service';
 import { NavigationReturnService } from './services/navigation-return.service';
 import { NavigationRerouteService } from './services/navigation-reroute.service';
+import { NavigationEndService } from './services/navigation-end.service';
 import {
   NavigationSessionDto,
   StartNavigationDto,
@@ -29,11 +31,13 @@ export class NavigationController {
    * @param navigationService NavigationService 인스턴스
    * @param returnService NavigationReturnService 인스턴스
    * @param rerouteService NavigationRerouteService 인스턴스
+   * @param endService NavigationEndService 인스턴스
    */
   constructor(
     private readonly navigationService: NavigationService,
     private readonly returnService: NavigationReturnService,
     private readonly rerouteService: NavigationRerouteService,
+    private readonly endService: NavigationEndService,
   ) {}
 
   /**
@@ -216,6 +220,44 @@ export class NavigationController {
       throw new HttpException(
         err instanceof Error ? err.message : '알 수 없는 오류',
         statusCode,
+      );
+    }
+  }
+
+  /**
+   * 네비게이션 세션 종료 엔드포인트
+   * @param sessionId 세션 ID
+   * @returns SuccessResponseDto<void>
+   */
+  @Delete(':sessionId')
+  @ApiOperation({
+    summary: '네비게이션 세션 종료',
+    description:
+      '네비게이션 세션을 종료하고, Redis에서 세션 데이터와 라우트 데이터를 모두 삭제합니다. ' +
+      '네비게이션이 완료되거나 사용자가 중단할 때 호출합니다.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '세션이 성공적으로 종료됨',
+    type: SuccessResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: '세션을 찾을 수 없음',
+  })
+  async endNavigation(
+    @Param('sessionId') sessionId: string,
+  ): Promise<SuccessResponseDto<void>> {
+    try {
+      await this.endService.endNavigationSession(sessionId);
+      return SuccessResponseDto.create(
+        '네비게이션 세션이 종료되었습니다.',
+        undefined,
+      );
+    } catch (err) {
+      throw new HttpException(
+        err instanceof Error ? err.message : '알 수 없는 오류',
+        HttpStatus.NOT_FOUND,
       );
     }
   }
