@@ -3,11 +3,11 @@ name: DDareungiMap BE CI/CD
 on:
   push:
     branches:
-      - dev # dev 브랜치 푸시 시 자동 실행
+      - dev # (1) 'dev' 브랜치 푸시 시 자동 실행
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest # (2) GitHub이 제공하는 가상 서버(Ubuntu)에서 실행
 
     steps:
       # 1. GitHub 리포지토리 코드를 가상 서버로 복사 (dev 브랜치 참조 명시)
@@ -57,7 +57,7 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
           script: |
-            오류 해결 핵심: SSH 세션에 NVM 환경 변수를 로드
+            # 🚨 오류 해결 핵심: SSH 세션에 NVM 환경 변수를 로드
             # Node.js, pnpm, pm2 명령어를 찾지 못하는 문제(command not found)를 해결
             export NVM_DIR="$HOME/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
@@ -75,5 +75,5 @@ jobs:
             pnpm install --prod --frozen-lockfile --legacy-peer-deps
 
             # 3. PM2 무중단 재배포 및 상태 저장
-            pm2 reload ddareungi-map-api
+            pm2 reload ddareungimap-api
             pm2 save
