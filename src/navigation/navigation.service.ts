@@ -3,23 +3,16 @@ import {
   NavigationSessionDto,
   SegmentInstructionsDto,
 } from './dto/navigation.dto';
-import { NavigationRouteRedis } from './dto/navigation-route-redis.interface';
 import { RedisService } from '@liaoliaots/nestjs-redis';
 import type { Redis } from 'ioredis';
 import { randomUUID } from 'crypto';
 import { RoutesService } from '../routes/routes.service';
+import { InstructionDto } from '../routes/dto/route.dto';
 import {
-  CoordinateDto,
-  RouteDto,
-  InstructionDto,
-} from '../routes/dto/route.dto';
-
-/**
- * 네비게이션 세션 TTL 설정
- * - TTL: 10분 (600초)
- * - 권장 갱신 주기: 5분 (클라이언트에서 heartbeat 호출)
- */
-const NAVIGATION_SESSION_TTL = 600; // 10분
+  NAVIGATION_SESSION_TTL,
+  REDIS_KEY_PREFIX,
+  NavigationHelperService,
+} from './services/navigation-helper.service';
 
 @Injectable()
 export class NavigationService {
@@ -30,6 +23,7 @@ export class NavigationService {
     redisService: RedisService,
     @Inject(forwardRef(() => RoutesService))
     private readonly routesService: RoutesService,
+    private readonly helperService: NavigationHelperService,
   ) {
     this.redis = redisService.getOrThrow();
   }
@@ -42,21 +36,7 @@ export class NavigationService {
    * @returns NavigationSessionDto (sessionId + 세그먼트별 instructions)
    */
   async startNavigationSession(routeId: string): Promise<NavigationSessionDto> {
-    const routeKey = `route:${routeId}`;
-    const routeJson = await this.redis.get(routeKey);
-
-    if (!routeJson) {
-      this.logger.error(`경로 데이터를 찾을 수 없습니다: ${routeId}`);
-      throw new Error('해당 routeId의 경로 데이터가 존재하지 않습니다.');
-    }
-
-    const route = JSON.parse(routeJson) as NavigationRouteRedis;
-
-    // Redis 데이터 구조 검증
-    if (!route || typeof route !== 'object') {
-      this.logger.error(`잘못된 경로 데이터 형식: routeId=${routeId}`);
-      throw new Error('경로 데이터 형식이 올바르지 않습니다.');
-    }
+    const route = await this.helperService.getRouteData(routeId);
 
     // segments 필드 확인
     if (!route.segments || !Array.isArray(route.segments)) {
@@ -98,7 +78,7 @@ export class NavigationService {
       }));
 
     await this.redis.setex(
-      `navigation:session:${sessionId}`,
+      `${REDIS_KEY_PREFIX.SESSION}${sessionId}`,
       NAVIGATION_SESSION_TTL,
       JSON.stringify({ routeId, route, segments }),
     );
@@ -113,31 +93,13 @@ export class NavigationService {
 
   /**
    * 네비게이션 세션 heartbeat (TTL 갱신)
-   * - 세션과 해당 경로의 TTL을 모두 5분으로 재설정
+   * - 세션과 해당 경로의 TTL을 모두 10분으로 재설정
    * @param sessionId 세션 ID
    * @throws 세션이 존재하지 않는 경우 에러 발생
    */
   async refreshSessionTTL(sessionId: string): Promise<void> {
-    const sessionKey = `navigation:session:${sessionId}`;
-    const sessionJson = await this.redis.get(sessionKey);
-
-    if (!sessionJson) {
-      this.logger.error(`세션을 찾을 수 없습니다: ${sessionId}`);
-      throw new Error('해당 세션이 존재하지 않습니다.');
-    }
-
-    // 세션에서 routeId 추출
-    const sessionData = JSON.parse(sessionJson) as {
-      routeId: string;
-      route: NavigationRouteRedis;
-      segments: SegmentInstructionsDto[];
-    };
-
-    // TTL을 10분으로 갱신 - 세션과 경로 모두
-    await Promise.all([
-      this.redis.expire(sessionKey, NAVIGATION_SESSION_TTL),
-      this.redis.expire(`route:${sessionData.routeId}`, NAVIGATION_SESSION_TTL),
-    ]);
+    const sessionData = await this.helperService.getSessionData(sessionId);
+    await this.helperService.refreshSessionTTL(sessionId, sessionData.routeId);
 
     this.logger.debug(
       `네비게이션 세션 및 경로 TTL 갱신: sessionId=${sessionId}, routeId=${sessionData.routeId}, ttl=${NAVIGATION_SESSION_TTL}초`,

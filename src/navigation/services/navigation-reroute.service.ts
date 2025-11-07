@@ -1,6 +1,4 @@
 import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
-import { RedisService } from '@liaoliaots/nestjs-redis';
-import type { Redis } from 'ioredis';
 import {
   CoordinateDto,
   RouteDto,
@@ -10,12 +8,11 @@ import {
 import { RoutesService } from '../../routes/routes.service';
 import { NavigationRouteRedis } from '../dto/navigation-route-redis.interface';
 import { FullRerouteResponseDto } from '../dto/navigation.dto';
-import { NavigationHelperService } from './navigation-helper.service';
-
-/**
- * 네비게이션 세션 TTL (10분)
- */
-const NAVIGATION_SESSION_TTL = 600;
+import {
+  NavigationHelperService,
+  NAVIGATION_SESSION_TTL,
+  REDIS_KEY_PREFIX,
+} from './navigation-helper.service';
 
 /**
  * 완전 재검색 서비스
@@ -25,17 +22,13 @@ const NAVIGATION_SESSION_TTL = 600;
  */
 @Injectable()
 export class NavigationRerouteService {
-  private readonly redis: Redis;
   private readonly logger = new Logger(NavigationRerouteService.name);
 
   constructor(
-    redisService: RedisService,
     @Inject(forwardRef(() => RoutesService))
     private readonly routesService: RoutesService,
     private readonly helperService: NavigationHelperService,
-  ) {
-    this.redis = redisService.getOrThrow();
-  }
+  ) {}
 
   /**
    * 완전 재검색 (Full Reroute)
@@ -53,17 +46,8 @@ export class NavigationRerouteService {
     currentLocation: CoordinateDto,
     remainingWaypoints?: CoordinateDto[],
   ): Promise<FullRerouteResponseDto> {
-    // 1. 원래 경로 조회
-    const sessionKey = `navigation:${sessionId}`;
-    const sessionJson = await this.redis.get(sessionKey);
-    if (!sessionJson) {
-      throw new Error('세션을 찾을 수 없습니다.');
-    }
-
-    const sessionData = JSON.parse(sessionJson) as {
-      routeId: string;
-      route: NavigationRouteRedis;
-    };
+    // 1. 세션 데이터 조회
+    const sessionData = await this.helperService.getSessionData(sessionId);
     const originalRoute = sessionData.route;
 
     // 2. circular 경로는 재검색 불가 (return-to-route만 사용)
@@ -76,25 +60,43 @@ export class NavigationRerouteService {
     // 3. Redis에서 목적지 참조
     const destination = originalRoute.destination;
 
+    // 4. 현재 위치에서 이탈한 세그먼트 감지
+    const closestPoint = this.helperService.findClosestPointOnRoute(
+      currentLocation,
+      originalRoute,
+    );
+
+    if (!closestPoint) {
+      throw new Error('원래 경로에서 현재 위치를 찾을 수 없습니다.');
+    }
+
+    const currentSegment = originalRoute.segments[closestPoint.segmentIndex];
+    const currentProfile = currentSegment.profile || 'safe_bike';
+
     this.logger.log(
       `완전 재검색 시작: sessionId=${sessionId}, routeType=${originalRoute.routeType}, ` +
         `currentLocation=(${currentLocation.lat}, ${currentLocation.lng}), ` +
         `destination=(${destination.lat}, ${destination.lng}) [Redis에서 참조], ` +
-        `remainingWaypoints=${remainingWaypoints?.length || 0}개`,
+        `remainingWaypoints=${remainingWaypoints?.length || 0}개, ` +
+        `이탈 세그먼트: segment[${closestPoint.segmentIndex}], profile=${currentProfile}`,
     );
 
-    // 4. 경로 재검색 (단일 함수로 통합)
-    const newRoutes = await this.searchRoute(
-      currentLocation,
-      destination,
-      remainingWaypoints,
-    );
+    // 5. 경로 재검색 (이미 safe_bike, fast_bike 대안경로 포함)
+    const newRoutes = await this.routesService.findFullJourney({
+      start: currentLocation,
+      end: destination,
+      waypoints: remainingWaypoints || [],
+    });
 
     if (newRoutes.length === 0) {
       throw new Error('재검색된 경로가 없습니다. 경로를 찾을 수 없습니다.');
     }
 
-    // 5. 최적 경로 선택 (원래 카테고리 우선, 없으면 최단 시간)
+    this.logger.debug(
+      `경로 재검색 완료: ${newRoutes.length}개 경로 발견 (자전거도로우선/최단거리/최소시간)`,
+    );
+
+    // 6. 최적 경로 선택 (원래 카테고리 우선, 없으면 최단 시간)
     const selectedRoute = this.selectBestRoute(newRoutes, originalRoute);
 
     this.logger.debug(
@@ -102,7 +104,7 @@ export class NavigationRerouteService {
         `segments=${selectedRoute.segments.length}개`,
     );
 
-    // 5. Instructions 추출
+    // 7. Instructions 추출
     const allInstructions: InstructionDto[] = selectedRoute.segments
       .filter((segment) => segment && segment.instructions)
       .flatMap((segment) => segment.instructions!);
@@ -115,7 +117,7 @@ export class NavigationRerouteService {
 
     this.logger.debug(`통합된 instructions: ${allInstructions.length}개`);
 
-    // 6. Segments 추출 (geometry 포함 - 프론트엔드 응답용)
+    // 8. Segments 추출 (geometry 포함 - 프론트엔드 응답용)
     const allSegments: RouteSegmentDto[] = selectedRoute.segments.filter(
       (segment) => segment && segment.geometry,
     );
@@ -131,7 +133,7 @@ export class NavigationRerouteService {
         `총 geometry points: ${allSegments.reduce((sum, seg) => sum + seg.geometry.points.length, 0)}개`,
     );
 
-    // 7. Redis 저장용 경로 생성 (기존 routeId 유지)
+    // 9. Redis 저장용 경로 생성 (기존 routeId 유지)
     // - 기존 routeId를 그대로 사용하여 경로만 덮어쓰기
     const routeId = sessionData.routeId;
 
@@ -148,66 +150,42 @@ export class NavigationRerouteService {
       targetDistance: originalRoute.targetDistance,
     };
 
-    // 8. Redis 경로 데이터만 업데이트 (세션 데이터는 그대로 유지)
+    // 10. Redis 업데이트 (경로 데이터 + 세션 TTL 갱신)
     // - route:abc123 키에 새 경로 덮어쓰기
-    // - navigation:sessionId는 이미 routeId를 가지고 있으므로 업데이트 불필요
-    await this.redis.setex(
-      `route:${routeId}`,
-      NAVIGATION_SESSION_TTL,
-      JSON.stringify(updatedRouteForRedis),
-    );
+    // - navigation:sessionId의 TTL도 갱신 (Heartbeat 누락에 대비)
+    await Promise.all([
+      this.helperService.redis.setex(
+        `${REDIS_KEY_PREFIX.ROUTE}${routeId}`,
+        NAVIGATION_SESSION_TTL,
+        JSON.stringify(updatedRouteForRedis),
+      ),
+      this.helperService.refreshSessionTTL(sessionId),
+    ]);
 
     this.logger.log(
       `완전 재검색 완료: sessionId=${sessionId}, ` +
         `routeId=${routeId} (경로 데이터 덮어쓰기), ` +
         `segments=${allSegments.length}개, instructions=${allInstructions.length}개, ` +
-        `ttl=${NAVIGATION_SESSION_TTL}초`,
+        `세션 TTL 갱신=${NAVIGATION_SESSION_TTL}초`,
     );
 
-    // 9. 프론트엔드 응답 (geometry 포함된 전체 segments)
+    // 11. 거리/시간 반올림 (미터, 초 단위) 후 프론트엔드 응답
+    const normalizedSegments =
+      this.helperService.normalizeSegments(allSegments);
+    const normalizedInstructions = normalizedSegments.flatMap(
+      (seg) => seg.instructions || [],
+    );
+
     return {
       sessionId,
-      segments: allSegments,
-      instructions: allInstructions,
+      segments: normalizedSegments,
+      instructions: normalizedInstructions,
     };
   }
 
   // ============================================================================
-  // Private Methods - 경로 재검색 및 선택
+  // Private Methods - 경로 선택
   // ============================================================================
-
-  /**
-   * 경로 재검색 (모든 경로 타입 통합)
-   * - 경유지 0개: A → B (direct)
-   * - 경유지 1개 이상: A → W1 → W2 → B (multi-leg)
-   * - 왕복: A → W1 → W2 → A (roundtrip, destination === origin)
-   */
-  private async searchRoute(
-    start: CoordinateDto,
-    end: CoordinateDto,
-    waypoints?: CoordinateDto[],
-  ): Promise<RouteDto[]> {
-    try {
-      this.logger.debug(
-        `경로 재검색: start=(${start.lat}, ${start.lng}), ` +
-          `end=(${end.lat}, ${end.lng}), ` +
-          `waypoints=${waypoints?.length || 0}개`,
-      );
-
-      return await this.routesService.findFullJourney({
-        start,
-        end,
-        waypoints: waypoints || [],
-      });
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : '알 수 없는 오류';
-
-      this.logger.error(`경로 재검색 실패: error=${errorMessage}`);
-
-      throw new Error(`경로 재검색 중 문제가 발생했습니다: ${errorMessage}`);
-    }
-  }
 
   /**
    * 여러 경로 중 최적 경로 선택

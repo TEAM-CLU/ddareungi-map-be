@@ -1,15 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { RedisService } from '@liaoliaots/nestjs-redis';
-import type { Redis } from 'ioredis';
-import {
-  CoordinateDto,
-  RouteSegmentDto,
-  InstructionDto,
-} from '../../routes/dto/route.dto';
+import { CoordinateDto, RouteSegmentDto } from '../../routes/dto/route.dto';
 import { GraphHopperService } from '../../routes/services/graphhopper.service';
-import { NavigationRouteRedis } from '../dto/navigation-route-redis.interface';
 import { ReturnToRouteResponseDto } from '../dto/navigation.dto';
-import { NavigationHelperService } from './navigation-helper.service';
+import {
+  NavigationHelperService,
+  NAVIGATION_SESSION_TTL,
+} from './navigation-helper.service';
 
 /**
  * 기존 경로로 복귀하는 서비스
@@ -18,16 +14,12 @@ import { NavigationHelperService } from './navigation-helper.service';
  */
 @Injectable()
 export class NavigationReturnService {
-  private readonly redis: Redis;
   private readonly logger = new Logger(NavigationReturnService.name);
 
   constructor(
-    redisService: RedisService,
     private readonly graphHopperService: GraphHopperService,
     private readonly helperService: NavigationHelperService,
-  ) {
-    this.redis = redisService.getOrThrow();
-  }
+  ) {}
 
   /**
    * 기존 경로로 복귀
@@ -39,19 +31,8 @@ export class NavigationReturnService {
     sessionId: string,
     currentLocation: CoordinateDto,
   ): Promise<ReturnToRouteResponseDto> {
-    // 1. 세션 조회
-    const sessionKey = `navigation:session:${sessionId}`;
-    const sessionJson = await this.redis.get(sessionKey);
-
-    if (!sessionJson) {
-      this.logger.error(`세션을 찾을 수 없습니다: ${sessionId}`);
-      throw new Error('해당 세션이 존재하지 않습니다.');
-    }
-
-    const sessionData = JSON.parse(sessionJson) as {
-      routeId: string;
-      route: NavigationRouteRedis;
-    };
+    // 1. 세션 데이터 조회
+    const sessionData = await this.helperService.getSessionData(sessionId);
     const originalRoute = sessionData.route;
 
     this.logger.debug(
@@ -119,26 +100,36 @@ export class NavigationReturnService {
         `(${nextInstruction.coordinate.lat}, ${nextInstruction.coordinate.lng})`,
     );
 
-    // 4. 현재 위치 → 다음 instruction 지점까지 복귀 경로 생성
-    // 세그먼트 타입에 따라 이동 방식 결정
-    let profile: string;
+    // 4. 이탈 직전 세그먼트 타입 확인 (가장 가까운 지점이 속한 세그먼트)
+    const closestSegment = originalRoute.segments[closestPoint.segmentIndex];
+    const closestSegmentType = closestSegment.type;
 
-    if (nextInstruction.segmentType === 'biking') {
-      // 자전거 세그먼트인 경우 원래 경로의 profile 참조
-      const targetSegment =
-        originalRoute.segments[nextInstruction.segmentIndex];
-      profile = targetSegment?.profile || 'safe_bike'; // 기본값: safe_bike
+    this.logger.debug(
+      `[이탈 직전 세그먼트] segment[${closestPoint.segmentIndex}]: type=${closestSegmentType}, profile=${closestSegment.profile || 'N/A'}`,
+    );
+
+    // 5. 이탈 직전 세그먼트 타입에 따라 복귀 경로의 profile 결정
+    let profile: string;
+    let returnSegmentType: 'walking' | 'biking';
+
+    if (closestSegmentType === 'biking') {
+      // 자전거 세그먼트에서 이탈한 경우
+      profile = closestSegment.profile || 'safe_bike';
+      returnSegmentType = 'biking';
 
       this.logger.debug(
-        `[복귀 경로] 자전거 세그먼트 profile: ${profile} (segment[${nextInstruction.segmentIndex}])`,
+        `[복귀 경로] 자전거 세그먼트에서 이탈 → profile: ${profile}`,
       );
     } else {
-      // 도보 세그먼트
+      // 도보 세그먼트에서 이탈한 경우
       profile = 'foot';
+      returnSegmentType = 'walking';
+
+      this.logger.debug(`[복귀 경로] 도보 세그먼트에서 이탈 → profile: foot`);
     }
 
     this.logger.debug(
-      `[복귀 경로] profile=${profile}, segmentType=${nextInstruction.segmentType}`,
+      `[복귀 경로] profile=${profile}, returnSegmentType=${returnSegmentType}`,
     );
 
     const ghPath = await this.graphHopperService.getSingleRoute(
@@ -158,11 +149,11 @@ export class NavigationReturnService {
         `duration=${Math.round(ghPath.time / 1000)}초`,
     );
 
-    // 5. GraphHopper 응답을 RouteSegmentDto로 변환
+    // 6. GraphHopper 응답을 RouteSegmentDto로 변환
     const returnSegment = this.helperService.convertGraphHopperPathToSegment(
       ghPath,
-      nextInstruction.segmentType === 'biking' ? 'biking' : 'walking',
-      nextInstruction.segmentType === 'biking'
+      returnSegmentType,
+      returnSegmentType === 'biking'
         ? (profile as 'safe_bike' | 'fast_bike')
         : undefined,
     );
@@ -174,7 +165,7 @@ export class NavigationReturnService {
         `instructions=${returnSegment.instructions?.length || 0}개`,
     );
 
-    // 6. 원래 경로의 남은 부분 추출
+    // 7. 원래 경로의 남은 부분 추출
     this.logger.debug(
       `[남은 경로 추출] 다음 instruction부터: ` +
         `segmentIndex=${nextInstruction.segmentIndex}, ` +
@@ -263,10 +254,10 @@ export class NavigationReturnService {
     }
 
     this.logger.log(
-      `경로 복귀: returnSegment=1개, remainingSegments=${remainingSegments.length}개`,
+      `경로 복귀: returnSegment=1개 (${returnSegmentType}), remainingSegments=${remainingSegments.length}개`,
     );
 
-    // 7. 복귀 경로와 남은 경로 병합
+    // 8. 복귀 경로와 남은 경로 병합
     const mergedSegments = this.helperService.mergeSegments(
       [returnSegment],
       remainingSegments,
@@ -277,24 +268,28 @@ export class NavigationReturnService {
         `총 ${mergedSegments.reduce((sum, seg) => sum + (seg.instructions?.length || 0), 0)}개 instructions`,
     );
 
-    // 8. 통합된 instructions 추출
-    const allInstructions: InstructionDto[] = mergedSegments.flatMap(
+    // 9. 세션 TTL 갱신
+    // - Redis 경로 데이터는 유지 (업데이트하지 않음)
+    // - 세션 TTL만 갱신하여 Heartbeat 누락에 대비
+    await this.helperService.refreshSessionTTL(sessionId);
+
+    // 10. 거리/시간 반올림 (미터, 초 단위)
+    const normalizedSegments =
+      this.helperService.normalizeSegments(mergedSegments);
+    const normalizedInstructions = normalizedSegments.flatMap(
       (seg) => seg.instructions || [],
     );
 
-    // 9. 응답 반환 (Redis는 원래 경로 유지, 업데이트하지 않음)
-    // - 프론트엔드가 원래 경로와 이탈 거리를 비교하여 Return/Reroute 판단
-    // - Return은 임시 안내 경로만 제공, Reroute는 경로를 완전히 교체
     this.logger.log(
       `경로 복귀 완료: sessionId=${sessionId}, ` +
-        `segments=${mergedSegments.length}개, instructions=${allInstructions.length}개 ` +
-        `(Redis 원래 경로 유지)`,
+        `segments=${normalizedSegments.length}개, instructions=${normalizedInstructions.length}개, ` +
+        `세션 TTL 갱신=${NAVIGATION_SESSION_TTL}초 (경로 데이터는 유지)`,
     );
 
     return {
       sessionId,
-      segments: mergedSegments,
-      instructions: allInstructions,
+      segments: normalizedSegments,
+      instructions: normalizedInstructions,
     };
   }
 }

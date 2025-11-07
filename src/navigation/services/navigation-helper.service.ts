@@ -1,4 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { RedisService } from '@liaoliaots/nestjs-redis';
+import type { Redis } from 'ioredis';
 import {
   CoordinateDto,
   RouteDto,
@@ -8,11 +10,146 @@ import {
 import { NavigationRouteRedis } from '../dto/navigation-route-redis.interface';
 
 /**
+ * 네비게이션 상수
+ */
+export const NAVIGATION_SESSION_TTL = 600; // 10분
+
+export const REDIS_KEY_PREFIX = {
+  SESSION: 'navigation:session:',
+  ROUTE: 'route:',
+} as const;
+
+export const NAVIGATION_ERRORS = {
+  SESSION_NOT_FOUND: '세션을 찾을 수 없습니다.',
+  ROUTE_NOT_FOUND: '경로 데이터를 찾을 수 없습니다.',
+  INVALID_SESSION_DATA: '세션 데이터가 유효하지 않습니다.',
+} as const;
+
+/**
  * 네비게이션 관련 헬퍼 유틸리티 서비스
  */
 @Injectable()
 export class NavigationHelperService {
   private readonly logger = new Logger(NavigationHelperService.name);
+  public readonly redis: Redis;
+
+  constructor(redisService: RedisService) {
+    this.redis = redisService.getOrThrow();
+  }
+
+  // ============================================================================
+  // Redis 헬퍼 함수
+  // ============================================================================
+
+  /**
+   * 세션 데이터 조회
+   * @param sessionId 세션 ID
+   * @returns 세션 데이터
+   * @throws Error 세션을 찾을 수 없는 경우
+   */
+  async getSessionData(sessionId: string): Promise<{
+    routeId: string;
+    route: NavigationRouteRedis;
+  }> {
+    const sessionKey = `${REDIS_KEY_PREFIX.SESSION}${sessionId}`;
+    const sessionJson = await this.redis.get(sessionKey);
+
+    if (!sessionJson) {
+      this.logger.warn(`세션 조회 실패: ${sessionId}`);
+      throw new Error(NAVIGATION_ERRORS.SESSION_NOT_FOUND);
+    }
+
+    try {
+      return JSON.parse(sessionJson) as {
+        routeId: string;
+        route: NavigationRouteRedis;
+      };
+    } catch (error) {
+      this.logger.error(`세션 데이터 파싱 실패: ${sessionId}`, error);
+      throw new Error(NAVIGATION_ERRORS.INVALID_SESSION_DATA);
+    }
+  }
+
+  /**
+   * 경로 데이터 조회
+   * @param routeId 경로 ID
+   * @returns 경로 데이터
+   * @throws Error 경로를 찾을 수 없는 경우
+   */
+  async getRouteData(routeId: string): Promise<NavigationRouteRedis> {
+    const routeKey = `${REDIS_KEY_PREFIX.ROUTE}${routeId}`;
+    const routeJson = await this.redis.get(routeKey);
+
+    if (!routeJson) {
+      this.logger.warn(`경로 조회 실패: ${routeId}`);
+      throw new Error(NAVIGATION_ERRORS.ROUTE_NOT_FOUND);
+    }
+
+    try {
+      return JSON.parse(routeJson) as NavigationRouteRedis;
+    } catch (error) {
+      this.logger.error(`경로 데이터 파싱 실패: ${routeId}`, error);
+      throw new Error(NAVIGATION_ERRORS.INVALID_SESSION_DATA);
+    }
+  }
+
+  /**
+   * 세션 TTL 갱신
+   * @param sessionId 세션 ID
+   * @param routeId 경로 ID (선택사항)
+   */
+  async refreshSessionTTL(sessionId: string, routeId?: string): Promise<void> {
+    const sessionKey = `${REDIS_KEY_PREFIX.SESSION}${sessionId}`;
+    const promises = [this.redis.expire(sessionKey, NAVIGATION_SESSION_TTL)];
+
+    if (routeId) {
+      promises.push(
+        this.redis.expire(
+          `${REDIS_KEY_PREFIX.ROUTE}${routeId}`,
+          NAVIGATION_SESSION_TTL,
+        ),
+      );
+    }
+
+    await Promise.all(promises);
+
+    this.logger.debug(
+      `TTL 갱신 완료: sessionId=${sessionId}, routeId=${routeId || 'N/A'}, ttl=${NAVIGATION_SESSION_TTL}초`,
+    );
+  }
+
+  // ============================================================================
+  // 거리 및 좌표 계산
+  // ============================================================================
+
+  /**
+   * Segments와 Instructions의 거리/시간 반올림
+   * - 거리: 미터 단위로 반올림
+   * - 시간: 초 단위로 반올림
+   * @param segments 세그먼트 배열
+   * @returns 반올림된 세그먼트 배열
+   */
+  normalizeSegments(segments: RouteSegmentDto[]): RouteSegmentDto[] {
+    return segments.map((segment) => ({
+      ...segment,
+      summary: {
+        ...segment.summary,
+        distance: Math.round(segment.summary.distance),
+        time: Math.round(segment.summary.time),
+        ascent: segment.summary.ascent
+          ? Math.round(segment.summary.ascent)
+          : segment.summary.ascent,
+        descent: segment.summary.descent
+          ? Math.round(segment.summary.descent)
+          : segment.summary.descent,
+      },
+      instructions: segment.instructions?.map((inst) => ({
+        ...inst,
+        distance: Math.round(inst.distance),
+        time: Math.round(inst.time),
+      })),
+    }));
+  }
 
   /**
    * 두 좌표 간 거리 계산 (Haversine 공식)
