@@ -8,6 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
+import { UserStats } from './entities/user-stats.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { LoginUserDto } from './dto/login-user.dto';
 import { UserInfoResponseDto } from './dto/user-info-response.dto';
@@ -23,6 +24,8 @@ export class UserService {
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(UserStats)
+    private readonly userStatsRepository: Repository<UserStats>,
     private readonly jwtService: JwtService, // JwtService 주입
   ) {}
 
@@ -346,6 +349,11 @@ export class UserService {
       });
     }
 
+    // userStats 조회
+    const userStats = await this.userStatsRepository.findOne({
+      where: { userId },
+    });
+
     // birthDate를 문자열로 변환
     let formattedBirthDate: string | null = null;
     if (user.birthDate instanceof Date) {
@@ -360,11 +368,11 @@ export class UserService {
       birthDate: formattedBirthDate,
       gender: user.gender ?? null,
       address: user.address ?? null,
-      totalDistance: null,
-      totalTime: null,
-      calories: null,
-      plantingTree: null,
-      carbonReduction: null,
+      totalDistance: userStats?.totalUsageDistance ?? null,
+      totalTime: userStats?.totalUsageTime ?? null,
+      calories: userStats?.totalCaloriesBurned ?? null,
+      plantingTree: userStats?.totalTreesPlanted ?? null,
+      carbonReduction: userStats?.totalCarbonFootprint ?? null,
       consentedAt: user.consentedAt,
       requiredAgreed: user.requiredAgreed,
       optionalAgreed: user.optionalAgreed,
