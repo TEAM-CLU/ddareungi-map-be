@@ -6,6 +6,7 @@ import {
   RouteDto,
   RouteSegmentDto,
   BikeProfile,
+  InstructionDto,
 } from '../../routes/dto/route.dto';
 import { NavigationRouteRedis } from '../dto/navigation-route-redis.interface';
 
@@ -466,8 +467,15 @@ export class NavigationHelperService {
     segmentType: 'walking' | 'biking',
     profile?: 'safe_bike' | 'fast_bike',
   ): RouteSegmentDto {
-    return {
+    // 필드 순서 보장: type → profile → summary → bbox → geometry → instructions
+    const segment: RouteSegmentDto = {
       type: segmentType,
+      ...(segmentType === 'biking' && {
+        profile:
+          profile === BikeProfile.FAST_BIKE
+            ? ('fast_bike' as const)
+            : ('safe_bike' as const),
+      }),
       summary: {
         distance: ghPath.distance,
         time: Math.round(ghPath.time / 1000), // ms → s
@@ -483,8 +491,6 @@ export class NavigationHelperService {
       geometry: {
         points: ghPath.points.coordinates,
       },
-      profile:
-        segmentType === 'biking' && profile ? BikeProfile.SAFE_BIKE : undefined,
       instructions: ghPath.instructions.map((inst) => ({
         distance: inst.distance || 0,
         time: Math.round((inst.time || 0) / 1000), // ms → s
@@ -493,6 +499,8 @@ export class NavigationHelperService {
         interval: inst.interval || [0, 0],
       })),
     };
+
+    return segment;
   }
 
   /**
@@ -515,8 +523,10 @@ export class NavigationHelperService {
 
     // 마지막 세그먼트와 첫 세그먼트의 타입이 같으면 병합
     if (lastSegment.type === firstSegment.type) {
+      // 필드 순서 보장: type → profile → summary → bbox → geometry → instructions
       const mergedSegment: RouteSegmentDto = {
-        ...lastSegment,
+        type: lastSegment.type,
+        ...(lastSegment.profile && { profile: lastSegment.profile }),
         summary: {
           distance:
             lastSegment.summary.distance + firstSegment.summary.distance,
@@ -524,16 +534,17 @@ export class NavigationHelperService {
           ascent: lastSegment.summary.ascent + firstSegment.summary.ascent,
           descent: lastSegment.summary.descent + firstSegment.summary.descent,
         },
+        bbox: lastSegment.bbox,
         geometry: {
           points: [
-            ...lastSegment.geometry.points,
-            ...firstSegment.geometry.points.slice(1), // 첫 점은 중복 제거
+            ...(lastSegment.geometry?.points || []),
+            ...(firstSegment.geometry?.points.slice(1) || []), // 첫 점은 중복 제거
           ],
         },
         instructions: this.mergeInstructions(
           lastSegment.instructions || [],
           firstSegment.instructions || [],
-          lastSegment.geometry.points.length - 1,
+          (lastSegment.geometry?.points.length || 1) - 1,
         ),
       };
 
@@ -584,5 +595,216 @@ export class NavigationHelperService {
     }));
 
     return [...instructions1, ...adjusted];
+  }
+
+  /**
+   * 원래 경로에서 대여소 정보 추출
+   * @param route 원래 경로 정보 (Redis에 저장된)
+   * @returns 시작/종료 대여소 정보 (있는 경우)
+   */
+  extractStationInfo(route: NavigationRouteRedis): {
+    startStation?: {
+      stationId: string;
+      stationName: string;
+      location: CoordinateDto;
+    };
+    endStation?: {
+      stationId: string;
+      stationName: string;
+      location: CoordinateDto;
+    };
+  } {
+    const result: {
+      startStation?: {
+        stationId: string;
+        stationName: string;
+        location: CoordinateDto;
+      };
+      endStation?: {
+        stationId: string;
+        stationName: string;
+        location: CoordinateDto;
+      };
+    } = {};
+
+    // 원래 경로에서 대여소 정보 가져오기
+    if (route.startStation) {
+      result.startStation = {
+        stationId: route.startStation.number,
+        stationName: route.startStation.name,
+        location: {
+          lat: route.startStation.lat,
+          lng: route.startStation.lng,
+        },
+      };
+    }
+
+    if (route.endStation) {
+      result.endStation = {
+        stationId: route.endStation.number,
+        stationName: route.endStation.name,
+        location: {
+          lat: route.endStation.lat,
+          lng: route.endStation.lng,
+        },
+      };
+    }
+
+    return result;
+  }
+
+  /**
+   * 세그먼트 배열의 총합 계산
+   * @param segments 세그먼트 배열
+   * @returns 거리/시간/경사의 총합
+   */
+  calculateTotalSummary(segments: RouteSegmentDto[]): {
+    distance: number;
+    time: number;
+    ascent: number;
+    descent: number;
+  } {
+    return segments.reduce(
+      (total, segment) => ({
+        distance: total.distance + segment.summary.distance,
+        time: total.time + segment.summary.time,
+        ascent: total.ascent + segment.summary.ascent,
+        descent: total.descent + segment.summary.descent,
+      }),
+      { distance: 0, time: 0, ascent: 0, descent: 0 },
+    );
+  }
+
+  /**
+   * 세그먼트 배열의 경계 박스 계산
+   * @param segments 세그먼트 배열
+   * @returns 경계 박스
+   */
+  calculateBoundingBox(segments: RouteSegmentDto[]): {
+    minLat: number;
+    maxLat: number;
+    minLng: number;
+    maxLng: number;
+  } {
+    let minLat = Infinity;
+    let maxLat = -Infinity;
+    let minLng = Infinity;
+    let maxLng = -Infinity;
+
+    for (const segment of segments) {
+      if (segment.geometry && segment.geometry.points) {
+        for (const point of segment.geometry.points) {
+          const [lng, lat] = point;
+          minLat = Math.min(minLat, lat);
+          maxLat = Math.max(maxLat, lat);
+          minLng = Math.min(minLng, lng);
+          maxLng = Math.max(maxLng, lng);
+        }
+      }
+    }
+
+    return { minLat, maxLat, minLng, maxLng };
+  }
+
+  /**
+   * 고도 데이터 제거 (geometry points에서 3번째 값 제거)
+   * @param segments 세그먼트 배열
+   * @returns 고도가 제거된 세그먼트 배열
+   */
+  removeElevationFromSegments(segments: RouteSegmentDto[]): RouteSegmentDto[] {
+    return segments.map((segment) => ({
+      ...segment,
+      geometry: segment.geometry
+        ? {
+            points: segment.geometry.points.map(([lng, lat]) => [lng, lat]),
+          }
+        : undefined,
+    }));
+  }
+
+  /**
+   * 경유지를 경로 좌표로 변환
+   * @param waypoints 경유지 좌표 배열
+   * @returns 경로 좌표 형식 배열 (고도 없음)
+   */
+  convertWaypointsToPathCoordinates(
+    waypoints: CoordinateDto[],
+  ): [number, number][] {
+    return waypoints.map((wp) => [wp.lng, wp.lat]);
+  }
+
+  /**
+   * 세그먼트 배열에서 모든 좌표를 통합하여 추출
+   * @param segments 세그먼트 배열
+   * @returns 통합된 좌표 배열 ([lng, lat] 형식)
+   */
+  extractCoordinatesFromSegments(
+    segments: RouteSegmentDto[],
+  ): [number, number][] {
+    const coordinates: [number, number][] = [];
+
+    for (const segment of segments) {
+      if (segment.geometry && segment.geometry.points) {
+        for (const point of segment.geometry.points) {
+          // [lng, lat] 또는 [lng, lat, elevation] 형식 지원
+          const [lng, lat] = point;
+          coordinates.push([lng, lat]);
+        }
+      }
+    }
+
+    return coordinates;
+  }
+
+  /**
+   * 세그먼트 배열에서 모든 인스트럭션을 통합하여 추출
+   * @param segments 세그먼트 배열
+   * @returns 통합된 인스트럭션 배열
+   */
+  extractInstructionsFromSegments(
+    segments: RouteSegmentDto[],
+  ): InstructionDto[] {
+    const instructions: InstructionDto[] = [];
+
+    for (const segment of segments) {
+      if (segment.instructions && segment.instructions.length > 0) {
+        instructions.push(...segment.instructions);
+      }
+    }
+
+    return instructions;
+  }
+
+  /**
+   * 세그먼트에서 geometry 제거 (클라이언트 응답용)
+   * @param segments 세그먼트 배열
+   * @returns geometry가 제거된 세그먼트 배열
+   */
+  removeGeometryFromSegments(
+    segments: RouteSegmentDto[],
+  ): Omit<RouteSegmentDto, 'geometry'>[] {
+    return segments.map((segment) => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { geometry, ...segmentWithoutGeometry } = segment;
+      return segmentWithoutGeometry;
+    });
+  }
+
+  /**
+   * 세그먼트에서 geometry와 instructions 제거 (클라이언트 응답용)
+   * @param segments 세그먼트 배열
+   * @returns geometry와 instructions가 제거된 세그먼트 배열
+   */
+  removeGeometryAndInstructionsFromSegments(
+    segments: RouteSegmentDto[],
+  ): Omit<RouteSegmentDto, 'geometry' | 'instructions'>[] {
+    return segments.map((segment) => {
+      const {
+        geometry: _geometry,
+        instructions: _instructions,
+        ...segmentWithoutGeometryAndInstructions
+      } = segment;
+      return segmentWithoutGeometryAndInstructions;
+    });
   }
 }
