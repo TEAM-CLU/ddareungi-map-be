@@ -44,12 +44,14 @@ export class GraphHopperService {
    * @param from 출발지 좌표
    * @param to 도착지 좌표
    * @param profile 경로 프로필 (safe_bike 또는 fast_bike)
+   * @param includeInstructions instructions 포함 여부 (기본값: false)
    * @returns GraphHopper 경로 데이터
    */
   async getSingleRoute(
     from: { lat: number; lng: number },
     to: { lat: number; lng: number },
     profile: string,
+    includeInstructions: boolean = false,
   ): Promise<GraphHopperPath> {
     const requestBody = {
       points: [
@@ -60,7 +62,7 @@ export class GraphHopperService {
       elevation: true,
       points_encoded: false,
       details: ROUTE_DETAILS,
-      instruction: true,
+      instruction: includeInstructions,
     };
 
     try {
@@ -94,6 +96,7 @@ export class GraphHopperService {
    * @param to 도착지 좌표
    * @param profile 경로 프로필 (safe_bike 또는 fast_bike)
    * @param maxPaths 최대 경로 개수 (기본값: 3)
+   * @param includeInstructions instructions 포함 여부 (기본값: false)
    * @returns GraphHopper 경로 배열
    */
   async getAlternativeRoutes(
@@ -101,6 +104,7 @@ export class GraphHopperService {
     to: { lat: number; lng: number },
     profile: string,
     maxPaths: number = DEFAULT_ALT_PATHS,
+    includeInstructions: boolean = false,
   ): Promise<GraphHopperPath[]> {
     const requestBody = {
       points: [
@@ -113,7 +117,7 @@ export class GraphHopperService {
       details: ROUTE_DETAILS,
       'alternative_route.max_paths': maxPaths,
       'ch.disable': true,
-      instruction: true,
+      instruction: includeInstructions,
     };
 
     try {
@@ -148,12 +152,14 @@ export class GraphHopperService {
    * @param start 출발지 좌표 (도착지와 동일)
    * @param profile 경로 프로필 (safe_bike 또는 fast_bike)
    * @param targetDistance 목표 거리 (미터)
+   * @param includeInstructions instructions 포함 여부 (기본값: false)
    * @returns GraphHopper 원형 경로 데이터
    */
   async getSingleRoundTripRoute(
     start: { lat: number; lng: number },
     profile: string,
     targetDistance: number,
+    includeInstructions: boolean = false,
   ): Promise<GraphHopperPath> {
     const seed = Math.floor(Math.random() * 1000);
     const requestBody = {
@@ -167,7 +173,7 @@ export class GraphHopperService {
       'round_trip.distance': targetDistance,
       'round_trip.seed': seed,
       'round_trip.points': DEFAULT_ROUNDTRIP_POINTS,
-      instruction: true,
+      instruction: includeInstructions,
     };
 
     try {
@@ -203,11 +209,13 @@ export class GraphHopperService {
    * 두 프로필(safe_bike, fast_bike)로 다중 경로 검색
    * @param from 출발지 좌표
    * @param to 도착지 좌표
+   * @param includeInstructions instructions 포함 여부 (기본값: false)
    * @returns 모든 프로필의 경로 배열
    */
   async getMultipleRoutes(
     from: { lat: number; lng: number },
     to: { lat: number; lng: number },
+    includeInstructions: boolean = false,
   ): Promise<GraphHopperPath[]> {
     const allPaths: GraphHopperPath[] = [];
 
@@ -222,7 +230,7 @@ export class GraphHopperService {
         points_encoded: false,
         details: ROUTE_DETAILS,
         'alternative_route.max_paths': DEFAULT_ALT_PATHS,
-        instruction: true,
+        instruction: includeInstructions,
       };
 
       try {
@@ -252,11 +260,13 @@ export class GraphHopperService {
    * 두 프로필(safe_bike, fast_bike)로 원형 경로 검색
    * @param start 출발지 좌표 (도착지와 동일)
    * @param targetDistance 목표 거리 (미터)
+   * @param includeInstructions instructions 포함 여부 (기본값: false)
    * @returns 모든 프로필의 원형 경로 배열
    */
   async getRoundTripRoutes(
     start: { lat: number; lng: number },
     targetDistance: number,
+    includeInstructions: boolean = false,
   ): Promise<GraphHopperPath[]> {
     const allPaths: GraphHopperPath[] = [];
 
@@ -273,7 +283,7 @@ export class GraphHopperService {
         'round_trip.distance': targetDistance,
         'round_trip.seed': seed,
         'round_trip.points': DEFAULT_ROUNDTRIP_POINTS,
-        instruction: true,
+        instruction: includeInstructions,
       };
 
       try {

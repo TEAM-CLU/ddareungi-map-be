@@ -222,15 +222,19 @@ export class RouteConverterService {
     type: 'walking' | 'biking',
     path: GraphHopperPath,
   ): RouteSegmentDto {
-    return {
+    // 필드 순서 보장: type → profile → summary → bbox → geometry → instructions
+    const segment: RouteSegmentDto = {
       type,
+      ...(type === 'biking' && {
+        profile: path.profile as 'safe_bike' | 'fast_bike',
+      }),
       summary: this.convertToSummary(path, type === 'biking'),
       bbox: this.convertToBoundingBox(path.bbox),
       geometry: this.convertToGeometry(path.points),
-      profile:
-        type === 'biking' ? this.convertToBikeProfile(path.profile) : undefined,
       instructions: this.convertInstructions(path.instructions),
     };
+
+    return segment;
   }
 
   /**

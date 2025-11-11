@@ -21,18 +21,9 @@ import {
 } from './dto/navigation.dto';
 import { SuccessResponseDto } from '../common/api-response.dto';
 
-/**
- * 네비게이션 세션 관련 컨트롤러
- */
 @ApiTags('네비게이션 (navigation)')
 @Controller('navigation')
 export class NavigationController {
-  /**
-   * @param navigationService NavigationService 인스턴스
-   * @param returnService NavigationReturnService 인스턴스
-   * @param rerouteService NavigationRerouteService 인스턴스
-   * @param endService NavigationEndService 인스턴스
-   */
   constructor(
     private readonly navigationService: NavigationService,
     private readonly returnService: NavigationReturnService,
@@ -40,16 +31,12 @@ export class NavigationController {
     private readonly endService: NavigationEndService,
   ) {}
 
-  /**
-   * 네비게이션 세션 시작 엔드포인트
-   * @param dto StartNavigationDto
-   * @returns SuccessResponseDto<NavigationSessionDto>
-   */
   @Post('start')
   @ApiOperation({
     summary: '네비게이션 세션 시작',
     description:
-      'routeId를 받아 네비게이션 세션을 시작하고, sessionId, instruction을 반환합니다.',
+      'routeId로 네비게이션 세션을 시작합니다. ' +
+      '통합된 좌표 배열, 인스트럭션, 경유지 정보를 반환하며, 세그먼트는 요약 정보만 포함합니다.',
   })
   @ApiBody({ type: StartNavigationDto })
   @ApiResponse({
@@ -76,16 +63,11 @@ export class NavigationController {
     }
   }
 
-  /**
-   * 네비게이션 세션 heartbeat 엔드포인트
-   * @param sessionId 세션 ID
-   * @returns SuccessResponseDto<void>
-   */
   @Post(':sessionId/heartbeat')
   @ApiOperation({
     summary: '네비게이션 세션 유지',
     description:
-      '네비게이션 세션의 TTL을 10분으로 갱신합니다. 네비게이션 이용 중 주기적으로 호출하여 세션 만료를 방지합니다.',
+      '세션 TTL을 10분으로 갱신합니다. 네비게이션 중 주기적으로 호출하여 세션 만료를 방지합니다.',
   })
   @ApiResponse({
     status: 200,
@@ -113,22 +95,12 @@ export class NavigationController {
     }
   }
 
-  /**
-   * 기존 경로 복귀 엔드포인트 (경미한 이탈)
-   * @param sessionId 세션 ID
-   * @param dto RerouteNavigationDto
-   * @returns SuccessResponseDto<ReturnToRouteResponseDto>
-   */
   @Post(':sessionId/return')
   @ApiOperation({
     summary: '기존 경로로 복귀 (경미한 이탈)',
     description:
-      '네비게이션 중 경로에서 경미하게 이탈했을 때 사용합니다. ' +
-      '현재 위치에서 다음 안내 지점까지의 짧은 복귀 경로를 생성하고, ' +
-      '남은 원래 경로와 통합하여 반환합니다. ' +
-      '**Redis의 원래 경로는 유지됩니다 (업데이트하지 않음).** ' +
-      '프론트엔드는 원래 경로와 이탈 거리를 비교하여 Return/Reroute를 판단합니다. ' +
-      'Geometry 포함하여 경로 렌더링이 가능합니다.',
+      '경미한 이탈 시 현재 위치에서 다음 경로 지점까지의 복귀 경로를 생성하고 남은 경로와 통합합니다. ' +
+      'Redis의 원래 경로는 유지되며, 통합된 좌표/인스트럭션을 반환합니다.',
   })
   @ApiBody({ type: RerouteNavigationDto })
   @ApiResponse({
@@ -168,22 +140,13 @@ export class NavigationController {
     }
   }
 
-  /**
-   * 경로 재검색 엔드포인트 (이탈 시)
-   * @param sessionId 세션 ID
-   * @param dto RerouteNavigationDto
-   * @returns SuccessResponseDto<FullRerouteResponseDto>
-   */
   @Post(':sessionId/reroute')
   @ApiOperation({
     summary: '완전 재검색 (큰 이탈)',
     description:
-      '네비게이션 중 경로에서 크게 이탈했을 때 사용합니다. ' +
-      '현재 위치부터 목적지까지 완전히 새로운 경로를 검색하고, ' +
-      '**새 경로를 Redis에 저장한 뒤 세션의 routeId를 갱신합니다.** ' +
-      'Geometry 포함하여 경로 렌더링이 가능합니다. ' +
-      '**주의: circular(원형) 경로는 재검색이 불가능하며, return 기능만 사용 가능합니다.** ' +
-      'direct, multi-leg, roundtrip 경로 타입만 지원합니다.',
+      '큰 이탈 시 현재 위치부터 목적지까지 새 경로를 검색하고 Redis에 저장합니다. ' +
+      '통합된 좌표/인스트럭션을 반환합니다. ' +
+      '※ circular(원형) 경로는 재검색 불가 (return만 가능)',
   })
   @ApiBody({ type: RerouteNavigationDto })
   @ApiResponse({
@@ -224,17 +187,10 @@ export class NavigationController {
     }
   }
 
-  /**
-   * 네비게이션 세션 종료 엔드포인트
-   * @param sessionId 세션 ID
-   * @returns SuccessResponseDto<void>
-   */
   @Delete(':sessionId')
   @ApiOperation({
     summary: '네비게이션 세션 종료',
-    description:
-      '네비게이션 세션을 종료하고, Redis에서 세션 데이터와 라우트 데이터를 모두 삭제합니다. ' +
-      '네비게이션이 완료되거나 사용자가 중단할 때 호출합니다.',
+    description: '세션을 종료하고 Redis에서 세션 및 경로 데이터를 삭제합니다.',
   })
   @ApiResponse({
     status: 200,

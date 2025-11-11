@@ -24,7 +24,7 @@ export interface CategorizedPath extends GraphHopperPath {
  * 상수 정의
  */
 const MAX_CIRCULAR_ATTEMPTS = 10;
-const CIRCULAR_DISTANCE_TOLERANCE = 0.1;
+const CIRCULAR_DISTANCE_TOLERANCE = 0.05; // 5% 허용 오차
 const CIRCULAR_ROUTE_COUNT = 3;
 
 /**
@@ -68,6 +68,7 @@ export class RouteOptimizerService {
 
   /**
    * 최적 경로 검색 (두 프로필로 검색 후 최적 3개 선택)
+   * - 일반 경로 검색 API용 (instructions 제외)
    * @param start 출발지 좌표
    * @param end 도착지 좌표
    * @returns 카테고리별 최적 경로 3개

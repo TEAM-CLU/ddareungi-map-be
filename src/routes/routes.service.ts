@@ -4,7 +4,6 @@ import {
   RouteDto,
   CircularRouteRequestDto,
   CoordinateDto,
-  translateRouteCategories,
 } from './dto/route.dto';
 import {
   RouteOptimizerService,
@@ -14,6 +13,7 @@ import { RouteConverterService } from './services/route-converter.service';
 import { RouteBuilderService } from './services/route-builder.service';
 import { GraphHopperService } from './services/graphhopper.service';
 import { StationRouteService } from './services/station-route.service';
+import { RouteUtilService } from './services/route-util.service';
 
 @Injectable()
 export class RoutesService {
@@ -25,6 +25,7 @@ export class RoutesService {
     private readonly routeBuilder: RouteBuilderService,
     private readonly graphHopperService: GraphHopperService,
     private readonly stationRouteService: StationRouteService,
+    private readonly routeUtil: RouteUtilService,
   ) {}
 
   // ===== 컨트롤러 호출 메서드 (Public API) =====
@@ -32,10 +33,13 @@ export class RoutesService {
   /** 통합 경로 검색 (A → B, 왕복, 경유지 포함) */
   async findFullJourney(request: FullJourneyRequestDto): Promise<RouteDto[]> {
     try {
-      this.validateCoordinates(request.start, '출발지');
-      this.validateCoordinates(request.end, '도착지');
+      this.routeUtil.validateCoordinate(request.start, '출발지');
+      this.routeUtil.validateCoordinate(request.end, '도착지');
 
-      const isRoundTrip = this.isSameLocation(request.start, request.end);
+      const isRoundTrip = this.routeUtil.isSameLocation(
+        request.start,
+        request.end,
+      );
 
       if (isRoundTrip) {
         if (!request.waypoints || request.waypoints.length === 0) {
@@ -44,25 +48,22 @@ export class RoutesService {
           );
         }
         const routes = await this.findRoundTripJourney(request);
-        const withoutInstructions =
-          RouteConverterService.removeInstructionsFromRoutes(routes);
-        return translateRouteCategories(withoutInstructions);
+        // 클라이언트 응답에서는 instructions 제거
+        return routes.map((route) => this.removeInstructionsFromRoute(route));
       }
 
       if (request.waypoints && request.waypoints.length > 0) {
         request.waypoints.forEach((wp, idx) =>
-          this.validateCoordinates(wp, `경유지 ${idx + 1}`),
+          this.routeUtil.validateCoordinate(wp, `경유지 ${idx + 1}`),
         );
         const routes = await this.findMultiLegJourney(request);
-        const withoutInstructions =
-          RouteConverterService.removeInstructionsFromRoutes(routes);
-        return translateRouteCategories(withoutInstructions);
+        // 클라이언트 응답에서는 instructions 제거
+        return routes.map((route) => this.removeInstructionsFromRoute(route));
       }
 
       const routes = await this.findDirectJourney(request);
-      const withoutInstructions =
-        RouteConverterService.removeInstructionsFromRoutes(routes);
-      return translateRouteCategories(withoutInstructions);
+      // 클라이언트 응답에서는 instructions 제거
+      return routes.map((route) => this.removeInstructionsFromRoute(route));
     } catch (error) {
       this.logger.error(
         '통합 경로 검색 실패',
@@ -77,7 +78,7 @@ export class RoutesService {
     request: CircularRouteRequestDto,
   ): Promise<RouteDto[]> {
     try {
-      this.validateCoordinates(request.start, '시작 위치');
+      this.routeUtil.validateCoordinate(request.start, '시작 위치');
 
       if (request.targetDistance <= 0) {
         throw new Error('목표 거리는 0보다 커야 합니다.');
@@ -125,60 +126,30 @@ export class RoutesService {
           station,
           circularPath.routeCategory,
         );
-        const {
-          routeCategory,
-          summary,
-          bbox,
-          startStation: sStation,
-          endStation: eStation,
-          segments,
-        } = route;
 
-        const routeDto = {
-          routeCategory,
-          routeId: circularPath.routeId,
-          summary,
-          bbox,
-          startStation: sStation,
-          endStation: eStation,
-          segments,
-        };
+        // 원형 경로는 경유지가 없음 (출발지 = 도착지)
+        const routeDto = this.createRouteDto(
+          route,
+          circularPath.routeId || '',
+          undefined,
+        );
 
-        // Redis에 instructions 및 메타데이터 포함하여 저장
+        // Redis에 instructions 포함하여 저장 (네비게이션용)
         if (circularPath.routeId) {
-          // 원형 경로의 waypoints는 자전거 구간의 중간 지점들을 추출
-          const bikeSegment = segments.find((s) => s.type === 'biking');
-          const waypoints: CoordinateDto[] = [];
-
-          if (
-            bikeSegment?.geometry?.points &&
-            Array.isArray(bikeSegment.geometry.points)
-          ) {
-            // 자전거 경로의 중간 지점들을 waypoints로 추출 (시작/끝 제외)
-            const geometryPoints = bikeSegment.geometry.points.slice(1, -1);
-            const step = Math.max(1, Math.floor(geometryPoints.length / 4)); // 최대 4개 정도 추출
-            for (let i = 0; i < geometryPoints.length; i += step) {
-              const [lng, lat] = geometryPoints[i];
-              waypoints.push({ lat, lng });
-            }
-          }
-
           this.routeOptimizer.saveRouteToRedis(circularPath.routeId, routeDto, {
             routeType: 'circular',
             origin: request.start,
             destination: request.start,
-            waypoints,
+            waypoints: undefined,
             targetDistance: request.targetDistance,
           });
         }
 
-        return routeDto;
+        // 클라이언트 응답에서는 instructions 제거
+        return this.removeInstructionsFromRoute(routeDto);
       });
 
-      // API 응답: instructions 제거 및 카테고리 한글 변환
-      const withoutInstructions =
-        RouteConverterService.removeInstructionsFromRoutes(routes);
-      return translateRouteCategories(withoutInstructions);
+      return routes;
     } catch (error) {
       this.logger.error(
         '원형 경로 추천 실패',
@@ -189,32 +160,6 @@ export class RoutesService {
   }
 
   // ===== 경로 검색 타입 판별 및 라우팅 =====
-
-  /** 좌표 유효성 검증 */
-  private validateCoordinates(coord: CoordinateDto, label: string): void {
-    if (
-      !coord ||
-      typeof coord.lat !== 'number' ||
-      typeof coord.lng !== 'number'
-    ) {
-      throw new Error(`${label} 좌표가 올바르지 않습니다.`);
-    }
-    if (coord.lat < -90 || coord.lat > 90) {
-      throw new Error(`${label} 위도는 -90 ~ 90 사이여야 합니다.`);
-    }
-    if (coord.lng < -180 || coord.lng > 180) {
-      throw new Error(`${label} 경도는 -180 ~ 180 사이여야 합니다.`);
-    }
-  }
-
-  /** 두 좌표가 같은 위치인지 확인 (왕복 판별) */
-  private isSameLocation(start: CoordinateDto, end: CoordinateDto): boolean {
-    const TOLERANCE = 0.0001;
-    return (
-      Math.abs(start.lat - end.lat) < TOLERANCE &&
-      Math.abs(start.lng - end.lng) < TOLERANCE
-    );
-  }
 
   /** 왕복 경로 검색 (출발=도착) */
   private async findRoundTripJourney(
@@ -236,9 +181,20 @@ export class RoutesService {
         throw new Error('시작지 근처에 이용 가능한 대여소를 찾을 수 없습니다.');
       }
 
+      // instructions 포함하여 검색 (Redis 저장 및 네비게이션용)
       const [walkingToStation, walkingFromStation] = await Promise.all([
-        this.graphHopperService.getSingleRoute(start, startStation, 'foot'),
-        this.graphHopperService.getSingleRoute(startStation, start, 'foot'),
+        this.graphHopperService.getSingleRoute(
+          start,
+          startStation,
+          'foot',
+          true,
+        ),
+        this.graphHopperService.getSingleRoute(
+          startStation,
+          start,
+          'foot',
+          true,
+        ),
       ]);
 
       const roundTripPoints: CoordinateDto[] = [
@@ -289,15 +245,7 @@ export class RoutesService {
         );
 
         const routeId = bikePaths.map((p) => p?.routeId).join('-');
-        const routeDto = {
-          routeCategory: route.routeCategory,
-          routeId,
-          summary: route.summary,
-          bbox: route.bbox,
-          startStation: route.startStation,
-          endStation: route.endStation,
-          segments: route.segments,
-        };
+        const routeDto = this.createRouteDto(route, routeId, waypoints);
 
         // Redis에 instructions 및 메타데이터 포함하여 저장
         this.routeOptimizer.saveRouteToRedis(routeId, routeDto, {
@@ -339,13 +287,20 @@ export class RoutesService {
           request.end,
         );
 
+      // instructions 포함하여 검색 (Redis 저장 및 네비게이션용)
       const [walkingToStart, walkingFromEnd] = await Promise.all([
         this.graphHopperService.getSingleRoute(
           request.start,
           startStation,
           'foot',
+          true,
         ),
-        this.graphHopperService.getSingleRoute(endStation, request.end, 'foot'),
+        this.graphHopperService.getSingleRoute(
+          endStation,
+          request.end,
+          'foot',
+          true,
+        ),
       ]);
 
       const optimalBikePaths = await this.routeOptimizer.findOptimalRoutes(
@@ -374,21 +329,14 @@ export class RoutesService {
         const routeId =
           bikePath.routeId || this.routeOptimizer.createRouteId(bikePath);
 
-        const routeDto = {
-          routeCategory: route.routeCategory,
-          routeId,
-          summary: route.summary,
-          bbox: route.bbox,
-          startStation: route.startStation,
-          endStation: route.endStation,
-          segments: route.segments,
-        };
+        const routeDto = this.createRouteDto(route, routeId, request.waypoints);
 
         // Redis에 instructions 및 메타데이터 포함하여 저장
         this.routeOptimizer.saveRouteToRedis(routeId, routeDto, {
           routeType: 'direct',
           origin: request.start,
           destination: request.end,
+          waypoints: request.waypoints,
         });
 
         return routeDto;
@@ -418,9 +366,15 @@ export class RoutesService {
       const { startStation, endStation } =
         await this.stationRouteService.findStartAndEndStations(start, end);
 
+      // instructions 포함하여 검색 (Redis 저장 및 네비게이션용)
       const [walkingToStart, walkingFromEnd] = await Promise.all([
-        this.graphHopperService.getSingleRoute(start, startStation, 'foot'),
-        this.graphHopperService.getSingleRoute(endStation, end, 'foot'),
+        this.graphHopperService.getSingleRoute(
+          start,
+          startStation,
+          'foot',
+          true,
+        ),
+        this.graphHopperService.getSingleRoute(endStation, end, 'foot', true),
       ]);
 
       const bikeRoutePoints = [startStation, ...(waypoints || []), endStation];
@@ -468,15 +422,7 @@ export class RoutesService {
           bikePath?.routeId ||
           this.routeOptimizer.createRouteId(bikePath ?? route);
 
-        const routeDto = {
-          routeCategory: route.routeCategory,
-          routeId,
-          summary: route.summary,
-          bbox: route.bbox,
-          startStation: route.startStation,
-          endStation: route.endStation,
-          segments: route.segments,
-        };
+        const routeDto = this.createRouteDto(route, routeId, waypoints);
 
         // Redis에 instructions 및 메타데이터 포함하여 저장
         this.routeOptimizer.saveRouteToRedis(routeId, routeDto, {
@@ -501,5 +447,53 @@ export class RoutesService {
       );
       throw error;
     }
+  }
+
+  // ===== Private Helper Methods =====
+
+  /**
+   * RouteDto 생성 헬퍼 (중복 코드 제거)
+   */
+  private createRouteDto(
+    route: RouteDto,
+    routeId: string,
+    waypoints?: CoordinateDto[],
+  ): RouteDto {
+    return {
+      routeCategory: route.routeCategory,
+      routeId,
+      summary: route.summary,
+      bbox: route.bbox,
+      startStation: route.startStation,
+      endStation: route.endStation,
+      waypoints,
+      segments: route.segments,
+    };
+  }
+
+  /**
+   * 클라이언트 응답용 RouteDto 생성 (instructions 제거 + coordinates 통합)
+   */
+  private removeInstructionsFromRoute(route: RouteDto): RouteDto {
+    // 모든 세그먼트의 좌표를 통합
+    const coordinates: [number, number][] = [];
+    for (const segment of route.segments) {
+      if (segment.geometry && segment.geometry.points) {
+        for (const point of segment.geometry.points) {
+          const [lng, lat] = point;
+          coordinates.push([lng, lat]);
+        }
+      }
+    }
+
+    return {
+      ...route,
+      coordinates,
+      segments: route.segments.map((segment) => {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { instructions, geometry, ...segmentWithoutGeometry } = segment;
+        return segmentWithoutGeometry;
+      }),
+    };
   }
 }
