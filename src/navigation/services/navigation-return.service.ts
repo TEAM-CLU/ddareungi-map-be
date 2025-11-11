@@ -2,21 +2,21 @@ import { Injectable, Logger } from '@nestjs/common';
 import { CoordinateDto, RouteSegmentDto } from '../../routes/dto/route.dto';
 import { GraphHopperService } from '../../routes/services/graphhopper.service';
 import { ReturnToRouteResponseDto } from '../dto/navigation.dto';
-import {
-  NavigationHelperService,
-  NAVIGATION_SESSION_TTL,
-} from './navigation-helper.service';
+import { NavigationHelperService } from './navigation-helper.service';
+import { NavigationSessionService } from './navigation-session.service';
 
 /**
  * 기존 경로로 복귀하는 서비스
- * - 이탈 시 다음 instruction까지의 짧은 경로만 추가
- * - Redis는 업데이트하지 않음 (원래 경로 유지)
+ * - 책임: 이탈 시 원래 경로로 복귀하는 비즈니스 로직
+ * - 권한: SessionService를 통한 세션 조회/업데이트, GraphHopper API 호출
+ * - 특징: 다음 instruction까지의 짧은 경로만 추가, Redis에 경로 저장
  */
 @Injectable()
 export class NavigationReturnService {
   private readonly logger = new Logger(NavigationReturnService.name);
 
   constructor(
+    private readonly sessionService: NavigationSessionService,
     private readonly graphHopperService: GraphHopperService,
     private readonly helperService: NavigationHelperService,
   ) {}
@@ -31,12 +31,14 @@ export class NavigationReturnService {
     sessionId: string,
     currentLocation: CoordinateDto,
   ): Promise<ReturnToRouteResponseDto> {
-    // 1. 세션 데이터 조회
-    const sessionData = await this.helperService.getSessionData(sessionId);
-    const originalRoute = sessionData.route;
+    // 1. SessionService를 통해 세션 + 경로 데이터 조회
+    const sessionWithRoute =
+      await this.sessionService.getSessionWithRoute(sessionId);
+    const originalRoute = sessionWithRoute.route;
+    const routeId = sessionWithRoute.routeId;
 
     this.logger.debug(
-      `[이탈 판단] 세션 정보: routeId=${sessionData.routeId}, ` +
+      `[이탈 판단] 세션 정보: routeId=${routeId}, ` +
         `routeType=${originalRoute.routeType}, ` +
         `segments=${originalRoute.segments.length}개, ` +
         `현재 위치=(${currentLocation.lat}, ${currentLocation.lng})`,
@@ -125,11 +127,11 @@ export class NavigationReturnService {
       profile = 'foot';
       returnSegmentType = 'walking';
 
-      this.logger.debug(`[복귀 경로] 도보 세그먼트에서 이탈 → profile: foot`);
+      this.logger.debug(`[복귀 경로] 도보 세그먼트에서 이탈`);
     }
 
     this.logger.debug(
-      `[복귀 경로] profile=${profile}, returnSegmentType=${returnSegmentType}`,
+      `[복귀 경로] returnSegmentType=${returnSegmentType}${returnSegmentType === 'biking' ? `, profile=${profile}` : ''}`,
     );
 
     const ghPath = await this.graphHopperService.getSingleRoute(
@@ -150,7 +152,7 @@ export class NavigationReturnService {
     );
 
     // 6. GraphHopper 응답을 RouteSegmentDto로 변환
-    const returnSegment = this.helperService.convertGraphHopperPathToSegment(
+    const returnSegmentRaw = this.helperService.convertGraphHopperPathToSegment(
       ghPath,
       returnSegmentType,
       returnSegmentType === 'biking'
@@ -158,10 +160,22 @@ export class NavigationReturnService {
         : undefined,
     );
 
+    // 필드 순서 보장: type → profile → summary → bbox → geometry → instructions
+    const returnSegment: RouteSegmentDto = {
+      type: returnSegmentRaw.type,
+      ...(returnSegmentRaw.profile && { profile: returnSegmentRaw.profile }),
+      summary: returnSegmentRaw.summary,
+      bbox: returnSegmentRaw.bbox,
+      geometry: returnSegmentRaw.geometry,
+      ...(returnSegmentRaw.instructions && {
+        instructions: returnSegmentRaw.instructions,
+      }),
+    };
+
     this.logger.debug(
       `[복귀 세그먼트] type=${returnSegment.type}, ` +
         `distance=${Math.round(returnSegment.summary.distance)}m, ` +
-        `points=${returnSegment.geometry.points.length}개, ` +
+        `points=${returnSegment.geometry?.points.length || 0}개, ` +
         `instructions=${returnSegment.instructions?.length || 0}개`,
     );
 
@@ -227,8 +241,11 @@ export class NavigationReturnService {
           const remainingRatio =
             remainingPoints.length / segment.geometry.points.length;
 
-          remainingSegments.push({
+          // 필드 순서 보장: type → profile → summary → bbox → geometry → instructions
+          const remainingSegment: RouteSegmentDto = {
             type: segment.type,
+            ...(segment.type === 'biking' &&
+              segment.profile && { profile: segment.profile }),
             summary: {
               distance: segment.summary.distance * remainingRatio,
               time: segment.summary.time * remainingRatio,
@@ -239,9 +256,10 @@ export class NavigationReturnService {
             geometry: {
               points: remainingPoints,
             },
-            profile: segment.profile,
             instructions: adjustedInstructions,
-          });
+          };
+
+          remainingSegments.push(remainingSegment);
         }
       } else {
         // 그 이후 세그먼트는 전체 포함
@@ -276,20 +294,55 @@ export class NavigationReturnService {
     // 10. 거리/시간 반올림 (미터, 초 단위)
     const normalizedSegments =
       this.helperService.normalizeSegments(mergedSegments);
-    const normalizedInstructions = normalizedSegments.flatMap(
-      (seg) => seg.instructions || [],
-    );
+
+    // 11. 좌표 통합 및 고도 제거 (클라이언트 응답용)
+    const coordinates =
+      this.helperService.extractCoordinatesFromSegments(normalizedSegments);
+
+    // 12. 인스트럭션 통합 (클라이언트 응답용)
+    const instructions =
+      this.helperService.extractInstructionsFromSegments(normalizedSegments);
+
+    // 13. 세그먼트에서 geometry와 instructions 제거 (클라이언트 응답용)
+    const segmentsWithoutGeometryAndInstructions =
+      this.helperService.removeGeometryAndInstructionsFromSegments(
+        normalizedSegments,
+      );
+
+    // 14. 총합 계산
+    const totalSummary =
+      this.helperService.calculateTotalSummary(normalizedSegments);
+
+    // 15. 경계 박스 계산
+    const bbox = this.helperService.calculateBoundingBox(normalizedSegments);
+
+    // 16. 대여소 정보 추출 (원래 경로에서)
+    const stationInfo = this.helperService.extractStationInfo(originalRoute);
 
     this.logger.log(
       `경로 복귀 완료: sessionId=${sessionId}, ` +
-        `segments=${normalizedSegments.length}개, instructions=${normalizedInstructions.length}개, ` +
-        `세션 TTL 갱신=${NAVIGATION_SESSION_TTL}초 (경로 데이터는 유지)`,
+        `segments=${normalizedSegments.length}개, ` +
+        `coordinates=${coordinates.length}개, ` +
+        `instructions=${instructions.length}개, ` +
+        `총 거리=${Math.round(totalSummary.distance)}m, ` +
+        `총 시간=${Math.round(totalSummary.time)}초 (경로 데이터는 유지)`,
     );
 
     return {
-      sessionId,
-      segments: normalizedSegments,
-      instructions: normalizedInstructions,
+      routeCategory: originalRoute.routeCategory,
+      summary: {
+        distance: Math.round(totalSummary.distance),
+        time: Math.round(totalSummary.time),
+        ascent: Math.round(totalSummary.ascent),
+        descent: Math.round(totalSummary.descent),
+      },
+      bbox,
+      startStation: stationInfo.startStation,
+      endStation: stationInfo.endStation,
+      waypoints: originalRoute.waypoints,
+      coordinates,
+      instructions,
+      segments: segmentsWithoutGeometryAndInstructions,
     };
   }
 }

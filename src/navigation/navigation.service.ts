@@ -1,44 +1,37 @@
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
-import {
-  NavigationSessionDto,
-  SegmentInstructionsDto,
-} from './dto/navigation.dto';
-import { RedisService } from '@liaoliaots/nestjs-redis';
-import type { Redis } from 'ioredis';
-import { randomUUID } from 'crypto';
-import { RoutesService } from '../routes/routes.service';
+import { Injectable, Logger } from '@nestjs/common';
+import { NavigationSessionDto } from './dto/navigation.dto';
 import { InstructionDto } from '../routes/dto/route.dto';
-import {
-  NAVIGATION_SESSION_TTL,
-  REDIS_KEY_PREFIX,
-  NavigationHelperService,
-} from './services/navigation-helper.service';
+import { NavigationHelperService } from './services/navigation-helper.service';
+import { NavigationSessionService } from './services/navigation-session.service';
 
+/**
+ * 네비게이션 메인 서비스
+ * - 책임: 네비게이션 세션 시작 및 TTL 관리 비즈니스 로직
+ * - 권한: SessionService를 통한 세션 CRUD, HelperService를 통한 데이터 변환
+ */
 @Injectable()
 export class NavigationService {
-  private readonly redis: Redis;
   private readonly logger = new Logger(NavigationService.name);
 
   constructor(
-    redisService: RedisService,
-    @Inject(forwardRef(() => RoutesService))
-    private readonly routesService: RoutesService,
+    private readonly sessionService: NavigationSessionService,
     private readonly helperService: NavigationHelperService,
-  ) {
-    this.redis = redisService.getOrThrow();
-  }
+  ) {}
 
   /**
    * 네비게이션 세션 시작
-   * - Redis에서 routeId로 RouteDto 조회
-   * - 각 segment의 instructions를 추출하여 반환
+   * - SessionService를 통해 경로 조회
+   * - Instructions 추출 및 검증
+   * - 새 세션 생성 (routeId 참조만 저장)
+   *
    * @param routeId 경로 ID
-   * @returns NavigationSessionDto (sessionId + 세그먼트별 instructions)
+   * @returns NavigationSessionDto (sessionId + instructions + segments)
    */
   async startNavigationSession(routeId: string): Promise<NavigationSessionDto> {
-    const route = await this.helperService.getRouteData(routeId);
+    // 1. SessionService를 통해 경로 데이터 조회
+    const route = await this.sessionService.getRoute(routeId);
 
-    // segments 필드 확인
+    // 2. segments 필드 검증
     if (!route.segments || !Array.isArray(route.segments)) {
       this.logger.error(
         `segments 필드 누락: routeId=${routeId}, hasSegments=${!!route.segments}`,
@@ -48,14 +41,10 @@ export class NavigationService {
       );
     }
 
-    // 각 segment의 instructions 추출 및 통합
-    const allInstructions: InstructionDto[] = [];
-
-    for (const segment of route.segments) {
-      if (segment && segment.instructions && segment.instructions.length > 0) {
-        allInstructions.push(...segment.instructions);
-      }
-    }
+    // 3. Instructions 추출 및 통합
+    const allInstructions: InstructionDto[] = route.segments
+      .filter((segment) => segment && segment.instructions)
+      .flatMap((segment) => segment.instructions!);
 
     if (allInstructions.length === 0) {
       this.logger.warn(
@@ -66,43 +55,53 @@ export class NavigationService {
       );
     }
 
-    // 세션 ID 생성 및 Redis에 저장 (TTL 10분)
-    const sessionId = randomUUID();
+    // 4. SessionService를 통해 새 세션 생성 (routeId만 저장)
+    const sessionId = await this.sessionService.createSession(routeId);
 
-    // 세그먼트 정보는 내부적으로 저장 (Redis에만)
-    const segments: SegmentInstructionsDto[] = route.segments
-      .filter((segment) => segment && segment.instructions)
-      .map((segment) => ({
-        type: segment.type,
-        instructions: segment.instructions!,
-      }));
-
-    await this.redis.setex(
-      `${REDIS_KEY_PREFIX.SESSION}${sessionId}`,
-      NAVIGATION_SESSION_TTL,
-      JSON.stringify({ routeId, route, segments }),
+    // 5. 좌표 통합 추출 (클라이언트 응답용)
+    const coordinates = this.helperService.extractCoordinatesFromSegments(
+      route.segments,
     );
+
+    // 6. 세그먼트에서 geometry와 instructions 제거 (클라이언트 응답용)
+    const segmentsWithoutGeometryAndInstructions =
+      this.helperService.removeGeometryAndInstructionsFromSegments(
+        route.segments,
+      );
 
     this.logger.log(
       `네비게이션 세션 생성: sessionId=${sessionId}, routeId=${routeId}, ` +
-        `instructions=${allInstructions.length}개, ttl=${NAVIGATION_SESSION_TTL}초`,
+        `coordinates=${coordinates.length}개, ` +
+        `instructions=${allInstructions.length}개, ` +
+        `waypoints=${route.waypoints?.length || 0}개`,
     );
 
-    return { sessionId, instructions: allInstructions };
+    return {
+      sessionId,
+      coordinates,
+      instructions: allInstructions,
+      waypoints: route.waypoints,
+      segments: segmentsWithoutGeometryAndInstructions,
+    };
   }
 
   /**
    * 네비게이션 세션 heartbeat (TTL 갱신)
-   * - 세션과 해당 경로의 TTL을 모두 10분으로 재설정
+   * - SessionService를 통해 세션 조회 및 TTL 갱신
+   * - 세션과 경로 TTL을 함께 갱신
+   *
    * @param sessionId 세션 ID
    * @throws 세션이 존재하지 않는 경우 에러 발생
    */
   async refreshSessionTTL(sessionId: string): Promise<void> {
-    const sessionData = await this.helperService.getSessionData(sessionId);
-    await this.helperService.refreshSessionTTL(sessionId, sessionData.routeId);
+    // 1. SessionService를 통해 세션 데이터 조회하여 routeId 획득
+    const sessionData = await this.sessionService.getSession(sessionId);
+
+    // 2. SessionService를 통해 세션 + 경로 TTL 동시 갱신
+    await this.sessionService.refreshSessionTTL(sessionId, sessionData.routeId);
 
     this.logger.debug(
-      `네비게이션 세션 및 경로 TTL 갱신: sessionId=${sessionId}, routeId=${sessionData.routeId}, ttl=${NAVIGATION_SESSION_TTL}초`,
+      `네비게이션 세션 및 경로 TTL 갱신: sessionId=${sessionId}, routeId=${sessionData.routeId}`,
     );
   }
 }

@@ -34,7 +34,7 @@ export interface NavigationRouteRedis extends RouteDto {
    * 경유지 배열 (있는 경우)
    * - 다구간 경로: A→경유지1→경유지2→B
    * - 왕복 경로: A→경유지1→경유지2→A
-   * - 원형 경로: 반환점(턴포인트) 좌표들
+   * - 원형 경로: 없음 (출발지 = 도착지)
    */
   waypoints?: CoordinateDto[];
 

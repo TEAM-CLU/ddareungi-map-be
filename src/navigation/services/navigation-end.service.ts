@@ -1,18 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { RedisService } from '@liaoliaots/nestjs-redis';
-import type { Redis } from 'ioredis';
+import { NavigationSessionService } from './navigation-session.service';
 
 /**
  * 네비게이션 세션 종료 서비스
+ * - 책임: 네비게이션 세션 종료 비즈니스 로직
+ * - 권한: NavigationSessionService를 통한 세션 삭제
  */
 @Injectable()
 export class NavigationEndService {
   private readonly logger = new Logger(NavigationEndService.name);
-  private readonly redis: Redis;
 
-  constructor(private readonly redisService: RedisService) {
-    this.redis = this.redisService.getOrThrow();
-  }
+  constructor(private readonly sessionService: NavigationSessionService) {}
 
   /**
    * 네비게이션 세션 종료
@@ -22,26 +20,8 @@ export class NavigationEndService {
   async endNavigationSession(sessionId: string): Promise<void> {
     this.logger.log(`세션 종료 시작: ${sessionId}`);
 
-    const sessionKey = `navigation:${sessionId}`;
-    const sessionDataStr = await this.redis.get(sessionKey);
-
-    if (!sessionDataStr) {
-      this.logger.warn(`세션을 찾을 수 없음: ${sessionId}`);
-      throw new Error('세션을 찾을 수 없습니다.');
-    }
-
-    const sessionData = JSON.parse(sessionDataStr) as {
-      routeId?: string;
-    };
-    const routeId = sessionData.routeId ?? '';
-
-    if (!routeId) {
-      this.logger.warn(`routeId가 없음: ${sessionId}`);
-      throw new Error('세션 데이터가 유효하지 않습니다.');
-    }
-
-    const routeKey = `route:${routeId}`;
-    await this.redis.del(sessionKey, routeKey);
+    // SessionService를 통해 세션 삭제 (세션 + 경로)
+    const routeId = await this.sessionService.deleteSession(sessionId);
 
     this.logger.log(`세션 종료 완료: ${sessionId}, routeId: ${routeId}`);
   }
