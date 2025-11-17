@@ -36,7 +36,6 @@ jobs:
 
       # 4. 빌드 결과물(dist)과 실행 파일들을 EC2 서버로 전송 (버전 태그 수정)
       - name: Transfer to EC2
-        # 🚨 오류 해결: v1.0.7 대신 안정적인 최신 v1 메이저 버전을 사용
         uses: appleboy/scp-action@v1
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -45,11 +44,12 @@ jobs:
           port: 22
           source: 'dist,package.json,pnpm-lock.yaml'
           target: '/home/ubuntu/ddareungi-map-be'
-          strip_components: 1
+
+          # 🚨🚨🚨 오류 해결: 이 줄을 삭제하거나 주석 처리합니다. 🚨🚨🚨
+          # strip_components: 1
 
       # 5. EC2 서버에 접속하여 앱 재시작 (NVM 로드 및 SSH 오류 해결)
       - name: Restart PM2 on EC2
-        # 🚨 오류 해결: v1.0.3 대신 안정적인 최신 v1 메이저 버전을 사용
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -57,21 +57,20 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
           script: |
-            # 🚨 오류 해결 핵심: SSH 세션에 NVM 환경 변수를 로드
-            # Node.js, pnpm, pm2 명령어를 찾지 못하는 문제(command not found)를 해결
+            # NVM 환경 로드 (npm, pnpm, pm2 명령어 인식)
             export NVM_DIR="$HOME/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
             cd /home/ubuntu/ddareungi-map-be
 
-            # 1. pnpm 글로벌 설치 확인 및 재설치 (NVM 로드 후 실행)
+            # 1. pnpm 글로벌 설치 확인 (최초 1회 실행됨)
             if ! command -v pnpm &> /dev/null
             then
                 echo "pnpm not found, installing globally..."
                 npm install -g pnpm
             fi
 
-            # 2. 운영용 의존성 재설치 (안정성 확보)
+            # 2. 운영용 의존성 재설치 (버전 충돌 무시)
             pnpm install --prod --frozen-lockfile --legacy-peer-deps
 
             # 3. PM2 무중단 재배포 및 상태 저장
