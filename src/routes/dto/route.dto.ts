@@ -97,11 +97,27 @@ export class InstructionDto {
   @ApiProperty({ description: '안내 텍스트', example: '100m 직진 후 좌회전' })
   text: string;
 
+  @ApiProperty({
+    description: 'TTS 음성 파일 URL (S3)',
+    example: 'https://bucket.s3.amazonaws.com/tts/ko-KR/abc123.mp3',
+    required: false,
+  })
+  ttsUrl?: string;
+
   @ApiProperty({ description: '방향 표시 코드', example: 2 })
   sign: number;
 
   @ApiProperty({ description: '좌표 인덱스 범위 [시작, 끝]', type: [Number] })
   interval: [number, number];
+
+  @ApiProperty({
+    description:
+      '다음 회전 지점 좌표 (사용자가 이 좌표에 가까워지면 TTS 음성 재생)',
+    type: CoordinateDto,
+    example: { lat: 37.5665, lng: 126.978 },
+    required: false,
+  })
+  nextTurnCoordinate?: CoordinateDto;
 }
 
 export class RouteStationDto {

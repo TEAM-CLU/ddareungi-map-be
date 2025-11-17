@@ -6,12 +6,14 @@ import {
   HttpStatus,
   Param,
   Delete,
+  Get,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBody, ApiResponse } from '@nestjs/swagger';
 import { NavigationService } from './navigation.service';
 import { NavigationReturnService } from './services/navigation-return.service';
 import { NavigationRerouteService } from './services/navigation-reroute.service';
 import { NavigationEndService } from './services/navigation-end.service';
+import { NavigationSessionService } from './services/navigation-session.service';
 import {
   NavigationSessionDto,
   StartNavigationDto,
@@ -29,6 +31,7 @@ export class NavigationController {
     private readonly returnService: NavigationReturnService,
     private readonly rerouteService: NavigationRerouteService,
     private readonly endService: NavigationEndService,
+    private readonly sessionService: NavigationSessionService,
   ) {}
 
   @Post('start')
@@ -210,6 +213,103 @@ export class NavigationController {
         '네비게이션 세션이 종료되었습니다.',
         undefined,
       );
+    } catch (err) {
+      throw new HttpException(
+        err instanceof Error ? err.message : '알 수 없는 오류',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+  }
+
+  // ============================================================================
+  // 테스트 엔드포인트
+  // ============================================================================
+
+  @Get('test/session/:sessionId')
+  @ApiOperation({
+    summary: '[테스트] 세션 데이터 조회',
+    description:
+      'Redis에서 세션 ID로 세션 데이터를 조회합니다. 세션에는 routeId만 포함되어 있습니다.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '세션 데이터 조회 성공',
+    type: SuccessResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: '세션을 찾을 수 없음',
+  })
+  async getSessionTest(
+    @Param('sessionId') sessionId: string,
+  ): Promise<SuccessResponseDto<any>> {
+    try {
+      const sessionData = await this.sessionService.getSession(sessionId);
+      return SuccessResponseDto.create('세션 데이터 조회 성공', {
+        sessionId,
+        ...sessionData,
+      });
+    } catch (err) {
+      throw new HttpException(
+        err instanceof Error ? err.message : '알 수 없는 오류',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+  }
+
+  @Get('test/route/:routeId')
+  @ApiOperation({
+    summary: '[테스트] 경로 데이터 조회',
+    description:
+      'Redis에서 경로 ID로 경로 데이터를 조회합니다. 세그먼트별 geometry와 instructions가 포함된 원본 데이터를 반환합니다.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '경로 데이터 조회 성공',
+    type: SuccessResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: '경로를 찾을 수 없음',
+  })
+  async getRouteTest(
+    @Param('routeId') routeId: string,
+  ): Promise<SuccessResponseDto<any>> {
+    try {
+      const routeData = await this.sessionService.getRoute(routeId);
+      return SuccessResponseDto.create('경로 데이터 조회 성공', {
+        routeId,
+        ...routeData,
+      });
+    } catch (err) {
+      throw new HttpException(
+        err instanceof Error ? err.message : '알 수 없는 오류',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+  }
+
+  @Get('test/session/:sessionId/with-route')
+  @ApiOperation({
+    summary: '[테스트] 세션 + 경로 데이터 통합 조회',
+    description:
+      '세션 ID로 세션과 연결된 경로 데이터를 함께 조회합니다. Redis에 저장된 원본 형태를 반환합니다.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '세션 및 경로 데이터 조회 성공',
+    type: SuccessResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: '세션 또는 경로를 찾을 수 없음',
+  })
+  async getSessionWithRouteTest(
+    @Param('sessionId') sessionId: string,
+  ): Promise<SuccessResponseDto<any>> {
+    try {
+      const result = await this.sessionService.getSessionWithRoute(sessionId);
+      return SuccessResponseDto.create('세션 및 경로 데이터 조회 성공', result);
     } catch (err) {
       throw new HttpException(
         err instanceof Error ? err.message : '알 수 없는 오류',

@@ -9,6 +9,7 @@ import {
   InstructionDto,
 } from '../../routes/dto/route.dto';
 import { NavigationRouteRedis } from '../dto/navigation-route-redis.interface';
+import { TtsService } from '../../tts/tts.service';
 
 /**
  * 네비게이션 상수
@@ -34,8 +35,92 @@ export class NavigationHelperService {
   private readonly logger = new Logger(NavigationHelperService.name);
   public readonly redis: Redis;
 
-  constructor(redisService: RedisService) {
+  constructor(
+    redisService: RedisService,
+    private readonly ttsService: TtsService,
+  ) {
     this.redis = redisService.getOrThrow();
+  }
+
+  /**
+   * Instructions에 TTS URL과 다음 회전 좌표 추가
+   * - 책임: TTS 음성 합성 및 트리거 좌표 계산
+   * - 권한: TtsService를 통한 배치 합성
+   * - 특수 처리: 도착 instruction (interval 동일)의 경우 endIdx 좌표 사용
+   */
+  async addTtsToInstructions(
+    instructions: InstructionDto[],
+    coordinates: number[][],
+  ): Promise<InstructionDto[]> {
+    if (instructions.length === 0) {
+      return instructions;
+    }
+
+    this.logger.log(`TTS 합성 시작: ${instructions.length}개의 인스트럭션`);
+    const ttsResults = await this.ttsService.batchSynthesize(
+      instructions,
+      'ko-KR',
+    );
+
+    return instructions.map((instruction) => {
+      const ttsResult = ttsResults.get(instruction.text);
+
+      // 다음 회전 좌표 계산 로직
+      let nextTurnCoordinate: { lat: number; lng: number } | undefined;
+      const [startIdx, endIdx] = instruction.interval;
+
+      // interval 유효성 검증
+      if (startIdx < 0 || endIdx >= coordinates.length) {
+        this.logger.warn(
+          `Invalid interval [${startIdx}, ${endIdx}] for coordinates.length=${coordinates.length}`,
+        );
+        return {
+          ...instruction,
+          nextTurnCoordinate,
+          ttsUrl: ttsResult?.url,
+        };
+      }
+
+      let triggerIdx: number;
+
+      if (startIdx === endIdx) {
+        // 케이스 1: 도착 instruction (목적지/경유지 도착)
+        // interval이 [1, 1] 같이 동일한 경우 -> endIdx 좌표 사용
+        triggerIdx = endIdx;
+        this.logger.debug(
+          `도착 instruction: interval=[${startIdx}, ${endIdx}], triggerIdx=${triggerIdx}`,
+        );
+      } else if (endIdx > startIdx) {
+        // 케이스 2: 일반 instruction
+        // interval의 마지막에서 두 번째 좌표 사용 (endIdx - 1)
+        triggerIdx = endIdx - 1;
+      } else {
+        // 케이스 3: 비정상 (startIdx > endIdx)
+        this.logger.warn(
+          `Abnormal interval [${startIdx}, ${endIdx}], using startIdx`,
+        );
+        triggerIdx = startIdx;
+      }
+
+      // 좌표 추출
+      const triggerPoint = coordinates[triggerIdx];
+      if (triggerPoint && triggerPoint.length >= 2) {
+        nextTurnCoordinate = {
+          lat: triggerPoint[1], // [lng, lat] 형식
+          lng: triggerPoint[0],
+        };
+      } else {
+        this.logger.warn(
+          `Invalid coordinate at index ${triggerIdx}: ${JSON.stringify(triggerPoint)}`,
+        );
+      }
+
+      return {
+        ...instruction,
+        nextTurnCoordinate,
+        ttsUrl: ttsResult?.url,
+      };
+    });
   }
 
   // ============================================================================
@@ -758,18 +843,35 @@ export class NavigationHelperService {
 
   /**
    * 세그먼트 배열에서 모든 인스트럭션을 통합하여 추출
+   * - 중요: interval을 통합 좌표 배열 기준으로 오프셋 조정
    * @param segments 세그먼트 배열
-   * @returns 통합된 인스트럭션 배열
+   * @returns 통합된 인스트럭션 배열 (interval이 전체 좌표 배열 기준)
    */
   extractInstructionsFromSegments(
     segments: RouteSegmentDto[],
   ): InstructionDto[] {
     const instructions: InstructionDto[] = [];
+    let coordinateOffset = 0; // 현재까지 누적된 좌표 개수
 
     for (const segment of segments) {
+      // 현재 세그먼트의 좌표 개수 계산
+      const segmentCoordinateCount = segment.geometry?.points?.length || 0;
+
       if (segment.instructions && segment.instructions.length > 0) {
-        instructions.push(...segment.instructions);
+        // interval을 전체 좌표 배열 기준으로 조정
+        const adjustedInstructions = segment.instructions.map((inst) => ({
+          ...inst,
+          interval: [
+            inst.interval[0] + coordinateOffset,
+            inst.interval[1] + coordinateOffset,
+          ] as [number, number],
+        }));
+
+        instructions.push(...adjustedInstructions);
       }
+
+      // 다음 세그먼트를 위해 오프셋 업데이트
+      coordinateOffset += segmentCoordinateCount;
     }
 
     return instructions;

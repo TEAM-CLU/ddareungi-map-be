@@ -7,9 +7,10 @@ import { NavigationReturnService } from './services/navigation-return.service';
 import { NavigationRerouteService } from './services/navigation-reroute.service';
 import { NavigationEndService } from './services/navigation-end.service';
 import { RoutesModule } from '../routes/routes.module';
+import { TtsModule } from '../tts/tts.module';
 
 @Module({
-  imports: [RoutesModule],
+  imports: [RoutesModule, TtsModule],
   controllers: [NavigationController],
   providers: [
     // 핵심 서비스
@@ -21,6 +22,6 @@ import { RoutesModule } from '../routes/routes.module';
     NavigationRerouteService,
     NavigationEndService,
   ],
-  exports: [NavigationService],
+  exports: [NavigationService, NavigationSessionService],
 })
 export class NavigationModule {}

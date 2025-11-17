@@ -16,9 +16,9 @@ export class NavigationReturnService {
   private readonly logger = new Logger(NavigationReturnService.name);
 
   constructor(
+    private readonly helperService: NavigationHelperService,
     private readonly sessionService: NavigationSessionService,
     private readonly graphHopperService: GraphHopperService,
-    private readonly helperService: NavigationHelperService,
   ) {}
 
   /**
@@ -160,6 +160,29 @@ export class NavigationReturnService {
         : undefined,
     );
 
+    // 복귀 경로의 마지막 instruction이 도착 instruction인 경우 제거 (남은 경로와 자연스럽게 이어지도록)
+    let returnInstructions = returnSegmentRaw.instructions || [];
+    if (
+      returnInstructions.length > 0 &&
+      (returnInstructions[returnInstructions.length - 1].text.includes(
+        'Arrive at destination',
+      ) ||
+        returnInstructions[returnInstructions.length - 1].text.includes(
+          'Arrive at waypoint',
+        ) ||
+        returnInstructions[returnInstructions.length - 1].text.includes(
+          '목적지에 도착',
+        ) ||
+        returnInstructions[returnInstructions.length - 1].text.includes(
+          '경유지에 도착',
+        ))
+    ) {
+      this.logger.debug(
+        `[복귀 경로] 마지막 instruction 제거 (도착 지점): "${returnInstructions[returnInstructions.length - 1].text}"`,
+      );
+      returnInstructions = returnInstructions.slice(0, -1);
+    }
+
     // 필드 순서 보장: type → profile → summary → bbox → geometry → instructions
     const returnSegment: RouteSegmentDto = {
       type: returnSegmentRaw.type,
@@ -167,8 +190,8 @@ export class NavigationReturnService {
       summary: returnSegmentRaw.summary,
       bbox: returnSegmentRaw.bbox,
       geometry: returnSegmentRaw.geometry,
-      ...(returnSegmentRaw.instructions && {
-        instructions: returnSegmentRaw.instructions,
+      ...(returnInstructions.length > 0 && {
+        instructions: returnInstructions,
       }),
     };
 
@@ -211,9 +234,23 @@ export class NavigationReturnService {
 
       if (i === nextInstruction.segmentIndex) {
         // 다음 instruction 이후부터만 포함
-        const remainingInstructions = segment.instructions.slice(
+        let remainingInstructions = segment.instructions.slice(
           nextInstruction.instructionIndex,
         );
+
+        // 첫 번째 instruction이 도착 instruction인 경우 제거 (이미 지나간 지점)
+        if (
+          remainingInstructions.length > 0 &&
+          (remainingInstructions[0].text.includes('Arrive at destination') ||
+            remainingInstructions[0].text.includes('Arrive at waypoint') ||
+            remainingInstructions[0].text.includes('목적지에 도착') ||
+            remainingInstructions[0].text.includes('경유지에 도착'))
+        ) {
+          this.logger.debug(
+            `[남은 경로] 첫 번째 instruction 제거 (도착 지점): "${remainingInstructions[0].text}"`,
+          );
+          remainingInstructions = remainingInstructions.slice(1);
+        }
 
         this.logger.debug(
           `[남은 경로] segment[${i}] 부분 포함: ` +
@@ -303,27 +340,33 @@ export class NavigationReturnService {
     const instructions =
       this.helperService.extractInstructionsFromSegments(normalizedSegments);
 
-    // 13. 세그먼트에서 geometry와 instructions 제거 (클라이언트 응답용)
+    // 13. TTS 생성 및 URL, 다음 회전 좌표 추가
+    const instructionsWithTts = await this.helperService.addTtsToInstructions(
+      instructions,
+      coordinates,
+    );
+
+    // 14. 세그먼트에서 geometry와 instructions 제거 (클라이언트 응답용)
     const segmentsWithoutGeometryAndInstructions =
       this.helperService.removeGeometryAndInstructionsFromSegments(
         normalizedSegments,
       );
 
-    // 14. 총합 계산
+    // 15. 총합 계산
     const totalSummary =
       this.helperService.calculateTotalSummary(normalizedSegments);
 
-    // 15. 경계 박스 계산
+    // 16. 경계 박스 계산
     const bbox = this.helperService.calculateBoundingBox(normalizedSegments);
 
-    // 16. 대여소 정보 추출 (원래 경로에서)
+    // 17. 대여소 정보 추출 (원래 경로에서)
     const stationInfo = this.helperService.extractStationInfo(originalRoute);
 
     this.logger.log(
       `경로 복귀 완료: sessionId=${sessionId}, ` +
         `segments=${normalizedSegments.length}개, ` +
         `coordinates=${coordinates.length}개, ` +
-        `instructions=${instructions.length}개, ` +
+        `instructions=${instructionsWithTts.length}개, ` +
         `총 거리=${Math.round(totalSummary.distance)}m, ` +
         `총 시간=${Math.round(totalSummary.time)}초 (경로 데이터는 유지)`,
     );
@@ -341,7 +384,7 @@ export class NavigationReturnService {
       endStation: stationInfo.endStation,
       waypoints: originalRoute.waypoints,
       coordinates,
-      instructions,
+      instructions: instructionsWithTts,
       segments: segmentsWithoutGeometryAndInstructions,
     };
   }
