@@ -10,6 +10,7 @@ import { UserModule } from './user/user.module';
 import { StationsModule } from './stations/stations.module';
 import { RoutesModule } from './routes/routes.module';
 import { NavigationModule } from './navigation/navigation.module';
+import { TtsModule } from './tts/tts.module';
 
 import { RedisModule } from '@liaoliaots/nestjs-redis';
 
@@ -55,13 +56,13 @@ import { RedisModule } from '@liaoliaots/nestjs-redis';
       },
     }),
 
-    // 이메일 및 인증 모듈
     MailModule,
     AuthModule,
     UserModule,
     StationsModule,
     RoutesModule,
     NavigationModule,
+    TtsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

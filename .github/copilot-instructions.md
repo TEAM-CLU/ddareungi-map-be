@@ -2,135 +2,241 @@
 
 ## Project Overview
 
-This is a NestJS-based backend for a Seoul bike-sharing (Ddareungi) map application that provides station information, real-time availability, and route optimization.
+NestJS backend for Seoul's Ddareungi (bike-sharing) map application providing station info, real-time availability, route optimization with TTS navigation, and multi-provider OAuth authentication.
 
 ## Architecture Patterns
 
 ### Service Layer Architecture
 
-The codebase uses a multi-layered service architecture within each domain:
+**Critical Pattern**: Multi-layered service architecture with strict separation of concerns:
 
-- **Main Service**: Lifecycle management only (e.g., `StationsService` handles `OnModuleInit`)
-- **Specialized Services**: Each handles a specific responsibility
-  - `StationQueryService`: Database queries and GeoJSON responses
-  - `StationRealtimeService`: External API integration for live data
-  - `StationSyncService`: Scheduled data synchronization
-  - `StationMapperService`: Data transformation between external APIs and DTOs
+- **Main Service** (`{domain}.service.ts`): Lifecycle management only (`OnModuleInit`, orchestration)
+- **Specialized Services** (in `services/` subdirectory): Single responsibility per service
+  - Query services: Database operations and data retrieval
+  - Sync services: Scheduled tasks and data synchronization
+  - Realtime services: External API integration
+  - Mapper services: Data transformation between DTOs and entities
+  - Domain services: Business logic and domain operations
+
+**Example from `stations/` module** (8 specialized services):
+
+- `StationQueryService`: PostGIS spatial queries, GeoJSON responses
+- `StationSyncService`: Weekly cron jobs (`@Cron('0 2 * * 0')`)
+- `StationRealtimeService`: Seoul Open API integration
+- `StationMapperService`: API response → DTO → Entity transformations
+
+**Controller Pattern**: Inject specialized services directly, not through main service
+
+```typescript
+constructor(
+  private readonly stationQueryService: StationQueryService,
+  private readonly stationSyncService: StationSyncService,
+  // NOT: private readonly stationsService: StationsService
+) {}
+```
 
 ### Domain Organization
 
-Each domain follows this structure:
-
 ```
 src/{domain}/
-├── {domain}.controller.ts
-├── {domain}.module.ts
-├── services/           # Multiple focused services
-├── entities/          # TypeORM entities
-├── dto/              # API request/response objects
-├── interfaces/       # TypeScript type definitions
-└── types/           # Type aliases and unions
+├── {domain}.controller.ts    # Direct injection of specialized services
+├── {domain}.module.ts         # All services registered as providers
+├── services/                  # Multiple focused services (4-8 per domain)
+├── entities/                  # TypeORM entities
+├── dto/                       # API request/response with class-validator
+├── interfaces/                # TypeScript interfaces
+└── types/                     # Type aliases and unions
 ```
 
-## Key Conventions
+## Critical Conventions
 
-### Response Standardization
+### Error Handling & Response Format (MANDATORY)
 
-All API responses use standardized DTOs from `src/common/api-response.dto.ts`:
+**Non-negotiable policy** using NestJS global exception filter pattern:
 
-- `SuccessResponseDto.create(message, data)` for successful responses
-- `ErrorResponseDto.create(statusCode, message)` for errors
+```typescript
+// Services throw NestJS built-in HttpException
+async someService() {
+  if (notFound) throw new NotFoundException('Resource not found');
+  if (invalid) throw new BadRequestException('Invalid input');
+  if (unauthorized) throw new ForbiddenException('Access denied');
+}
+
+// Controllers: NO try-catch needed - just call services
+async someController() {
+  const result = await this.service.method(); // HttpException auto-propagates
+  return SuccessResponseDto.create('Success message', result);
+}
+
+// Global filter (in main.ts) catches all HttpExceptions
+// Converts to standardized ErrorResponseDto.create(statusCode, message)
+```
+
+**Key Benefits**:
+
+- Controllers stay clean without repetitive try-catch blocks
+- Error response format centralized in `HttpExceptionFilter`
+- Services throw descriptive `HttpException` types (NestJS built-in)
+- Global filter registered in `main.ts` handles all error responses
 
 ### Environment Configuration
 
-- Uses environment-specific files: `.env.local`, `.env.production`, `.env`
-- Scripts: `pnpm run start:local` and `pnpm run start:production`
-- ConfigService injection pattern for accessing environment variables
+**Key difference from standard NestJS**: Environment-specific files with custom scripts
 
-### Database Patterns
+```bash
+# Development (uses .env.local)
+pnpm run start:local
 
-- PostgreSQL with PostGIS for geospatial queries
-- TypeORM with `autoLoadEntities: true` and `synchronize: true` (dev only)
-- Raw SQL for complex geospatial queries in services like `StationQueryService`
-- Repository pattern with `@InjectRepository(Entity)`
+# Production (uses .env.production)
+pnpm run start:production
+```
 
-### Authentication & Social Login
+`ConfigModule.forRoot()` in `app.module.ts`:
 
-- JWT-based auth with multiple OAuth strategies (Google, Kakao, Naver)
-- Strategy pattern in `auth/strategies/` directory
-- Guards using `@UseGuards(JwtAuthGuard)` for protected endpoints
+```typescript
+envFilePath: [`.env.${process.env.NODE_ENV || 'local'}`, '.env'];
+```
+
+**Required environment variables** (see `ENVIRONMENT_GUIDE.md`):
+
+- Database: `DB_HOST`, `DB_PORT`, `DB_USERNAME`, `DB_PASSWORD`, `DB_DATABASE`
+- Redis: `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` (for navigation sessions & TTS cache)
+- OAuth: `{GOOGLE|KAKAO|NAVER}_CLIENT_ID`, `_CLIENT_SECRET`, `_CALLBACK_URL`
+- External APIs: `SEOUL_API_KEY`, `GRAPHHOPPER_URL`
+- TTS: `GOOGLE_APPLICATION_CREDENTIALS`, `AWS_*`, `TTS_S3_BUCKET`
+- Security: `ENCRYPTION_KEY` (32-byte hex for AES-256-GCM, see `CryptoService`)
+
+### Database & Caching Patterns
+
+**PostgreSQL with PostGIS**:
+
+- TypeORM with `autoLoadEntities: true`, `synchronize: true` (dev only)
+- Raw SQL for geospatial queries (see `StationQueryService.findNearbyStations()`)
+- Repository pattern: `@InjectRepository(Entity)` then `this.repository.save()`
+
+**Redis** (via `@liaoliaots/nestjs-redis`):
+
+- Navigation sessions: `navigation:{sessionId}` with 1-hour TTL
+- Route caching: `route:{routeId}` stored separately
+- TTS caching: `tts:phrase:{hash}` → S3 URL (30-day TTL)
+- Access via `this.redisService.getOrThrow()` (returns ioredis client)
+
+**Example Redis pattern** (`NavigationSessionService`):
+
+```typescript
+const redis = this.redisService.getOrThrow();
+await redis.setex(key, TTL, JSON.stringify(data));
+const raw = await redis.get(key);
+const data = JSON.parse(raw);
+```
+
+### Authentication & Guards
+
+**Multi-provider OAuth** (Google, Kakao, Naver) + JWT:
+
+- Strategies in `auth/strategies/{google,kakao,naver}.strategy.ts`
+- Protected routes: `@UseGuards(JwtAuthGuard)` (from `user/guards/jwt-auth.guard.ts`)
+- OAuth callback pattern: `@UseGuards(AuthGuard('google'))` for login endpoints
+
+**Email verification with crypto** (`CryptoService`):
+
+- AES-256-GCM encryption for security tokens
+- Pattern: Send code → Verify → Return encrypted `securityToken` → Use for account lookup
+- See `FEATURE_GUIDE_EMAIL_VERIFICATION.md` for flow
 
 ## External Integrations
 
-### Key External Services
+**Seoul Open API** (`SeoulApiService`):
 
-- **Seoul Open API**: Real-time bike station data (`SeoulApiService`)
-- **GraphHopper**: Route optimization (`GraphHopperService`)
-- **NodeMailer**: Email services (`MailService`)
+- Station list and real-time bike availability
+- Weekly sync via `@Cron('0 2 * * 0')` in `StationSyncService`
+- Response mapping: `parseStationResponse()` → `StationResponseDto` → `Station` entity
 
-### API Response Handling
+**GraphHopper** (`GraphHopperService`):
 
-- GeoJSON format for spatial data responses
-- Real-time data fetching and caching patterns
-- Scheduled sync jobs using `@nestjs/schedule`
+- Bike route optimization with profiles (`safe_bike`, `fast_bike`)
+- Multi-point routing with waypoints
+- Returns GeoJSON and turn-by-turn instructions
+
+**Google Cloud TTS** (`TtsService`, `GoogleTtsProvider`):
+
+- Auto-translates navigation instructions (EN → KO) via `TranslationService`
+- Synthesizes to MP3, uploads to S3, caches URL in Redis
+- Batch processing: `batchSynthesize()` for multiple instructions
+- See `TTS_IMPLEMENTATION.md` for setup
+
+**AWS S3** (TTS audio files):
+
+- Public-readable bucket for audio playback
+- Key format: `tts/{lang}/{hash}.mp3`
 
 ## Development Workflows
 
-### Running the Application
+### Running & Building
 
 ```bash
-# Local development with hot reload
-pnpm run start:local
+# Local dev with hot-reload
+pnpm run start:local         # NODE_ENV=local
 
-# Production mode
-pnpm run start:production
+# Production
+pnpm run start:production    # NODE_ENV=production
 
-# Docker PostgreSQL database
-docker-compose up -d
+# Database
+docker-compose up -d         # PostgreSQL + PostGIS
+
+# Code quality
+pnpm run format              # Prettier
+pnpm run lint                # ESLint with --fix
+
+# Testing
+pnpm run test                # Jest unit tests
+pnpm run test:e2e            # E2E tests
+pnpm run test:cov            # Coverage report
 ```
 
-### Testing
+### Key Module Examples
 
-```bash
-pnpm run test        # Unit tests
-pnpm run test:e2e    # End-to-end tests
-pnpm run test:cov    # Coverage report
-```
+**Stations Module** (`src/stations/`):
 
-### Code Quality
+- 8 specialized services for complex domain
+- PostGIS spatial queries for nearby stations
+- Scheduled weekly sync from Seoul API
+- GeoJSON responses for map rendering
 
-- ESLint configuration in `eslint.config.mjs`
-- Prettier formatting: `pnpm run format`
-- Uses `class-validator` and `class-transformer` for DTO validation
+**Navigation Module** (`src/navigation/`):
 
-## Common Patterns to Follow
+- Redis-based session management (1-hour TTL)
+- TTS integration for turn-by-turn audio
+- Reroute and return-to-route capabilities
+- Depends on `RoutesModule` and `TtsModule`
 
-1. **Service Injection**: Inject specialized services directly into controllers rather than going through main services
-2. **DTO Validation**: Always use `class-validator` decorators on DTOs with `@ApiProperty` for Swagger
-3. **Error Handling**: Use the standardized `HttpExceptionFilter` from `src/common/`
-4. **Logging**: Use NestJS Logger with service name: `private readonly logger = new Logger(ServiceName.name)`
-5. **Constants**: Define query constants at the top of services: `const QUERY_CONSTANTS = { ... } as const`
+**Routes Module** (`src/routes/`):
 
-## Key Files to Reference
+- GraphHopper integration with multiple profiles
+- Route builder and optimizer services
+- Converts GraphHopper response to app-specific DTOs
 
-- `src/app.module.ts`: Main module configuration and database setup
-- `src/stations/stations.module.ts`: Example of complex service organization
-- `src/common/api-response.dto.ts`: Standard response patterns
-- `ENVIRONMENT_GUIDE.md`: Environment configuration details
-- `docker-compose.yml`: Local database setup
+**TTS Module** (`src/tts/`):
 
-## Error Handling & API Response Policy
+- Translation → Synthesis → S3 upload → Redis cache
+- Requires Google Cloud credentials and AWS credentials
+- Returns `{ text, textKo, ttsUrl }` for each instruction
 
-> **For all AI coding assistants and contributors:**  
-> Always follow these conventions for error handling and API responses throughout the project.
->
-> - **Error Handling:**
->   - Services must throw plain `Error` objects for all error cases.
->   - Controllers must catch these errors and rethrow them as `HttpException` with appropriate status codes and messages.
->   - Do not use global exception filters unless explicitly specified in this document.
-> - **API Response:**
->   - All successful responses must use `SuccessResponseDto.create(message, data)`.
->   - All error responses must use `ErrorResponseDto.create(statusCode, message)`.
->   - These DTOs are defined in `src/common/api-response.dto.ts`.
-> - **Reference:**
->   - This policy must be automatically referenced by all AI coding assistants and contributors for every code or documentation change related to error handling or API responses.
+## Common Patterns
+
+1. **Service Granularity**: 4-8 specialized services per complex domain (see `stations/`, `navigation/`)
+2. **Constants**: Define at top of services: `const QUERY_CONSTANTS = { ... } as const`
+3. **Logging**: `private readonly logger = new Logger(ServiceName.name)`
+4. **DTO Validation**: `class-validator` decorators + `@ApiProperty` for Swagger
+5. **Redis Keys**: Use prefixes: `navigation:`, `route:`, `tts:phrase:`
+6. **Scheduled Tasks**: `@Cron()` from `@nestjs/schedule` (enabled in `app.module.ts`)
+
+## Reference Files
+
+- `src/app.module.ts`: Module structure, TypeORM + Redis config
+- `src/stations/stations.module.ts`: Complex service organization example
+- `src/common/api-response.dto.ts`: Mandatory response format
+- `src/common/crypto.service.ts`: AES-256-GCM encryption pattern
+- `ENVIRONMENT_GUIDE.md`: Environment setup, TTS/OAuth configuration
+- `TTS_IMPLEMENTATION.md`: TTS workflow and caching strategy
+- `FEATURE_GUIDE_EMAIL_VERIFICATION.md`: Email verification flow
