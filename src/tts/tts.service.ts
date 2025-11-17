@@ -12,7 +12,8 @@ import { S3 } from 'aws-sdk';
  * 상수 정의
  */
 const REDIS_PREFIX = 'tts:phrase:';
-const REDIS_TTL = 86400 * 30; // 30일
+const REDIS_TTL = 86400 * 30; // 30일 (일반 TTS)
+const REDIS_TTL_PERMANENT = 86400 * 365 * 10; // 10년 (고정 메시지용, 사실상 영구)
 
 @Injectable()
 export class TtsService {
@@ -36,20 +37,22 @@ export class TtsService {
       'AWS_SECRET_ACCESS_KEY',
     );
 
-    // EC2 IAM Role을 사용하는 경우 (자격 증명 없이)
-    if (!awsAccessKeyId || !awsSecretAccessKey) {
-      this.logger.log(
-        'AWS credentials not found in env. Using EC2 IAM Role or default credentials.',
-      );
-      this.s3 = new S3({ region: awsRegion });
-    } else {
-      // 로컬 개발 환경 (환경 변수에서 자격 증명 로드)
-      this.logger.log('Using AWS credentials from environment variables.');
+    if (awsAccessKeyId && awsSecretAccessKey) {
+      // 로컬 개발 환경: 환경 변수에서 자격 증명 사용
       this.s3 = new S3({
         region: awsRegion,
-        accessKeyId: awsAccessKeyId,
-        secretAccessKey: awsSecretAccessKey,
+        credentials: {
+          accessKeyId: awsAccessKeyId,
+          secretAccessKey: awsSecretAccessKey,
+        },
       });
+      this.logger.log(
+        'AWS S3 initialized with credentials from environment variables (Local)',
+      );
+    } else {
+      // EC2 배포 환경: IAM Role 사용 (자동 인증)
+      this.s3 = new S3({ region: awsRegion });
+      this.logger.log('AWS S3 initialized with EC2 IAM Role (Production)');
     }
   }
 
@@ -204,6 +207,101 @@ export class TtsService {
   }
 
   /**
+   * 고정 메시지용 TTS 생성 (만료되지 않음)
+   * - 사용 예: "음성 안내를 시작합니다", "음성 안내를 종료합니다"
+   * - Redis TTL: 10년 (사실상 영구)
+   */
+  async synthesizePermanent(
+    text: string,
+    lang = 'ko-KR',
+    voice?: string,
+  ): Promise<TtsResponseDto> {
+    try {
+      // 1. 텍스트 정규화 (번역 없이 그대로 사용)
+      const normalized = normalizeText(text);
+
+      // 2. 해시 생성
+      const hash = this.hashText(`${lang}:${voice || ''}:${normalized}`);
+      const key = this.redisKey(hash);
+
+      // 3. Redis 캐시 확인
+      const existing = await this.redis.get(key);
+      if (existing) {
+        try {
+          const record = JSON.parse(existing) as TtsRecord;
+          if (record.status === 'ready' && record.s3Url) {
+            this.logger.debug(`Cache hit for permanent message: ${text}`);
+            return { status: 'ready', url: record.s3Url, textKo: text, hash };
+          }
+        } catch {
+          this.logger.warn(`Failed to parse cached permanent message: ${text}`);
+        }
+      }
+
+      // 4. TTS 합성
+      this.logger.log(`Synthesizing permanent TTS for: ${text}`);
+      const audioBuffer = await this.ttsProvider.synthesize(
+        normalized,
+        lang,
+        voice,
+      );
+
+      // 5. S3 업로드
+      const bucket = this.configService.get<string>('TTS_S3_BUCKET');
+      if (!bucket) {
+        throw new Error('TTS_S3_BUCKET not configured');
+      }
+
+      const s3Key = `tts/${lang}/${hash}.mp3`;
+      await this.s3
+        .putObject({
+          Bucket: bucket,
+          Key: s3Key,
+          Body: audioBuffer,
+          ContentType: 'audio/mpeg',
+        })
+        .promise();
+
+      const s3Url = `https://${bucket}.s3.amazonaws.com/${s3Key}`;
+
+      // 6. Redis에 영구 저장 (10년 TTL)
+      const record: TtsRecord = {
+        text: normalized,
+        textKo: normalized,
+        lang,
+        voice,
+        status: 'ready',
+        s3Key,
+        s3Url,
+        hash,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+
+      await this.redis.set(
+        key,
+        JSON.stringify(record),
+        'EX',
+        REDIS_TTL_PERMANENT,
+      );
+
+      this.logger.log(`Permanent TTS cached successfully: ${text} -> ${s3Url}`);
+
+      return { status: 'ready', url: s3Url, textKo: normalized, hash };
+    } catch (error) {
+      this.logger.error(
+        `Permanent TTS synthesis failed: ${(error as Error).message}`,
+        (error as Error).stack,
+      );
+      return {
+        status: 'error',
+        hash: this.hashText(text),
+        error: (error as Error).message,
+      };
+    }
+  }
+
+  /**
    * 캐시된 TTS 조회
    */
   async lookup(
@@ -225,6 +323,34 @@ export class TtsService {
       const record = JSON.parse(existing) as TtsRecord;
       if (record.status === 'ready' && record.s3Url) {
         return { status: 'ready', url: record.s3Url, hash };
+      }
+      return { status: record.status, hash, error: record.error };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * 고정 메시지 캐시 조회 (번역 없이)
+   */
+  async lookupPermanent(
+    text: string,
+    lang = 'ko-KR',
+    voice?: string,
+  ): Promise<TtsResponseDto | null> {
+    const normalized = normalizeText(text);
+    const hash = this.hashText(`${lang}:${voice || ''}:${normalized}`);
+    const key = this.redisKey(hash);
+
+    const existing = await this.redis.get(key);
+    if (!existing) {
+      return null;
+    }
+
+    try {
+      const record = JSON.parse(existing) as TtsRecord;
+      if (record.status === 'ready' && record.s3Url) {
+        return { status: 'ready', url: record.s3Url, textKo: text, hash };
       }
       return { status: record.status, hash, error: record.error };
     } catch {

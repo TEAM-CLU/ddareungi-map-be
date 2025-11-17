@@ -12,12 +12,21 @@ export class GoogleTtsProvider implements TtsProvider {
   private readonly client: TextToSpeechClient;
 
   constructor(private readonly configService: ConfigService) {
+    // 로컬 개발 환경: 서비스 계정 키 파일 사용
     const keyFilename = this.configService.get<string>(
       'GOOGLE_APPLICATION_CREDENTIALS',
     );
-    this.client = new TextToSpeechClient(
-      keyFilename ? { keyFilename } : undefined,
-    );
+
+    if (keyFilename) {
+      this.client = new TextToSpeechClient({ keyFilename });
+      this.logger.log(`Google TTS initialized with key file: ${keyFilename}`);
+    } else {
+      // EC2 배포 환경: Application Default Credentials (자동 인증)
+      this.client = new TextToSpeechClient();
+      this.logger.log(
+        'Google TTS initialized with Application Default Credentials (EC2 IAM Role)',
+      );
+    }
   }
 
   async synthesize(

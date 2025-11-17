@@ -76,14 +76,28 @@ NODE_ENV=production pnpm run start:prod
 ### 필수 환경변수
 
 ```env
-# Google Cloud TTS 인증
+# 로컬 개발 환경 (.env.local)
+# ====================================
+# Google Cloud TTS 서비스 계정 키 파일 경로
 GOOGLE_APPLICATION_CREDENTIALS=/path/to/your/service-account-key.json
 
-# AWS S3 설정
+# AWS S3 자격 증명 (로컬 개발용)
 AWS_REGION=ap-northeast-2
 AWS_ACCESS_KEY_ID=your_aws_access_key
 AWS_SECRET_ACCESS_KEY=your_aws_secret_key
 TTS_S3_BUCKET=your-tts-bucket-name
+
+
+# EC2 배포 환경 (.env.production)
+# ====================================
+# Google Cloud TTS: Application Default Credentials 사용 (자동 인증)
+# GOOGLE_APPLICATION_CREDENTIALS 설정 불필요
+
+# AWS S3: EC2 IAM Role 사용 (자동 인증)
+# AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY 설정 불필요
+AWS_REGION=ap-northeast-2
+TTS_S3_BUCKET=your-tts-bucket-name
+
 
 # (선택) Google Translate API (고급 번역)
 GOOGLE_TRANSLATE_API_KEY=your_translate_api_key
@@ -106,9 +120,22 @@ GOOGLE_TRANSLATE_API_KEY=your_translate_api_key
    - JSON 키 파일 다운로드
 
 4. **환경변수 설정**
+
+   **로컬 개발 환경 (.env.local):**
+
    ```bash
-   export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account-key.json"
+   GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/service-account-key.json
    ```
+
+   **EC2 배포 환경:**
+   - EC2 인스턴스에 IAM Role 연결
+   - 역할 권한: "Cloud Text-to-Speech 사용자"
+   - 환경변수 설정 불필요 (자동 인증)
+
+   **장점:**
+   - ✅ Git에 민감한 파일을 올리지 않음
+   - ✅ EC2에서 IAM Role로 안전하게 인증
+   - ✅ 로컬에서만 키 파일 사용
 
 ### AWS S3 설정 방법
 
@@ -134,21 +161,30 @@ GOOGLE_TRANSLATE_API_KEY=your_translate_api_key
    }
    ```
 
-3. **IAM 사용자 권한**
-   - S3 PutObject, GetObject 권한 필요
-   - 정책 예시:
+3. **IAM 권한 설정**
+
+   **로컬 개발 환경:**
+   - IAM 사용자 생성 후 Access Key 발급
+   - `.env.local`에 `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` 설정
+   - 필요한 권한:
+
    ```json
    {
      "Version": "2012-10-17",
      "Statement": [
        {
          "Effect": "Allow",
-         "Action": ["s3:PutObject", "s3:GetObject", "s3:PutObjectAcl"],
+         "Action": ["s3:PutObject", "s3:GetObject"],
          "Resource": "arn:aws:s3:::your-tts-bucket-name/tts/*"
        }
      ]
    }
    ```
+
+   **EC2 배포 환경:**
+   - EC2 인스턴스에 IAM Role 연결 (이미 설정됨)
+   - `.env.production`에 자격 증명 불필요
+   - IAM Role에 S3 권한 포함되어 있음
 
 ### TTS 동작 방식
 
