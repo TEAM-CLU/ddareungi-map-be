@@ -21,9 +21,9 @@ export class NavigationRerouteService {
   private readonly logger = new Logger(NavigationRerouteService.name);
 
   constructor(
+    private readonly helperService: NavigationHelperService,
     private readonly sessionService: NavigationSessionService,
     private readonly graphHopperService: GraphHopperService,
-    private readonly helperService: NavigationHelperService,
   ) {}
 
   /**
@@ -223,7 +223,13 @@ export class NavigationRerouteService {
     const instructions =
       this.helperService.extractInstructionsFromSegments(normalizedSegments);
 
-    // 18. 세그먼트에서 geometry와 instructions 제거 (클라이언트 응답용)
+    // 18. TTS 생성 및 URL, 다음 회전 좌표 추가
+    const instructionsWithTts = await this.helperService.addTtsToInstructions(
+      instructions,
+      coordinates,
+    );
+
+    // 19. 세그먼트에서 geometry와 instructions 제거 (클라이언트 응답용)
     const segmentsWithoutGeometryAndInstructions =
       this.helperService.removeGeometryAndInstructionsFromSegments(
         normalizedSegments,
@@ -231,7 +237,7 @@ export class NavigationRerouteService {
 
     this.logger.log(
       `클라이언트 응답 생성: coordinates=${coordinates.length}개, ` +
-        `instructions=${instructions.length}개, ` +
+        `instructions=${instructionsWithTts.length}개, ` +
         `segments=${segmentsWithoutGeometryAndInstructions.length}개 (geometry, instructions 제외)`,
     );
 
@@ -248,7 +254,7 @@ export class NavigationRerouteService {
       endStation: endStationInfo,
       waypoints: remainingWaypoints,
       coordinates,
-      instructions,
+      instructions: instructionsWithTts,
       segments: segmentsWithoutGeometryAndInstructions,
     };
   }

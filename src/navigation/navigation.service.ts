@@ -7,7 +7,7 @@ import { NavigationSessionService } from './services/navigation-session.service'
 /**
  * 네비게이션 메인 서비스
  * - 책임: 네비게이션 세션 시작 및 TTL 관리 비즈니스 로직
- * - 권한: SessionService를 통한 세션 CRUD, HelperService를 통한 데이터 변환
+ * - 권한: SessionService를 통한 세션 CRUD, HelperService를 통한 데이터 변환 및 TTS 처리
  */
 @Injectable()
 export class NavigationService {
@@ -41,10 +41,9 @@ export class NavigationService {
       );
     }
 
-    // 3. Instructions 추출 및 통합
-    const allInstructions: InstructionDto[] = route.segments
-      .filter((segment) => segment && segment.instructions)
-      .flatMap((segment) => segment.instructions!);
+    // 3. Instructions 추출 및 통합 (interval 오프셋 자동 조정)
+    const allInstructions: InstructionDto[] =
+      this.helperService.extractInstructionsFromSegments(route.segments);
 
     if (allInstructions.length === 0) {
       this.logger.warn(
@@ -55,15 +54,22 @@ export class NavigationService {
       );
     }
 
-    // 4. SessionService를 통해 새 세션 생성 (routeId만 저장)
-    const sessionId = await this.sessionService.createSession(routeId);
-
-    // 5. 좌표 통합 추출 (클라이언트 응답용)
+    // 4. 좌표 통합 추출 (TTS 트리거 좌표 계산용)
     const coordinates = this.helperService.extractCoordinatesFromSegments(
       route.segments,
     );
 
-    // 6. 세그먼트에서 geometry와 instructions 제거 (클라이언트 응답용)
+    // 5. TTS 생성 및 URL, 다음 회전 좌표 추가
+    const instructionsWithTts: InstructionDto[] =
+      await this.helperService.addTtsToInstructions(
+        allInstructions,
+        coordinates,
+      );
+
+    // 6. SessionService를 통해 새 세션 생성 (routeId만 저장)
+    const sessionId = await this.sessionService.createSession(routeId);
+
+    // 7. 세그먼트에서 geometry와 instructions 제거 (클라이언트 응답용)
     const segmentsWithoutGeometryAndInstructions =
       this.helperService.removeGeometryAndInstructionsFromSegments(
         route.segments,
@@ -72,14 +78,14 @@ export class NavigationService {
     this.logger.log(
       `네비게이션 세션 생성: sessionId=${sessionId}, routeId=${routeId}, ` +
         `coordinates=${coordinates.length}개, ` +
-        `instructions=${allInstructions.length}개, ` +
+        `instructions=${instructionsWithTts.length}개, ` +
         `waypoints=${route.waypoints?.length || 0}개`,
     );
 
     return {
       sessionId,
       coordinates,
-      instructions: allInstructions,
+      instructions: instructionsWithTts,
       waypoints: route.waypoints,
       segments: segmentsWithoutGeometryAndInstructions,
     };
