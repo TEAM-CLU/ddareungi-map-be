@@ -90,10 +90,10 @@ TTS_S3_BUCKET=your-tts-bucket-name
 
 # EC2 배포 환경 (.env.production)
 # ====================================
-# Google Cloud TTS: Application Default Credentials 사용 (자동 인증)
-# GOOGLE_APPLICATION_CREDENTIALS 설정 불필요
+# Google Cloud TTS: AWS Secrets Manager에서 자격 증명 가져오기
+GOOGLE_CREDENTIALS_SECRET_NAME=ddareungi-map/google-tts-credentials
 
-# AWS S3: EC2 IAM Role 사용 (자동 인증)
+# AWS 설정: EC2 IAM Role 사용 (자동 인증)
 # AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY 설정 불필요
 AWS_REGION=ap-northeast-2
 TTS_S3_BUCKET=your-tts-bucket-name
@@ -127,14 +127,39 @@ GOOGLE_TRANSLATE_API_KEY=your_translate_api_key
    GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/service-account-key.json
    ```
 
-   **EC2 배포 환경:**
-   - EC2 인스턴스에 IAM Role 연결
-   - 역할 권한: "Cloud Text-to-Speech 사용자"
-   - 환경변수 설정 불필요 (자동 인증)
+   **EC2 배포 환경 (.env.production):**
+
+   ```bash
+   # AWS Secrets Manager에 저장된 시크릿 이름
+   GOOGLE_CREDENTIALS_SECRET_NAME=ddareungi-map/google-tts-credentials
+   ```
+
+   **AWS Secrets Manager 설정 방법:**
+   1. AWS Console > Secrets Manager > "새 보안 암호 저장"
+   2. 보안 암호 유형: "다른 유형의 보안 암호"
+   3. 키/값 쌍 대신 "일반 텍스트" 탭 선택
+   4. 서비스 계정 JSON 파일 내용 전체를 붙여넣기
+   5. 보안 암호 이름: `ddareungi-map/google-tts-credentials`
+   6. EC2 IAM Role에 다음 권한 추가:
+
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Action": ["secretsmanager:GetSecretValue"],
+         "Resource": "arn:aws:secretsmanager:ap-northeast-2:YOUR-ACCOUNT-ID:secret:ddareungi-map/google-tts-credentials-*"
+       }
+     ]
+   }
+   ```
 
    **장점:**
    - ✅ Git에 민감한 파일을 올리지 않음
-   - ✅ EC2에서 IAM Role로 안전하게 인증
+   - ✅ EC2에 별도 파일 업로드 불필요
+   - ✅ AWS Secrets Manager로 안전하게 관리
+   - ✅ 시크릿 자동 로테이션 지원
    - ✅ 로컬에서만 키 파일 사용
 
 ### AWS S3 설정 방법
