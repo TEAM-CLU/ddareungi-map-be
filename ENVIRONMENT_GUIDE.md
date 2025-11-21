@@ -41,28 +41,43 @@ NODE_ENV=production pnpm run start:prod
 
 ## 🔧 로컬 개발 환경 설정
 
-1. `.env.local` 파일 생성
-2. 필요한 환경변수 설정:
+1. `.env` 파일에 공통 설정 (DB, Redis, GraphHopper, Seoul API)
+2. `.env.local` 파일에 TTS 관련 설정
 
-   ```env
-   NODE_ENV=local
-   BASE_URL=http://localhost:3000
+### `.env` (공통 설정)
 
-   # 데이터베이스
-   DB_HOST=localhost
-   DB_PORT=5432
-   DB_USERNAME=your_username
-   DB_PASSWORD=your_password
-   DB_DATABASE=ddareungi_local
+```env
+# 데이터베이스 (PostgreSQL)
+DB_HOST=your-db-host.com
+DB_PORT=5432
+DB_USERNAME=your_username
+DB_PASSWORD=your_secure_password
+DB_DATABASE=your_database
 
-   # 소셜 로그인 (개발용)
-   GOOGLE_CLIENT_ID=your_dev_google_client_id
-   GOOGLE_CLIENT_SECRET=your_dev_google_client_secret
-   GOOGLE_CALLBACK_URL=http://localhost:3000/auth/google/callback
-   GOOGLE_PKCE_CALLBACK_URL=http://localhost:3000/auth/google/pkce/callback
+# Seoul Open API
+SEOUL_OPEN_API_KEY=your_seoul_api_key
 
-   # ... 기타 설정
-   ```
+# GraphHopper 서버
+GRAPHHOPPER_URL=http://your-server-ip:8989
+
+# Redis 서버
+REDIS_HOST=your-redis-host
+REDIS_PORT=6379
+REDIS_PASSWORD=your_redis_password  # 선택사항
+```
+
+### `.env.local` (로컬 TTS 설정)
+
+```env
+# Google Cloud TTS (로컬: 파일 경로)
+GOOGLE_APPLICATION_CREDENTIALS=./your-service-account-key.json
+
+# AWS S3 (로컬: IAM User Access Key)
+AWS_REGION=ap-northeast-2
+AWS_ACCESS_KEY_ID=AKIA******************
+AWS_SECRET_ACCESS_KEY=********************************
+TTS_S3_BUCKET=your-tts-bucket-name
+```
 
 3. 로컬 서버 실행:
    ```bash
@@ -79,29 +94,31 @@ NODE_ENV=production pnpm run start:prod
 # 로컬 개발 환경 (.env.local)
 # ====================================
 # Google Cloud TTS 서비스 계정 키 파일 경로
-GOOGLE_APPLICATION_CREDENTIALS=/path/to/your/service-account-key.json
+GOOGLE_APPLICATION_CREDENTIALS=./your-service-account-key.json
 
-# AWS S3 자격 증명 (로컬 개발용)
+# AWS S3 자격 증명 (로컬 개발용 IAM User)
 AWS_REGION=ap-northeast-2
-AWS_ACCESS_KEY_ID=your_aws_access_key
-AWS_SECRET_ACCESS_KEY=your_aws_secret_key
-TTS_S3_BUCKET=your-tts-bucket-name
+AWS_ACCESS_KEY_ID=AKIA******************
+AWS_SECRET_ACCESS_KEY=********************************
+TTS_S3_BUCKET=ddareungimap-tts-cache
 
 
 # EC2 배포 환경 (.env.production)
 # ====================================
 # Google Cloud TTS: AWS Secrets Manager에서 자격 증명 가져오기
-GOOGLE_CREDENTIALS_SECRET_NAME=ddareungi-map/google-tts-credentials
+GOOGLE_CREDENTIALS_SECRET_NAME=your-project/googleCloud
 
 # AWS 설정: EC2 IAM Role 사용 (자동 인증)
 # AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY 설정 불필요
 AWS_REGION=ap-northeast-2
-TTS_S3_BUCKET=your-tts-bucket-name
-
-
-# (선택) Google Translate API (고급 번역)
-GOOGLE_TRANSLATE_API_KEY=your_translate_api_key
+TTS_S3_BUCKET=ddareungimap-tts-cache
 ```
+
+> 📝 **구성 가이드**:
+> - Google Cloud에서 TTS API 활성화 및 서비스 계정 생성
+> - AWS S3 버킷 생성 (전역 고유 이름 사용)
+> - AWS Secrets Manager에 Google 키 저장
+> - 음성: ko-KR-Wavenet-A (한국어 여성) 권장
 
 ### Google Cloud TTS 설정 방법
 
@@ -138,8 +155,8 @@ GOOGLE_TRANSLATE_API_KEY=your_translate_api_key
    1. AWS Console > Secrets Manager > "새 보안 암호 저장"
    2. 보안 암호 유형: "다른 유형의 보안 암호"
    3. 키/값 쌍 대신 "일반 텍스트" 탭 선택
-   4. 서비스 계정 JSON 파일 내용 전체를 붙여넣기
-   5. 보안 암호 이름: `ddareungi-map/google-tts-credentials`
+   4. Google 서비스 계정 JSON 키 파일 내용 전체를 붙여넣기
+   5. 보안 암호 이름: 프로젝트에 맞는 이름 (예: `myproject/googleCloud`)
    6. EC2 IAM Role에 다음 권한 추가:
 
    ```json
@@ -149,7 +166,7 @@ GOOGLE_TRANSLATE_API_KEY=your_translate_api_key
        {
          "Effect": "Allow",
          "Action": ["secretsmanager:GetSecretValue"],
-         "Resource": "arn:aws:secretsmanager:ap-northeast-2:YOUR-ACCOUNT-ID:secret:ddareungi-map/google-tts-credentials-*"
+         "Resource": "arn:aws:secretsmanager:ap-northeast-2:*:secret:your-project/googleCloud-*"
        }
      ]
    }
@@ -166,8 +183,9 @@ GOOGLE_TRANSLATE_API_KEY=your_translate_api_key
 
 1. **S3 버킷 생성**
    - AWS Console > S3
-   - 버킷 생성 (예: `my-app-tts-cache`)
-   - 리전: `ap-northeast-2` (서울)
+   - 버킷 생성: 전역적으로 고유한 이름 사용 (예: `myproject-tts-cache`)
+   - 리전: `ap-northeast-2` (서울) 권장
+   - 퍼블릭 액세스 차단 해제 (공개 읽기용)
 
 2. **버킷 정책 설정** (공개 읽기)
 
@@ -180,7 +198,7 @@ GOOGLE_TRANSLATE_API_KEY=your_translate_api_key
          "Effect": "Allow",
          "Principal": "*",
          "Action": "s3:GetObject",
-         "Resource": "arn:aws:s3:::your-tts-bucket-name/tts/*"
+         "Resource": "arn:aws:s3:::ddareungimap-tts-cache/tts/*"
        }
      ]
    }
