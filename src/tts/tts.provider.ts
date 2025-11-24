@@ -70,17 +70,14 @@ export class GoogleTtsProvider implements TtsProvider, OnModuleInit {
     const region =
       this.configService.get<string>('AWS_REGION') || 'ap-northeast-2';
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
     const client = new SecretsManagerClient({ region });
 
     try {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
       const command = new GetSecretValueCommand({ SecretId: secretName });
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+
       const response = await client.send(command);
 
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-      const secretString = response.SecretString as string | undefined;
+      const secretString = response.SecretString;
       if (!secretString) {
         throw new Error('Secret value is empty');
       }
@@ -98,13 +95,24 @@ export class GoogleTtsProvider implements TtsProvider, OnModuleInit {
   }
 
   private writeTempKeyFile(credentialsJson: string): string {
-    // JSON 유효성 검사
-    JSON.parse(credentialsJson);
+    // JSON 파싱 및 private_key 줄바꿈 치환
+
+    // Google 서비스 계정 키 타입 일부만 명시
+    type GoogleServiceAccountKey = {
+      private_key?: string;
+      [key: string]: unknown;
+    };
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const parsed: GoogleServiceAccountKey = JSON.parse(credentialsJson);
+    if (typeof parsed.private_key === 'string') {
+      parsed.private_key = parsed.private_key.replace(/\\n/g, '\n');
+    }
+    const fixedJson = JSON.stringify(parsed, null, 2);
 
     const tempDir = os.tmpdir();
     const keyPath = path.join(tempDir, `google-credentials-${Date.now()}.json`);
 
-    fs.writeFileSync(keyPath, credentialsJson, 'utf-8');
+    fs.writeFileSync(keyPath, fixedJson, 'utf-8');
     this.logger.debug(`Wrote temporary credentials file to ${keyPath}`);
 
     return keyPath;
