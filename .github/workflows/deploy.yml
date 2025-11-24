@@ -74,5 +74,5 @@ jobs:
             pnpm install --prod --frozen-lockfile --legacy-peer-deps
 
             # 3. PM2 무중단 재배포 및 상태 저장
-            pm2 reload ddareungimap-api
+            pm2 reload ddareungimap
             pm2 save
