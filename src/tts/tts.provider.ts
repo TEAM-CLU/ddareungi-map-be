@@ -25,43 +25,47 @@ export class GoogleTtsProvider implements TtsProvider, OnModuleInit {
   }
 
   private async initializeClient(): Promise<void> {
-    // 1. 로컬 개발 환경: 서비스 계정 키 파일 사용
-    const keyFilename = this.configService.get<string>(
-      'GOOGLE_APPLICATION_CREDENTIALS',
-    );
+    const nodeEnv = this.configService.get<string>('NODE_ENV');
 
-    if (keyFilename && fs.existsSync(keyFilename)) {
-      this.client = new TextToSpeechClient({ keyFilename });
-      this.logger.log(`Google TTS initialized with key file: ${keyFilename}`);
-      return;
-    }
-
-    // 2. EC2 배포 환경: AWS Secrets Manager에서 가져오기
-    const secretName = this.configService.get<string>(
-      'GOOGLE_CREDENTIALS_SECRET_NAME',
-    );
-
-    if (secretName) {
-      try {
-        const credentialsJson =
-          await this.getCredentialsFromSecretsManager(secretName);
-        const tempKeyPath = this.writeTempKeyFile(credentialsJson);
-        this.client = new TextToSpeechClient({ keyFilename: tempKeyPath });
-        this.logger.log(
-          `Google TTS initialized with credentials from AWS Secrets Manager`,
-        );
+    if (nodeEnv === 'local') {
+      // 로컬 환경: GOOGLE_APPLICATION_CREDENTIALS만 사용
+      const keyFilename = this.configService.get<string>(
+        'GOOGLE_APPLICATION_CREDENTIALS',
+      );
+      if (keyFilename && fs.existsSync(keyFilename)) {
+        this.client = new TextToSpeechClient({ keyFilename });
+        this.logger.log(`Google TTS initialized with key file: ${keyFilename}`);
         return;
-      } catch (error) {
-        this.logger.error(
-          `Failed to get credentials from Secrets Manager: ${(error as Error).message}`,
-        );
-        throw error;
       }
+      throw new Error(
+        'GOOGLE_APPLICATION_CREDENTIALS 파일이 존재하지 않습니다. .env.local을 확인하세요.',
+      );
+    } else {
+      // 운영/배포 환경: GOOGLE_CREDENTIALS_SECRET_NAME만 사용
+      const secretName = this.configService.get<string>(
+        'GOOGLE_CREDENTIALS_SECRET_NAME',
+      );
+      if (secretName) {
+        try {
+          const credentialsJson =
+            await this.getCredentialsFromSecretsManager(secretName);
+          const tempKeyPath = this.writeTempKeyFile(credentialsJson);
+          this.client = new TextToSpeechClient({ keyFilename: tempKeyPath });
+          this.logger.log(
+            'Google TTS initialized with credentials from AWS Secrets Manager',
+          );
+          return;
+        } catch (error) {
+          this.logger.error(
+            `Failed to get credentials from Secrets Manager: ${(error as Error).message}`,
+          );
+          throw error;
+        }
+      }
+      throw new Error(
+        'GOOGLE_CREDENTIALS_SECRET_NAME이 설정되어 있지 않습니다. .env.production을 확인하세요.',
+      );
     }
-
-    throw new Error(
-      'Google Cloud credentials not configured. Set GOOGLE_APPLICATION_CREDENTIALS or GOOGLE_CREDENTIALS_SECRET_NAME',
-    );
   }
 
   private async getCredentialsFromSecretsManager(

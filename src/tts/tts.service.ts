@@ -29,28 +29,36 @@ export class TtsService {
   ) {
     this.redis = this.redisService.getOrThrow();
 
-    // AWS S3 클라이언트 초기화
+    // AWS S3 클라이언트 초기화 (NODE_ENV에 따라 분기)
+    const nodeEnv = this.configService.get<string>('NODE_ENV');
     const awsRegion =
       this.configService.get<string>('AWS_REGION') || 'ap-northeast-2';
-    const awsAccessKeyId = this.configService.get<string>('AWS_ACCESS_KEY_ID');
-    const awsSecretAccessKey = this.configService.get<string>(
-      'AWS_SECRET_ACCESS_KEY',
-    );
 
-    if (awsAccessKeyId && awsSecretAccessKey) {
-      // 로컬 개발 환경: 환경 변수에서 자격 증명 사용
-      this.s3 = new S3({
-        region: awsRegion,
-        credentials: {
-          accessKeyId: awsAccessKeyId,
-          secretAccessKey: awsSecretAccessKey,
-        },
-      });
-      this.logger.log(
-        'AWS S3 initialized with credentials from environment variables (Local)',
+    if (nodeEnv === 'local') {
+      // 로컬 환경: 환경 변수에서 자격 증명만 사용
+      const awsAccessKeyId =
+        this.configService.get<string>('AWS_ACCESS_KEY_ID');
+      const awsSecretAccessKey = this.configService.get<string>(
+        'AWS_SECRET_ACCESS_KEY',
       );
+      if (awsAccessKeyId && awsSecretAccessKey) {
+        this.s3 = new S3({
+          region: awsRegion,
+          credentials: {
+            accessKeyId: awsAccessKeyId,
+            secretAccessKey: awsSecretAccessKey,
+          },
+        });
+        this.logger.log(
+          'AWS S3 initialized with credentials from environment variables (Local)',
+        );
+      } else {
+        throw new Error(
+          '로컬 환경에서는 AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY가 반드시 필요합니다. .env.local을 확인하세요.',
+        );
+      }
     } else {
-      // EC2 배포 환경: IAM Role 사용 (자동 인증)
+      // 운영/배포 환경: IAM Role만 사용 (환경 변수 무시)
       this.s3 = new S3({ region: awsRegion });
       this.logger.log('AWS S3 initialized with EC2 IAM Role (Production)');
     }
