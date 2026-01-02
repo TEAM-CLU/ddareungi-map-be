@@ -29,7 +29,11 @@ export class UserStats {
   })
   totalCarbonFootprint: number;
 
-  @Column({ type: 'integer', name: 'total_trees_planted', default: 0 })
+  @Column({
+    type: 'double precision',
+    name: 'total_trees_planted',
+    default: 0.0,
+  })
   totalTreesPlanted: number;
 
   @Column({

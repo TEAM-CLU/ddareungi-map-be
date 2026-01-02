@@ -27,7 +27,7 @@ export class UserStatsResponseDto {
 
   @ApiProperty({
     description: '총 심은 나무 수 (그루)',
-    example: 45,
+    example: 45.2,
   })
   totalTreesPlanted: number;
 
