@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { HttpModule } from '@nestjs/axios';
 import { RoutesController } from './routes.controller';
 import { RoutesService } from './routes.service';
 import { GraphHopperService } from './services/graphhopper.service';
@@ -14,7 +13,6 @@ import { RedisModule } from '@liaoliaots/nestjs-redis';
 
 @Module({
   imports: [
-    HttpModule,
     StationsModule, // StationQueryService를 사용하기 위해 추가
     RedisModule,
   ],

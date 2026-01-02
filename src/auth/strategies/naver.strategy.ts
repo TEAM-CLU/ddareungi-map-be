@@ -20,9 +20,9 @@ export class JwtNaverStrategy extends PassportStrategy(Strategy, 'naver') {
 
   async validate(
     accessToken: string,
-    refreshToken: string,
-    profile: any,
-  ): Promise<any> {
+    _refreshToken: string,
+    _profile: unknown,
+  ): Promise<{ accessToken: string }> {
     try {
       // Fetch user profile from Naver API using accessToken
       const response = await axios.get('https://openapi.naver.com/v1/nid/me', {
@@ -31,13 +31,12 @@ export class JwtNaverStrategy extends PassportStrategy(Strategy, 'naver') {
         },
       });
 
-      const naverProfile = response.data;
-      console.log('Naver Profile:', naverProfile);
+      const naverProfile = response.data as unknown;
 
       // Pass the fetched profile to the authService for handling
       const user = await this.authService.handleNaverLogin(naverProfile);
       return user;
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error fetching Naver profile:', error);
       throw error;
     }

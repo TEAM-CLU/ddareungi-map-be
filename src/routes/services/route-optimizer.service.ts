@@ -151,7 +151,7 @@ export class RouteOptimizerService {
       waypoints?: CoordinateDto[];
       targetDistance?: number;
     },
-  ): void {
+  ): boolean {
     try {
       let dataForRedis: any;
 
@@ -165,9 +165,6 @@ export class RouteOptimizerService {
           descend:
             data.descend !== undefined ? Math.round(data.descend) : undefined,
         };
-        this.logger.debug(
-          `Redis 저장 [CategorizedPath]: routeId=${routeId}, hasInstructions=${!!data.instructions}`,
-        );
       } else if ('summary' in data) {
         // RouteDto 타입
         const route = data as RouteDto;
@@ -186,15 +183,8 @@ export class RouteOptimizerService {
                 : undefined,
           },
         };
-        this.logger.debug(
-          `Redis 저장 [RouteDto]: routeId=${routeId}, segments=${route.segments?.length || 0}개, ` +
-            `instructions=[${route.segments?.map((s) => (s.instructions ? `${s.type}:${s.instructions.length}` : `${s.type}:없음`)).join(', ')}]`,
-        );
       } else {
         dataForRedis = data;
-        this.logger.warn(
-          `Redis 저장 [Unknown]: routeId=${routeId}, type=${typeof data}`,
-        );
       }
 
       // 메타데이터 추가 (NavigationRouteRedis 형식)
@@ -207,12 +197,6 @@ export class RouteOptimizerService {
           waypoints: metadata.waypoints,
           targetDistance: metadata.targetDistance,
         } as NavigationRouteRedis;
-
-        this.logger.debug(
-          `Redis 저장 [메타데이터]: routeType=${metadata.routeType}, ` +
-            `waypoints=${metadata.waypoints?.length || 0}개, ` +
-            `targetDistance=${metadata.targetDistance || 'N/A'}`,
-        );
       }
 
       const ttl = 600; // 10분 (네비게이션 세션 TTL과 동일)
@@ -221,12 +205,14 @@ export class RouteOptimizerService {
         ttl,
         JSON.stringify(dataForRedis),
       );
-      this.logger.debug(`Redis 저장 완료: routeId=${routeId}, ttl=${ttl}초`);
+      return true; // 성공
     } catch (error) {
+      // Redis 저장 실패는 error 레벨로 상세 로깅
       this.logger.error(
         `Redis 저장 실패 [routeId: ${routeId}]`,
         error instanceof Error ? error.stack : error,
       );
+      return false; // 실패
     }
   }
 
@@ -262,6 +248,9 @@ export class RouteOptimizerService {
   ): CategorizedPath[] {
     const used: GraphHopperPath[] = [];
     const result: CategorizedPath[] = [];
+    let redisSaveSuccess = 0;
+    let redisSaveFail = 0;
+    const failedRouteIds: string[] = [];
 
     const categories: Array<{
       label: string;
@@ -307,10 +296,36 @@ export class RouteOptimizerService {
 
         // 중복이 아닐 때만 Redis 저장
         if (!result.some((r) => r.routeId === routeId)) {
-          this.saveRouteToRedis(routeId, categorized);
+          const success = this.saveRouteToRedis(routeId, categorized);
+          if (success) {
+            redisSaveSuccess++;
+          } else {
+            redisSaveFail++;
+            failedRouteIds.push(routeId);
+          }
         }
 
         result.push(categorized);
+      }
+    }
+
+    // 배치 로깅: Redis 저장 결과 집계
+    const totalRedisAttempts = redisSaveSuccess + redisSaveFail;
+    if (totalRedisAttempts > 0) {
+      if (redisSaveFail === 0) {
+        this.logger.debug(
+          `[Redis] 경로 저장 완료: ${redisSaveSuccess}/${totalRedisAttempts}개 성공`,
+        );
+      } else {
+        this.logger.error(
+          `[Redis] 경로 저장 완료: ${redisSaveSuccess}/${totalRedisAttempts}개 성공, ${redisSaveFail}개 실패`,
+        );
+        // 실패한 routeId만 상세 로깅
+        for (const failedRouteId of failedRouteIds) {
+          this.logger.error(
+            `[Redis] 경로 저장 실패 - routeId: ${failedRouteId}`,
+          );
+        }
       }
     }
 

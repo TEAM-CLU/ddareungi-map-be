@@ -84,10 +84,6 @@ export class RoutesService {
         throw new Error('목표 거리는 0보다 커야 합니다.');
       }
 
-      this.logger.debug(
-        `원형 경로 추천 시작 - 목표 거리: ${request.targetDistance}m`,
-      );
-
       const station =
         await this.stationRouteService.findNearestAvailableStation(
           request.start,
@@ -114,9 +110,9 @@ export class RoutesService {
         throw new Error('조건에 맞는 원형 경로를 찾을 수 없습니다.');
       }
 
-      this.logger.debug(
-        `원형 경로 추천 완료 - 대여소: ${station.name}, 경로 ${optimalCircularPaths.length}개 생성`,
-      );
+      // this.logger.debug(
+      //   `[Routes] 원형 경로 추천 완료 - 대여소: ${station.name}, 목표 거리: ${request.targetDistance}m, 경로 ${optimalCircularPaths.length}개 생성`,
+      // );
 
       const routes = optimalCircularPaths.map((circularPath) => {
         const route = this.routeConverter.buildCircularRoute(
@@ -171,7 +167,7 @@ export class RoutesService {
       throw new Error('왕복 경로에는 최소한 하나의 경유지가 필요합니다.');
     }
 
-    this.logger.debug(`왕복 경로 검색 시작 - 경유지: ${waypoints.length}개`);
+    // this.logger.debug(`왕복 경로 검색 시작 - 경유지: ${waypoints.length}개`);
 
     try {
       const startStation =
@@ -205,18 +201,41 @@ export class RoutesService {
 
       const segmentCount = roundTripPoints.length - 1;
       const allSegmentPaths: CategorizedPath[][] = [];
+      const segmentFailures: Array<{
+        segmentIndex: number;
+        from: CoordinateDto;
+        to: CoordinateDto;
+        error: Error;
+      }> = [];
 
       for (let i = 0; i < segmentCount; i++) {
         const from = roundTripPoints[i];
         const to = roundTripPoints[i + 1];
-        const paths = await this.routeOptimizer.findOptimalRoutes(from, to);
+        try {
+          const paths = await this.routeOptimizer.findOptimalRoutes(from, to);
 
-        if (paths.length === 0) {
-          throw new Error(
-            `구간 ${i + 1}의 경로를 찾을 수 없습니다. (${from.lat},${from.lng}) → (${to.lat},${to.lng})`,
-          );
+          if (paths.length === 0) {
+            throw new Error(
+              `구간 ${i + 1}의 경로를 찾을 수 없습니다. (${from.lat},${from.lng}) → (${to.lat},${to.lng})`,
+            );
+          }
+          allSegmentPaths.push(paths);
+        } catch (error) {
+          segmentFailures.push({
+            segmentIndex: i + 1,
+            from,
+            to,
+            error: error instanceof Error ? error : new Error(String(error)),
+          });
+          // 실패한 구간은 빈 배열로 추가하여 인덱스 유지
+          allSegmentPaths.push([]);
         }
-        allSegmentPaths.push(paths);
+      }
+
+      // 외부 서비스/DB 통신 결과는 외부 로거(HttpClientLoggingService / TypeORM Logger)에서 처리
+      if (segmentFailures.length > 0) {
+        // 하나라도 실패하면 전체 실패로 처리 (에러 로깅은 상위 catch에서 처리)
+        throw segmentFailures[0].error;
       }
 
       const categories = [
@@ -258,9 +277,9 @@ export class RoutesService {
         routes.push(routeDto);
       }
 
-      this.logger.debug(
-        `왕복 경로 검색 완료 - 대여소: ${startStation.name}, 총 ${routes.length}개 경로 생성`,
-      );
+      // this.logger.debug(
+      //   `[Routes] 왕복 경로 검색 완료 - 대여소: ${startStation.name}, 총 ${routes.length}개 경로 생성`,
+      // );
 
       return routes;
     } catch (error) {
@@ -278,8 +297,6 @@ export class RoutesService {
   private async findDirectJourney(
     request: FullJourneyRequestDto,
   ): Promise<RouteDto[]> {
-    this.logger.debug('직접 경로 검색 시작');
-
     try {
       const { startStation, endStation } =
         await this.stationRouteService.findStartAndEndStations(
@@ -312,9 +329,9 @@ export class RoutesService {
         throw new Error('조건에 맞는 자전거 경로를 찾을 수 없습니다.');
       }
 
-      this.logger.debug(
-        `직접 경로 검색 완료 - 출발: ${startStation.name}, 도착: ${endStation.name}, 경로 ${optimalBikePaths.length}개`,
-      );
+      // this.logger.debug(
+      //   `[Routes] 직접 경로 검색 완료 - 출발: ${startStation.name}, 도착: ${endStation.name}, 경로 ${optimalBikePaths.length}개`,
+      // );
 
       const routes = optimalBikePaths.map((bikePath: CategorizedPath) => {
         const route = this.routeConverter.buildRouteFromGraphHopper(
@@ -358,10 +375,6 @@ export class RoutesService {
   ): Promise<RouteDto[]> {
     const { start, end, waypoints } = request;
 
-    this.logger.debug(
-      `다구간 경로 검색 시작 - 경유지: ${waypoints?.length || 0}개`,
-    );
-
     try {
       const { startStation, endStation } =
         await this.stationRouteService.findStartAndEndStations(start, end);
@@ -394,50 +407,57 @@ export class RoutesService {
         throw new Error('조건에 맞는 자전거 경로를 찾을 수 없습니다.');
       }
 
+      const routeBuildFailures: Array<{ category: string; error: Error }> = [];
+
       for (let i = 0; i < categories.length; i++) {
         const category = categories[i];
-        const route = await this.routeBuilder.buildMultiLegRoute(
-          bikeRoutePoints,
-          category,
-          walkingToStart,
-          walkingFromEnd,
-          {
-            number: startStation.number,
-            name: startStation.name,
-            lat: startStation.lat,
-            lng: startStation.lng,
-            current_bikes: startStation.current_bikes,
-          },
-          {
-            number: endStation.number,
-            name: endStation.name,
-            lat: endStation.lat,
-            lng: endStation.lng,
-            current_bikes: endStation.current_bikes,
-          },
-        );
+        try {
+          const route = await this.routeBuilder.buildMultiLegRoute(
+            bikeRoutePoints,
+            category,
+            walkingToStart,
+            walkingFromEnd,
+            {
+              number: startStation.number,
+              name: startStation.name,
+              lat: startStation.lat,
+              lng: startStation.lng,
+              current_bikes: startStation.current_bikes,
+            },
+            {
+              number: endStation.number,
+              name: endStation.name,
+              lat: endStation.lat,
+              lng: endStation.lng,
+              current_bikes: endStation.current_bikes,
+            },
+          );
 
-        const bikePath = optimalPaths[i];
-        const routeId =
-          bikePath?.routeId ||
-          this.routeOptimizer.createRouteId(bikePath ?? route);
+          const bikePath = optimalPaths[i];
+          const routeId =
+            bikePath?.routeId ||
+            this.routeOptimizer.createRouteId(bikePath ?? route);
 
-        const routeDto = this.createRouteDto(route, routeId, waypoints);
+          const routeDto = this.createRouteDto(route, routeId, waypoints);
 
-        // Redis에 instructions 및 메타데이터 포함하여 저장
-        this.routeOptimizer.saveRouteToRedis(routeId, routeDto, {
-          routeType: 'multi-leg',
-          origin: start,
-          destination: end,
-          waypoints: waypoints,
-        });
+          // Redis에 instructions 및 메타데이터 포함하여 저장
+          this.routeOptimizer.saveRouteToRedis(routeId, routeDto, {
+            routeType: 'multi-leg',
+            origin: start,
+            destination: end,
+            waypoints: waypoints,
+          });
 
-        routes.push(routeDto);
+          routes.push(routeDto);
+        } catch (error) {
+          routeBuildFailures.push({
+            category: category.name,
+            error: error instanceof Error ? error : new Error(String(error)),
+          });
+        }
       }
 
-      this.logger.debug(
-        `다구간 경로 검색 완료 - 출발: ${startStation.name}, 도착: ${endStation.name}, 경로 ${routes.length}개`,
-      );
+      // 외부 서비스/DB 통신 결과는 외부 로거(HttpClientLoggingService / TypeORM Logger)에서 처리
 
       return routes;
     } catch (error) {

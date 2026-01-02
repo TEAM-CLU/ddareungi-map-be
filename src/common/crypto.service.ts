@@ -75,8 +75,9 @@ export class CryptoService {
       decrypted = Buffer.concat([decrypted, decipher.final()]);
 
       return decrypted.toString('utf8');
-    } catch (error) {
-      throw new Error(`복호화 실패: ${error.message}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`복호화 실패: ${message}`);
     }
   }
 }

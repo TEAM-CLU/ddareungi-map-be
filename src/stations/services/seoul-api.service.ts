@@ -153,7 +153,7 @@ export class SeoulApiService {
 
       const parsedData = this.parseSeoulApiResponse(response.data);
 
-      this.logger.log(
+      this.logger.debug(
         `${apiType} 호출 완료: 총 ${parsedData.list_total_count || 0}건 중 ${
           parsedData.row?.length || 0
         }건 조회`,
@@ -212,7 +212,7 @@ export class SeoulApiService {
       await this.delay(this.apiDelay);
     }
 
-    this.logger.log(
+    this.logger.debug(
       `전체 대여소 조회 완료: ${allStations.length}개 대여소 수집`,
     );
     return allStations;
@@ -358,7 +358,7 @@ export class SeoulApiService {
       }
     }
 
-    this.logger.log(
+    this.logger.debug(
       `실시간 정보 일괄 조회 완료: ${realtimeInfoMap.size}/${stationIds.length}개 성공`,
     );
 

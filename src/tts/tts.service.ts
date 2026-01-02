@@ -140,7 +140,8 @@ export class TtsService {
 
       await this.redis.set(key, JSON.stringify(record), 'EX', REDIS_TTL);
 
-      this.logger.log(`TTS cached successfully: ${hash} -> ${s3Url}`);
+      // Redis 저장은 debug 레벨로만 로깅 (개별 저장은 너무 많음)
+      this.logger.debug(`TTS cached successfully: ${hash} -> ${s3Url}`);
 
       return { status: 'ready', url: s3Url, textKo, hash };
     } catch (error) {
@@ -167,6 +168,14 @@ export class TtsService {
     voice?: string,
   ): Promise<Map<string, TtsResponseDto>> {
     const results = new Map<string, TtsResponseDto>();
+    type SynthesisResult =
+      | { text: string; result: TtsResponseDto; success: boolean }
+      | {
+          text: string;
+          result: { status: 'error'; hash: string; error: string };
+          success: false;
+          error: unknown;
+        };
 
     // 1. 중복 제거: 고유한 텍스트만 추출
     const uniqueTexts = Array.from(
@@ -177,16 +186,25 @@ export class TtsService {
       return results;
     }
 
-    this.logger.log(
-      `Batch synthesis: ${instructions.length} instructions, ${uniqueTexts.length} unique`,
-    );
-
     // 2. 병렬 처리: 모든 고유 텍스트 동시 처리
-    const synthesisPromises = uniqueTexts.map((text) =>
-      this.synthesizeAndCache(text, lang, voice).then((result) => ({
-        text,
-        result,
-      })),
+    const synthesisPromises: Array<Promise<SynthesisResult>> = uniqueTexts.map(
+      (text) =>
+        this.synthesizeAndCache(text, lang, voice)
+          .then((result) => ({
+            text,
+            result,
+            success: result.status === 'ready',
+          }))
+          .catch((error: unknown) => ({
+            text,
+            result: {
+              status: 'error' as const,
+              hash: '',
+              error: error instanceof Error ? error.message : String(error),
+            },
+            success: false,
+            error,
+          })),
     );
 
     const synthesisResults = await Promise.all(synthesisPromises);
@@ -196,12 +214,50 @@ export class TtsService {
       results.set(text, result);
     }
 
-    const successCount = synthesisResults.filter(
-      (r) => r.result.status === 'ready',
+    // 배치 로깅: 성공/실패 집계
+    const successCount = synthesisResults.filter((r) => r.success).length;
+    const failureCount = synthesisResults.length - successCount;
+    const failures = synthesisResults.filter((r) => !r.success);
+
+    // Redis 저장 결과 집계 (status === 'ready'이고 url이 있으면 Redis 저장 성공으로 간주)
+    const redisSaveSuccess = synthesisResults.filter(
+      (r) => r.result.status === 'ready' && r.result.url,
     ).length;
-    this.logger.log(
-      `Batch synthesis complete: ${successCount}/${uniqueTexts.length} succeeded`,
+    const redisSaveFail = synthesisResults.length - redisSaveSuccess;
+    const redisFailures = synthesisResults.filter(
+      (r) => r.result.status !== 'ready' || !r.result.url,
     );
+
+    if (failureCount === 0) {
+      this.logger.debug(
+        `[TTS] 배치 합성 완료: ${successCount}/${uniqueTexts.length}개 성공 (Redis 저장: ${redisSaveSuccess}/${uniqueTexts.length}개 성공)`,
+      );
+    } else {
+      this.logger.error(
+        `[TTS] 배치 합성 완료: ${successCount}/${uniqueTexts.length}개 성공, ${failureCount}개 실패 (Redis 저장: ${redisSaveSuccess}/${uniqueTexts.length}개 성공, ${redisSaveFail}개 실패)`,
+      );
+      // 실패한 항목만 상세 로깅
+      for (const failure of failures) {
+        const errorInfo: string =
+          'error' in failure
+            ? failure.error instanceof Error
+              ? (failure.error.stack ?? failure.error.message)
+              : String(failure.error)
+            : failure.result.error || 'Unknown error';
+        this.logger.error(`[TTS] 합성 실패 - Text: ${failure.text}`, errorInfo);
+      }
+      // Redis 저장 실패만 상세 로깅 (합성은 성공했지만 Redis 저장 실패한 경우)
+      const redisOnlyFailures = redisFailures.filter(
+        (r) => r.success && (r.result.status !== 'ready' || !r.result.url),
+      );
+      if (redisOnlyFailures.length > 0) {
+        for (const redisFailure of redisOnlyFailures) {
+          this.logger.error(
+            `[TTS] Redis 저장 실패 - Text: ${redisFailure.text}, Hash: ${redisFailure.result.hash || 'N/A'}`,
+          );
+        }
+      }
+    }
 
     return results;
   }
@@ -239,7 +295,7 @@ export class TtsService {
       }
 
       // 4. TTS 합성
-      this.logger.log(`Synthesizing permanent TTS for: ${text}`);
+      this.logger.debug(`Synthesizing permanent TTS for: ${text}`);
       const audioBuffer = await this.ttsProvider.synthesize(
         normalized,
         lang,
@@ -285,7 +341,10 @@ export class TtsService {
         REDIS_TTL_PERMANENT,
       );
 
-      this.logger.log(`Permanent TTS cached successfully: ${text} -> ${s3Url}`);
+      // Redis 저장은 debug 레벨로만 로깅
+      this.logger.debug(
+        `Permanent TTS cached successfully: ${text} -> ${s3Url}`,
+      );
 
       return { status: 'ready', url: s3Url, textKo: normalized, hash };
     } catch (error) {

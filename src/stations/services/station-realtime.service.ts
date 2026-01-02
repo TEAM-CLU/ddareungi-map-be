@@ -65,7 +65,7 @@ export class StationRealtimeService {
         station.last_updated_at = new Date();
       }
 
-      this.logger.log(
+      this.logger.debug(
         `실시간 정보 동기화 완료: ${realtimeInfoMap.size}/${stations.length}개 성공`,
       );
     } catch (error) {
@@ -123,26 +123,31 @@ export class StationRealtimeService {
           const updateData = this.createRealtimeUpdateData(realtimeInfo);
           await this.stationRepository.update({ id: stationId }, updateData);
         } catch {
-          this.logger.warn(`대여소 ${stationId} DB 업데이트 실패`);
+          this.logger.debug(`대여소 ${stationId} DB 업데이트 실패`);
         }
       }
 
       // 실패한 대여소들을 inactive로 설정
-      for (const stationId of failedStationIds) {
-        try {
-          await this.stationRepository.update(
-            { id: stationId },
-            {
-              status: 'inactive',
-              last_updated_at: new Date(),
-            },
-          );
-          this.logger.warn(
-            `대여소 ${stationId} 실시간 정보 없음 - inactive로 설정`,
-          );
-        } catch {
-          this.logger.warn(`대여소 ${stationId} inactive 상태 업데이트 실패`);
+      const failedCount = failedStationIds.length;
+      if (failedCount > 0) {
+        for (const stationId of failedStationIds) {
+          try {
+            await this.stationRepository.update(
+              { id: stationId },
+              {
+                status: 'inactive',
+                last_updated_at: new Date(),
+              },
+            );
+          } catch {
+            this.logger.debug(
+              `대여소 ${stationId} inactive 상태 업데이트 실패`,
+            );
+          }
         }
+        this.logger.debug(
+          `실시간 정보 없음 - ${failedCount}개 대여소 inactive로 설정`,
+        );
       }
 
       return realtimeInfoMap;
@@ -160,7 +165,7 @@ export class StationRealtimeService {
             },
           );
         } catch {
-          this.logger.warn(`대여소 ${stationId} inactive 상태 업데이트 실패`);
+          this.logger.debug(`대여소 ${stationId} inactive 상태 업데이트 실패`);
         }
       }
 
@@ -183,7 +188,7 @@ export class StationRealtimeService {
         await this.seoulApiService.fetchRealtimeStationInfo(stationId);
 
       if (!realtimeInfo) {
-        this.logger.warn(`실시간 정보 없음: ${stationId} - inactive로 설정`);
+        this.logger.debug(`실시간 정보 없음: ${stationId} - inactive로 설정`);
 
         // 실시간 정보가 없는 경우 inactive로 설정
         const updateResult = await this.stationRepository.update(
@@ -195,7 +200,7 @@ export class StationRealtimeService {
         );
 
         if (updateResult.affected === 0) {
-          this.logger.warn(`대여소 없음: ${stationId}`);
+          this.logger.debug(`대여소 없음: ${stationId}`);
         }
 
         return null;
@@ -209,7 +214,7 @@ export class StationRealtimeService {
       );
 
       if (updateResult.affected === 0) {
-        this.logger.warn(`대여소 없음: ${stationId}`);
+        this.logger.debug(`대여소 없음: ${stationId}`);
         return null;
       }
 
@@ -233,9 +238,9 @@ export class StationRealtimeService {
             last_updated_at: new Date(),
           },
         );
-        this.logger.warn(`대여소 ${stationId} 동기화 실패 - inactive로 설정`);
+        this.logger.debug(`대여소 ${stationId} 동기화 실패 - inactive로 설정`);
       } catch {
-        this.logger.warn(`대여소 ${stationId} inactive 상태 업데이트 실패`);
+        this.logger.debug(`대여소 ${stationId} inactive 상태 업데이트 실패`);
       }
 
       throw error;
@@ -301,7 +306,7 @@ export class StationRealtimeService {
         }
       }
 
-      this.logger.log(
+      this.logger.debug(
         `전체 실시간 동기화 완료: ${successCount}개 성공, ${failureCount}개 실패 (총 ${allStations.length}개)`,
       );
 
