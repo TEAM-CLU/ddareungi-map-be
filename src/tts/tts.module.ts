@@ -9,6 +9,6 @@ import { TranslationService } from './translation.service';
   imports: [ConfigModule],
   controllers: [TtsController],
   providers: [TtsService, GoogleTtsProvider, TranslationService],
-  exports: [TtsService],
+  exports: [TtsService, TranslationService],
 })
 export class TtsModule {}

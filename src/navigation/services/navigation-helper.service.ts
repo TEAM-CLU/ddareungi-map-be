@@ -10,6 +10,7 @@ import {
 } from '../../routes/dto/route.dto';
 import { NavigationRouteRedis } from '../dto/navigation-route-redis.interface';
 import { TtsService } from '../../tts/tts.service';
+import { TranslationService } from '../../tts/translation.service';
 
 /**
  * 네비게이션 상수
@@ -38,6 +39,7 @@ export class NavigationHelperService {
   constructor(
     redisService: RedisService,
     private readonly ttsService: TtsService,
+    private readonly translationService: TranslationService,
   ) {
     this.redis = redisService.getOrThrow();
   }
@@ -56,13 +58,21 @@ export class NavigationHelperService {
       return instructions;
     }
 
+    // 인스트럭션 텍스트를 한글로 번역 (응답 직전/TTS 직전 1회 적용)
+    const translatedInstructions: InstructionDto[] = instructions.map(
+      (instruction) => ({
+        ...instruction,
+        text: this.translationService.translateToKorean(instruction.text),
+      }),
+    );
+
     this.logger.log(`TTS 합성 시작: ${instructions.length}개의 인스트럭션`);
     const ttsResults = await this.ttsService.batchSynthesize(
-      instructions,
+      translatedInstructions,
       'ko-KR',
     );
 
-    return instructions.map((instruction) => {
+    return translatedInstructions.map((instruction) => {
       const ttsResult = ttsResults.get(instruction.text);
 
       // 다음 회전 좌표 계산 로직
