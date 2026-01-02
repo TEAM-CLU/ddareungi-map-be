@@ -31,7 +31,7 @@ export class UpdateUserStatsDto {
 
   @ApiProperty({
     description: '심은 나무 수 (그루)',
-    example: 12,
+    example: 12.5,
     minimum: 0,
   })
   @IsNumber({}, { message: '심은 나무 수는 숫자여야 합니다.' })
