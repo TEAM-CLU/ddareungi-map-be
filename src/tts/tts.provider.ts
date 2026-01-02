@@ -1,32 +1,113 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TextToSpeechClient } from '@google-cloud/text-to-speech';
+import {
+  SecretsManagerClient,
+  GetSecretValueCommand,
+} from '@aws-sdk/client-secrets-manager';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 
 export interface TtsProvider {
   synthesize(text: string, lang?: string, voice?: string): Promise<Buffer>;
 }
 
 @Injectable()
-export class GoogleTtsProvider implements TtsProvider {
+export class GoogleTtsProvider implements TtsProvider, OnModuleInit {
   private readonly logger = new Logger(GoogleTtsProvider.name);
-  private readonly client: TextToSpeechClient;
+  private client!: TextToSpeechClient;
 
-  constructor(private readonly configService: ConfigService) {
-    // 로컬 개발 환경: 서비스 계정 키 파일 사용
+  constructor(private readonly configService: ConfigService) {}
+
+  async onModuleInit(): Promise<void> {
+    await this.initializeClient();
+  }
+
+  private async initializeClient(): Promise<void> {
+    // 1. 로컬 개발 환경: 서비스 계정 키 파일 사용
     const keyFilename = this.configService.get<string>(
       'GOOGLE_APPLICATION_CREDENTIALS',
     );
 
-    if (keyFilename) {
+    if (keyFilename && fs.existsSync(keyFilename)) {
       this.client = new TextToSpeechClient({ keyFilename });
       this.logger.log(`Google TTS initialized with key file: ${keyFilename}`);
-    } else {
-      // EC2 배포 환경: Application Default Credentials (자동 인증)
-      this.client = new TextToSpeechClient();
-      this.logger.log(
-        'Google TTS initialized with Application Default Credentials (EC2 IAM Role)',
-      );
+      return;
     }
+
+    // 2. EC2 배포 환경: AWS Secrets Manager에서 가져오기
+    const secretName = this.configService.get<string>(
+      'GOOGLE_CREDENTIALS_SECRET_NAME',
+    );
+
+    if (secretName) {
+      try {
+        const credentialsJson =
+          await this.getCredentialsFromSecretsManager(secretName);
+        const tempKeyPath = this.writeTempKeyFile(credentialsJson);
+        this.client = new TextToSpeechClient({ keyFilename: tempKeyPath });
+        this.logger.log(
+          `Google TTS initialized with credentials from AWS Secrets Manager`,
+        );
+        return;
+      } catch (error) {
+        this.logger.error(
+          `Failed to get credentials from Secrets Manager: ${(error as Error).message}`,
+        );
+        throw error;
+      }
+    }
+
+    throw new Error(
+      'Google Cloud credentials not configured. Set GOOGLE_APPLICATION_CREDENTIALS or GOOGLE_CREDENTIALS_SECRET_NAME',
+    );
+  }
+
+  private async getCredentialsFromSecretsManager(
+    secretName: string,
+  ): Promise<string> {
+    const region =
+      this.configService.get<string>('AWS_REGION') || 'ap-northeast-2';
+
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
+    const client = new SecretsManagerClient({ region });
+
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
+      const command = new GetSecretValueCommand({ SecretId: secretName });
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+      const response = await client.send(command);
+
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      const secretString = response.SecretString as string | undefined;
+      if (!secretString) {
+        throw new Error('Secret value is empty');
+      }
+
+      this.logger.log(
+        `Retrieved secret from AWS Secrets Manager: ${secretName}`,
+      );
+      return secretString;
+    } catch (error) {
+      this.logger.error(
+        `Failed to retrieve secret ${secretName}: ${(error as Error).message}`,
+      );
+      throw error;
+    }
+  }
+
+  private writeTempKeyFile(credentialsJson: string): string {
+    // JSON 유효성 검사
+    JSON.parse(credentialsJson);
+
+    const tempDir = os.tmpdir();
+    const keyPath = path.join(tempDir, `google-credentials-${Date.now()}.json`);
+
+    fs.writeFileSync(keyPath, credentialsJson, 'utf-8');
+    this.logger.debug(`Wrote temporary credentials file to ${keyPath}`);
+
+    return keyPath;
   }
 
   async synthesize(
