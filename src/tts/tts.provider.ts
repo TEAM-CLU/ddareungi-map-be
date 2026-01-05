@@ -1,32 +1,43 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TextToSpeechClient } from '@google-cloud/text-to-speech';
+import * as fs from 'fs';
 
 export interface TtsProvider {
   synthesize(text: string, lang?: string, voice?: string): Promise<Buffer>;
 }
 
 @Injectable()
-export class GoogleTtsProvider implements TtsProvider {
+export class GoogleTtsProvider implements TtsProvider, OnModuleInit {
   private readonly logger = new Logger(GoogleTtsProvider.name);
-  private readonly client: TextToSpeechClient;
+  private client!: TextToSpeechClient;
 
-  constructor(private readonly configService: ConfigService) {
-    // 로컬 개발 환경: 서비스 계정 키 파일 사용
+  constructor(private readonly configService: ConfigService) {}
+
+  onModuleInit(): void {
+    this.initializeClient();
+  }
+
+  private initializeClient(): void {
+    // 모든 환경(로컬/프로덕션): 서비스 계정 키 파일(GOOGLE_APPLICATION_CREDENTIALS) 사용
     const keyFilename = this.configService.get<string>(
       'GOOGLE_APPLICATION_CREDENTIALS',
     );
 
-    if (keyFilename) {
-      this.client = new TextToSpeechClient({ keyFilename });
-      this.logger.log(`Google TTS initialized with key file: ${keyFilename}`);
-    } else {
-      // EC2 배포 환경: Application Default Credentials (자동 인증)
-      this.client = new TextToSpeechClient();
-      this.logger.log(
-        'Google TTS initialized with Application Default Credentials (EC2 IAM Role)',
+    if (!keyFilename) {
+      throw new Error(
+        'Google Cloud credentials not configured. Set GOOGLE_APPLICATION_CREDENTIALS to a valid file path.',
       );
     }
+
+    if (!fs.existsSync(keyFilename)) {
+      throw new Error(
+        `Google Cloud credentials file not found: ${keyFilename}. Check GOOGLE_APPLICATION_CREDENTIALS.`,
+      );
+    }
+
+    this.client = new TextToSpeechClient({ keyFilename });
+    this.logger.log(`Google TTS initialized with key file: ${keyFilename}`);
   }
 
   async synthesize(

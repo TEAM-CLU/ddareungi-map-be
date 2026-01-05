@@ -1,9 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
-import { Strategy } from 'passport-google-oauth20';
+import { Strategy, type Profile } from 'passport-google-oauth20';
 import { ConfigService } from '@nestjs/config';
 import { AuthService } from '../auth.service';
 import axios from 'axios';
+
+type GooglePeopleApiResponse = {
+  genders?: Array<{ value?: string }>;
+  birthdays?: Array<{ date?: { year?: number; month?: number; day?: number } }>;
+};
 
 @Injectable()
 export class JwtGoogleStrategy extends PassportStrategy(Strategy, 'google') {
@@ -12,9 +17,9 @@ export class JwtGoogleStrategy extends PassportStrategy(Strategy, 'google') {
     private readonly authService: AuthService,
   ) {
     const options = {
-      clientID: configService.get('GOOGLE_CLIENT_ID'),
-      clientSecret: configService.get('GOOGLE_CLIENT_SECRET'),
-      callbackURL: configService.get('GOOGLE_CALLBACK_URL'),
+      clientID: configService.getOrThrow<string>('GOOGLE_CLIENT_ID'),
+      clientSecret: configService.getOrThrow<string>('GOOGLE_CLIENT_SECRET'),
+      callbackURL: configService.getOrThrow<string>('GOOGLE_CALLBACK_URL'),
       scope: [
         'email',
         'profile',
@@ -27,10 +32,10 @@ export class JwtGoogleStrategy extends PassportStrategy(Strategy, 'google') {
     super(options);
   }
 
-  async validate(accessToken: string, refreshToken: string, profile: any) {
+  async validate(accessToken: string, _refreshToken: string, profile: Profile) {
     const peopleApiUrl =
       'https://people.googleapis.com/v1/people/me?personFields=birthdays,genders';
-    const response = await axios.get(peopleApiUrl, {
+    const response = await axios.get<GooglePeopleApiResponse>(peopleApiUrl, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -38,19 +43,33 @@ export class JwtGoogleStrategy extends PassportStrategy(Strategy, 'google') {
     const additionalInfo = response.data;
 
     // Extract required fields
+    const displayName =
+      profile.displayName ??
+      [profile.name?.givenName, profile.name?.familyName]
+        .filter((v): v is string => typeof v === 'string' && v.length > 0)
+        .join(' ');
+
+    const genderValue = additionalInfo.genders?.[0]?.value;
+    const gender =
+      genderValue === 'male' ? 'M' : genderValue === 'female' ? 'F' : 'U';
+
+    const date = additionalInfo.birthdays?.[0]?.date;
+    const birthday =
+      date &&
+      typeof date.year === 'number' &&
+      typeof date.month === 'number' &&
+      typeof date.day === 'number'
+        ? `${date.year}-${String(date.month).padStart(2, '0')}-${String(date.day).padStart(2, '0')}`
+        : 'unknown';
+
     const googleProfile = {
       id: profile.id,
-      name:
-        profile.displayName ||
-        `${profile.name.givenName} ${profile.name.familyName}`,
-      email: profile.emails?.[0]?.value || '',
-      gender: additionalInfo.genders?.[0]?.value === 'male' ? 'M' : 'W',
-      birthday: additionalInfo.birthdays?.[0]?.date
-        ? `${additionalInfo.birthdays[0].date.year}-${additionalInfo.birthdays[0].date.month}-${additionalInfo.birthdays[0].date.day}`
-        : 'unknown',
+      name: displayName || 'Google User',
+      email: profile.emails?.[0]?.value ?? '',
+      gender,
+      birthday,
     };
 
-    console.log('Google Profile:', googleProfile);
     return await this.authService.handleGoogleLogin(googleProfile);
   }
 }

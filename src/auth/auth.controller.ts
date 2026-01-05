@@ -103,9 +103,9 @@ export class AuthController {
     description: '인증 실패 (잘못된 코드, 만료된 코드, 시도 횟수 초과 등)',
     type: ErrorResponseDto,
   })
-  async verifyEmail(@Body() verifyEmailDto: VerifyEmailDto) {
+  verifyEmail(@Body() verifyEmailDto: VerifyEmailDto) {
     try {
-      const result = await this.authService.verifyEmail(verifyEmailDto);
+      const result = this.authService.verifyEmail(verifyEmailDto);
       return SuccessResponseDto.create(result.message, {
         isVerified: result.isVerified,
         securityToken: result.securityToken,
@@ -195,7 +195,7 @@ export class AuthController {
 
   @Get('naver')
   @UseGuards(AuthGuard('naver'))
-  async naverLogin() {
+  naverLogin() {
     // 네이버 로그인 페이지로 리디렉션
     return SuccessResponseDto.create(
       '네이버 로그인 페이지로 리디렉션 중입니다.',
@@ -205,7 +205,7 @@ export class AuthController {
 
   @Get('kakao')
   @UseGuards(AuthGuard('kakao'))
-  async kakaoLogin() {
+  kakaoLogin() {
     // 카카오 로그인 페이지로 리디렉션
     return SuccessResponseDto.create(
       '카카오 로그인 페이지로 리디렉션 중입니다.',
@@ -215,7 +215,7 @@ export class AuthController {
 
   @Get('google')
   @UseGuards(AuthGuard('google'))
-  async googleLogin() {
+  googleLogin() {
     // 구글 로그인 페이지로 리디렉션
     return SuccessResponseDto.create(
       '구글 로그인 페이지로 리디렉션 중입니다.',
@@ -225,40 +225,34 @@ export class AuthController {
   /* Get google Auth Callback */
   @Get('/google/callback')
   @UseGuards(AuthGuard('google'))
-  async googleAuthCallback(
+  googleAuthCallback(
     @Req() req: Request,
     @Res() res: Response, // : Promise<NaverLoginAuthOutputDto>
   ) {
-    const { user } = req;
+    const user = (req as unknown as { user?: unknown }).user;
     return res.send(user);
-    // return this.authService.handleNaverLogin(req);
-    return {
-      message: '구글 로그인 콜백 처리 중입니다.',
-    };
   }
 
   /* Get naver Auth Callback */
   @Get('/naver/callback')
   @UseGuards(AuthGuard('naver'))
-  async naverAuthCallback(
+  naverAuthCallback(
     @Req() req: Request,
     @Res() res: Response, // : Promise<NaverLoginAuthOutputDto>
   ) {
-    const { user } = req;
+    const user = (req as unknown as { user?: unknown }).user;
     return res.send(user);
-    // return this.authService.handleNaverLogin(req);
   }
 
   /* Get kakao Auth Callback */
   @Get('/kakao/callback')
   @UseGuards(AuthGuard('kakao'))
-  async kakaoAuthCallback(
+  kakaoAuthCallback(
     @Req() req: Request,
     @Res() res: Response, // : Promise<NaverLoginAuthOutputDto>
   ) {
-    const { user } = req;
+    const user = (req as unknown as { user?: unknown }).user;
     return res.send(user);
-    // return this.authService.handleNaverLogin(req);
   }
 
   @Post('reset-password')
@@ -317,7 +311,7 @@ export class AuthController {
     description: 'Google PKCE 로그인 URL 생성 성공',
     type: SuccessResponseDto,
   })
-  async getGooglePKCEUrl() {
+  getGooglePKCEUrl() {
     try {
       const result = this.authService.getGooglePKCEAuthUrl();
       return SuccessResponseDto.create('Google PKCE 로그인 URL입니다.', result);
@@ -342,7 +336,7 @@ export class AuthController {
     description: 'Kakao PKCE 로그인 URL 생성 성공',
     type: SuccessResponseDto,
   })
-  async getKakaoPKCEUrl() {
+  getKakaoPKCEUrl() {
     try {
       const result = this.authService.getKakaoPKCEAuthUrl();
       return SuccessResponseDto.create('Kakao PKCE 로그인 URL입니다.', result);
@@ -367,7 +361,7 @@ export class AuthController {
     description: 'Naver PKCE 로그인 URL 생성 성공',
     type: SuccessResponseDto,
   })
-  async getNaverPKCEUrl() {
+  getNaverPKCEUrl() {
     try {
       const result = this.authService.getNaverPKCEAuthUrl();
       return SuccessResponseDto.create('Naver PKCE 로그인 URL입니다.', result);
@@ -626,7 +620,7 @@ export class AuthController {
       },
     },
   })
-  async checkAuthStatus(
+  checkAuthStatus(
     @Res() res: Response,
     @Query('clientState') clientState?: string,
   ) {
@@ -637,7 +631,7 @@ export class AuthController {
       Expires: '0',
     });
 
-    const result = await this.authService.checkAuthStatus(clientState);
+    const result = this.authService.checkAuthStatus(clientState);
 
     // 폴링 간격 권장사항 추가
     const data = {
@@ -674,7 +668,7 @@ export class AuthController {
     description: '토큰 교환 실패',
     type: ErrorResponseDto,
   })
-  async exchangeToken(@Body('codeVerifier') codeVerifier: string) {
+  exchangeToken(@Body('codeVerifier') codeVerifier: string) {
     if (!codeVerifier) {
       throw new HttpException(
         ErrorResponseDto.create(
@@ -687,7 +681,7 @@ export class AuthController {
 
     try {
       const result =
-        await this.authService.exchangeTokenWithCodeVerifier(codeVerifier);
+        this.authService.exchangeTokenWithCodeVerifier(codeVerifier);
       return SuccessResponseDto.create('토큰 교환 성공', result);
     } catch (error) {
       const message =
@@ -716,7 +710,7 @@ export class AuthController {
       },
     },
   })
-  async logout(@Res() res: Response) {
+  logout(@Res() res: Response) {
     // 쿠키 삭제
     res.clearCookie('accessToken', {
       httpOnly: true,
@@ -759,8 +753,8 @@ export class AuthController {
       },
     },
   })
-  async getDebugStates() {
-    const result = await this.authService.getDebugStates();
+  getDebugStates() {
+    const result = this.authService.getDebugStates();
     return SuccessResponseDto.create(result.message, {
       count: result.count,
       states: result.states,
@@ -797,8 +791,8 @@ export class AuthController {
       },
     },
   })
-  async getDebugStateDetail(@Param('state') state: string) {
-    const result = await this.authService.getDebugStateDetail(state);
+  getDebugStateDetail(@Param('state') state: string) {
+    const result = this.authService.getDebugStateDetail(state);
     return SuccessResponseDto.create(result.message, {
       exists: result.exists,
       ...result.data,

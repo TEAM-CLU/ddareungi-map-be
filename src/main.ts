@@ -2,10 +2,30 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import helmet from 'helmet';
+import { ConfigService } from '@nestjs/config';
+import { createWinstonLogger } from './common/logger/winston.config';
+import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
+import { ClsService } from 'nestjs-cls';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // ConfigService를 먼저 가져와서 환경 변수 확인
+  const tempApp = await NestFactory.createApplicationContext(AppModule, {
+    logger: false, // 임시로 로거 비활성화 (Winston 설정 전)
+  });
+  const configService = tempApp.get(ConfigService);
+  await tempApp.close();
+
+  // Winston Logger 생성
+  const winstonLogger = createWinstonLogger(configService);
+
+  // NestJS 앱 생성 (Winston Logger 사용)
+  const app = await NestFactory.create(AppModule, {
+    logger: winstonLogger,
+  });
+
+  // Global Interceptor 등록 (요청/응답 로깅)
+  const clsService = app.get(ClsService);
+  app.useGlobalInterceptors(new LoggingInterceptor(clsService));
 
   // helmet 임시 비활성화 - Swagger 테스트용
   // app.use(
@@ -26,7 +46,12 @@ async function bootstrap() {
   app.enableCors({
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Trace-Id',
+      'X-Request-Id',
+    ],
   });
 
   // ValidationPipe

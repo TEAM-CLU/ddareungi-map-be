@@ -12,15 +12,19 @@ export class JwtKakaoStrategy extends PassportStrategy(Strategy, 'kakao') {
     private readonly authService: AuthService,
   ) {
     const options = {
-      clientID: configService.get('KAKAO_CLIENT_ID'),
-      clientSecret: configService.get('KAKAO_CLIENT_SECRET'),
-      callbackURL: configService.get('KAKAO_CALLBACK_URL'),
+      clientID: configService.getOrThrow<string>('KAKAO_CLIENT_ID'),
+      clientSecret: configService.getOrThrow<string>('KAKAO_CLIENT_SECRET'),
+      callbackURL: configService.getOrThrow<string>('KAKAO_CALLBACK_URL'),
     };
 
     super(options);
   }
 
-  async validate(accessToken: string, refreshToken: string, profile: any) {
+  async validate(
+    accessToken: string,
+    _refreshToken: string,
+    _profile: unknown,
+  ) {
     try {
       // Fetch user profile from Kakao API using accessToken
       const response = await axios.get('https://kapi.kakao.com/v2/user/me', {
@@ -29,12 +33,12 @@ export class JwtKakaoStrategy extends PassportStrategy(Strategy, 'kakao') {
         },
       });
 
-      const kakaoProfile = response.data;
+      const kakaoProfile = response.data as unknown;
 
       // Pass the fetched profile to the authService for handling
       const user = await this.authService.handleKakaoLogin(kakaoProfile);
       return user;
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error fetching Kakao profile:', error);
       throw error;
     }

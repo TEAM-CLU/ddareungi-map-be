@@ -34,21 +34,66 @@ interface EmailVerification {
   attempts: number;
 }
 
+type JwtPayloadWithUserId = { userId: number };
+
+type PkceStateData = {
+  codeVerifier: string;
+  expiresAt: Date;
+  isComplete: boolean;
+  accessToken?: string;
+  user?: unknown;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function getString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function getStringOrNumber(value: unknown): string | undefined {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number') return String(value);
+  return undefined;
+}
+
+function getNested(
+  obj: unknown,
+  ...keys: string[]
+): Record<string, unknown> | undefined {
+  let cur: unknown = obj;
+  for (const key of keys) {
+    if (!isRecord(cur)) return undefined;
+    cur = cur[key];
+  }
+  return isRecord(cur) ? cur : undefined;
+}
+
+function _getUserEmailFromPkceUser(user: unknown): string | undefined {
+  // google userinfo style: { email }
+  const email = isRecord(user) ? getString(user.email) : undefined;
+  if (email) return email;
+
+  // naver userinfo style: { response: { email } }
+  const naverResp = getNested(user, 'response');
+  return naverResp ? getString(naverResp.email) : undefined;
+}
+
+function _getUserNameFromPkceUser(user: unknown): string | undefined {
+  const name = isRecord(user) ? getString(user.name) : undefined;
+  if (name) return name;
+
+  const naverResp = getNested(user, 'response');
+  return naverResp ? getString(naverResp.nickname) : undefined;
+}
+
 @Injectable()
 export class AuthService {
   // 실제 프로덕션에서는 Redis나 데이터베이스를 사용해야 합니다
   private verificationCodes = new Map<string, EmailVerification>();
   // PKCE state별 사용자 정보 및 토큰 저장소 (codeVerifier 포함)
-  private pkceStates = new Map<
-    string,
-    {
-      accessToken: string;
-      user: any;
-      codeVerifier: string;
-      expiresAt: Date;
-      isComplete: boolean;
-    }
-  >();
+  private pkceStates = new Map<string, PkceStateData>();
 
   constructor(
     private mailService: MailService,
@@ -105,7 +150,7 @@ export class AuthService {
         normalizedEmail,
         verificationCode,
       );
-    } catch (error) {
+    } catch {
       // 이메일 발송 실패 시 저장된 인증 정보 삭제
       this.verificationCodes.delete(normalizedEmail);
       throw new BadRequestException(
@@ -117,9 +162,7 @@ export class AuthService {
   /**
    * 이메일 인증 코드 확인
    */
-  async verifyEmail(
-    verifyEmailDto: VerifyEmailDto,
-  ): Promise<VerifyEmailResponseDto> {
+  verifyEmail(verifyEmailDto: VerifyEmailDto): VerifyEmailResponseDto {
     const { email, verificationCode } = verifyEmailDto;
     const normalizedEmail = email.toLowerCase();
 
@@ -169,7 +212,7 @@ export class AuthService {
   async validateUserByToken(token: string): Promise<User> {
     try {
       // 토큰 검증 및 디코딩
-      const decoded = this.jwtService.verify(token);
+      const decoded = this.jwtService.verify<JwtPayloadWithUserId>(token);
 
       // 디코딩된 정보에서 사용자 ID 추출
       const userId = decoded.userId;
@@ -184,7 +227,7 @@ export class AuthService {
       }
 
       return user;
-    } catch (error) {
+    } catch {
       throw new UnauthorizedException({
         statusCode: 401,
         message: '유효하지 않은 토큰입니다.',
@@ -192,10 +235,16 @@ export class AuthService {
     }
   }
 
-  async handleNaverLogin(naverProfile: any) {
-    const {
-      response: { id: socialUid, email, nickname, gender, birthday, birthyear },
-    } = naverProfile;
+  async handleNaverLogin(
+    naverProfile: unknown,
+  ): Promise<{ accessToken: string }> {
+    const response = getNested(naverProfile, 'response');
+    const socialUid = response ? getStringOrNumber(response.id) : undefined;
+    const email = response ? getString(response.email) : undefined;
+    const nickname = response ? getString(response.nickname) : undefined;
+    const gender = response ? getString(response.gender) : undefined;
+    const birthday = response ? getString(response.birthday) : undefined;
+    const birthyear = response ? getString(response.birthyear) : undefined;
 
     // Debugging: Check if socialUid is null
     if (!socialUid) {
@@ -230,12 +279,15 @@ export class AuthService {
       const formattedBirthDate =
         birthyear && birthday ? `${birthyear}-${birthday}` : null;
 
+      // email이 없으면 기본값 제공 (소셜 로그인에서 email이 없을 수 있음)
+      const userEmail = normalizedEmail ?? `naver_${socialUid}@social.local`;
+
       user = this.userRepository.create({
         socialName: 'Naver',
         socialUid,
-        email: normalizedEmail,
-        name: nickname ? nickname : 'Naver User',
-        gender,
+        email: userEmail,
+        name: nickname ?? 'Naver User',
+        gender: gender ?? 'U',
         birthDate: formattedBirthDate
           ? new Date(formattedBirthDate)
           : new Date('1970-01-01'),
@@ -259,11 +311,26 @@ export class AuthService {
     return { accessToken };
   }
 
-  async handleKakaoLogin(kakaoProfile: any) {
-    const {
-      id: socialUid,
-      kakao_account: { email, nickname, gender, birthday, birthyear },
-    } = kakaoProfile;
+  async handleKakaoLogin(
+    kakaoProfile: unknown,
+  ): Promise<{ accessToken: string }> {
+    const socialUid = isRecord(kakaoProfile)
+      ? getStringOrNumber(kakaoProfile.id)
+      : undefined;
+    const kakaoAccount = getNested(kakaoProfile, 'kakao_account');
+    const email = kakaoAccount ? getString(kakaoAccount.email) : undefined;
+    const nickname =
+      (kakaoAccount ? getString(kakaoAccount.nickname) : undefined) ??
+      (kakaoAccount
+        ? getString(getNested(kakaoAccount, 'profile')?.nickname)
+        : undefined);
+    const gender = kakaoAccount ? getString(kakaoAccount.gender) : undefined;
+    const birthday = kakaoAccount
+      ? getString(kakaoAccount.birthday)
+      : undefined;
+    const birthyear = kakaoAccount
+      ? getString(kakaoAccount.birthyear)
+      : undefined;
 
     // Debugging: Check if socialUid is null
     if (!socialUid) {
@@ -303,11 +370,14 @@ export class AuthService {
           ? `${birthyear}-${formattedBirthday}`
           : null;
 
+      // email이 없으면 기본값 제공 (소셜 로그인에서 email이 없을 수 있음)
+      const userEmail = normalizedEmail ?? `kakao_${socialUid}@social.local`;
+
       user = this.userRepository.create({
         socialName: 'Kakao',
         socialUid,
-        email: normalizedEmail,
-        name: nickname ? nickname : 'Kakao User',
+        email: userEmail,
+        name: nickname ?? 'Kakao User',
         gender: gender === 'male' ? 'M' : gender === 'female' ? 'F' : 'U',
         birthDate: formattedBirthDate
           ? new Date(formattedBirthDate)
@@ -332,8 +402,24 @@ export class AuthService {
     return { accessToken };
   }
 
-  async handleGoogleLogin(googleProfile: any) {
-    const { id: socialUid, email, name, gender, birthday } = googleProfile;
+  async handleGoogleLogin(
+    googleProfile: unknown,
+  ): Promise<{ accessToken: string }> {
+    const socialUid = isRecord(googleProfile)
+      ? getStringOrNumber(googleProfile.id)
+      : undefined;
+    const email = isRecord(googleProfile)
+      ? getString(googleProfile.email)
+      : undefined;
+    const name = isRecord(googleProfile)
+      ? getString(googleProfile.name)
+      : undefined;
+    const gender = isRecord(googleProfile)
+      ? getString(googleProfile.gender)
+      : undefined;
+    const birthday = isRecord(googleProfile)
+      ? getString(googleProfile.birthday)
+      : undefined;
 
     // Debugging: Check if socialUid is null
     if (!socialUid) {
@@ -373,18 +459,21 @@ export class AuthService {
           if (isNaN(parsedBirthDate.getTime())) {
             parsedBirthDate = new Date('1970-01-01');
           }
-        } catch (error) {
+        } catch {
           parsedBirthDate = new Date('1970-01-01');
         }
       } else {
         parsedBirthDate = new Date('1970-01-01');
       }
 
+      // email이 없으면 기본값 제공 (소셜 로그인에서 email이 없을 수 있음)
+      const userEmail = normalizedEmail ?? `google_${socialUid}@social.local`;
+
       user = this.userRepository.create({
         socialName: 'Google',
         socialUid,
-        email: normalizedEmail,
-        name: name ? name : 'Google User',
+        email: userEmail,
+        name: name ?? 'Google User',
         gender: gender || 'U', // Unknown으로 기본값 설정
         birthDate: parsedBirthDate,
         passwordHash,
@@ -620,7 +709,16 @@ export class AuthService {
         },
       );
 
-      const { access_token } = tokenResponse.data;
+      const access_token = getString(
+        (tokenResponse.data as unknown as Record<string, unknown>)[
+          'access_token'
+        ],
+      );
+      if (!access_token) {
+        throw new BadRequestException(
+          'Google access_token을 가져오지 못했습니다.',
+        );
+      }
 
       // 2. 사용자 정보 가져오기
       const userResponse = await axios.get(
@@ -642,20 +740,43 @@ export class AuthService {
         },
       );
 
-      const googleProfile = {
-        id: userResponse.data.id,
-        name: userResponse.data.name,
-        email: userResponse.data.email,
-        gender:
-          peopleResponse.data.genders?.[0]?.value === 'male'
-            ? 'M'
-            : peopleResponse.data.genders?.[0]?.value === 'female'
-              ? 'F'
-              : 'U',
-        birthday: peopleResponse.data.birthdays?.[0]?.date
-          ? `${peopleResponse.data.birthdays[0].date.year}-${peopleResponse.data.birthdays[0].date.month.toString().padStart(2, '0')}-${peopleResponse.data.birthdays[0].date.day.toString().padStart(2, '0')}`
-          : null,
-      };
+      const userData = userResponse.data as unknown as Record<string, unknown>;
+      const peopleData = peopleResponse.data as unknown as Record<
+        string,
+        unknown
+      >;
+
+      const id = getStringOrNumber(userData['id']);
+      const name = getString(userData['name']);
+      const email = getString(userData['email']);
+
+      // genders?.[0]?.value
+      const genders = peopleData['genders'] as Array<Record<string, unknown>>;
+      const genderValue = Array.isArray(genders)
+        ? getString(genders[0]?.value)
+        : undefined;
+      const gender =
+        genderValue === 'male' ? 'M' : genderValue === 'female' ? 'F' : 'U';
+
+      // birthdays?.[0]?.date { year, month, day }
+      const birthdays = peopleData['birthdays'] as Array<
+        Record<string, unknown>
+      >;
+      const firstBirthday = Array.isArray(birthdays) ? birthdays[0] : undefined;
+      const dateObj = firstBirthday
+        ? getNested(firstBirthday, 'date')
+        : undefined;
+      const year = dateObj ? dateObj['year'] : undefined;
+      const month = dateObj ? dateObj['month'] : undefined;
+      const day = dateObj ? dateObj['day'] : undefined;
+      const birthday =
+        typeof year === 'number' &&
+        typeof month === 'number' &&
+        typeof day === 'number'
+          ? `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+          : null;
+
+      const googleProfile = { id, name, email, gender, birthday };
 
       // 4. 회원가입/로그인 처리
       const authResult = await this.handleGoogleLogin(googleProfile);
@@ -711,7 +832,16 @@ export class AuthService {
         },
       );
 
-      const { access_token } = tokenResponse.data;
+      const access_token = getString(
+        (tokenResponse.data as unknown as Record<string, unknown>)[
+          'access_token'
+        ],
+      );
+      if (!access_token) {
+        throw new BadRequestException(
+          'Kakao access_token을 가져오지 못했습니다.',
+        );
+      }
 
       // 2. 사용자 정보 가져오기
       const userResponse = await axios.get(
@@ -723,7 +853,7 @@ export class AuthService {
         },
       );
 
-      const kakaoProfile = userResponse.data;
+      const kakaoProfile = userResponse.data as unknown;
 
       // 3. 회원가입/로그인 처리
       const authResult = await this.handleKakaoLogin(kakaoProfile);
@@ -781,7 +911,16 @@ export class AuthService {
         },
       );
 
-      const { access_token } = tokenResponse.data;
+      const access_token = getString(
+        (tokenResponse.data as unknown as Record<string, unknown>)[
+          'access_token'
+        ],
+      );
+      if (!access_token) {
+        throw new BadRequestException(
+          'Naver access_token을 가져오지 못했습니다.',
+        );
+      }
 
       // 2. 사용자 정보 가져오기
       const userResponse = await axios.get(
@@ -793,7 +932,7 @@ export class AuthService {
         },
       );
 
-      const naverProfile = userResponse.data;
+      const naverProfile = userResponse.data as unknown;
 
       // 3. 회원가입/로그인 처리
       const authResult = await this.handleNaverLogin(naverProfile);
@@ -818,13 +957,11 @@ export class AuthService {
   }
 
   // 🔐 codeVerifier 검증으로 토큰 반환
-  async exchangeTokenWithCodeVerifier(
-    codeVerifier: string,
-  ): Promise<{ accessToken: string }> {
+  exchangeTokenWithCodeVerifier(codeVerifier: string): { accessToken: string } {
     try {
       // 모든 state를 순회하여 일치하는 codeVerifier 찾기
       let matchingState: string | null = null;
-      let matchingData: any = null;
+      let matchingData: PkceStateData | null = null;
 
       for (const [state, pkceData] of this.pkceStates.entries()) {
         // 만료 확인
@@ -846,7 +983,7 @@ export class AuthService {
       }
 
       // 로그인이 완료되지 않은 경우
-      if (!matchingData.isComplete) {
+      if (!matchingData.isComplete || !matchingData.accessToken) {
         throw new UnauthorizedException('Social login not completed yet');
       }
 
@@ -859,7 +996,7 @@ export class AuthService {
       this.pkceStates.delete(matchingState);
 
       return result;
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Token exchange error:', error);
       throw new UnauthorizedException('토큰 교환에 실패했습니다.');
     }
@@ -871,7 +1008,7 @@ export class AuthService {
   ): Promise<{ userId: number; email: string; name: string }> {
     try {
       // JWT 토큰 검증
-      const payload = this.jwtService.verify(token);
+      const payload = this.jwtService.verify<JwtPayloadWithUserId>(token);
 
       // 사용자 정보 조회
       const user = await this.userRepository.findOne({
@@ -887,10 +1024,14 @@ export class AuthService {
         email: user.email,
         name: user.name,
       };
-    } catch (error) {
-      if (error.name === 'TokenExpiredError') {
+    } catch (error: unknown) {
+      const errName =
+        typeof error === 'object' && error !== null && 'name' in error
+          ? String((error as { name?: unknown }).name)
+          : '';
+      if (errName === 'TokenExpiredError') {
         throw new UnauthorizedException('토큰이 만료되었습니다.');
-      } else if (error.name === 'JsonWebTokenError') {
+      } else if (errName === 'JsonWebTokenError') {
         throw new UnauthorizedException('유효하지 않은 토큰입니다.');
       }
       throw new UnauthorizedException('토큰 검증에 실패했습니다.');
@@ -898,11 +1039,11 @@ export class AuthService {
   }
 
   // 🔄 폴링 API - 소셜 로그인 완료 상태 확인
-  async checkAuthStatus(clientState?: string): Promise<{
+  checkAuthStatus(clientState?: string): {
     state: string | null;
     isComplete: boolean;
     message: string;
-  }> {
+  } {
     // 만료된 데이터 정리
     this.cleanupExpiredAuthData();
 
@@ -984,7 +1125,7 @@ export class AuthService {
   /**
    * 저장된 PKCE 상태들을 조회 (디버깅용)
    */
-  async getDebugStates(): Promise<{
+  getDebugStates(): {
     message: string;
     count: number;
     states: Array<{
@@ -1000,7 +1141,7 @@ export class AuthService {
       expiresAt: Date;
       attempts: number;
     }>;
-  }> {
+  } {
     // 만료된 데이터 먼저 정리
     this.cleanupExpiredAuthData();
 
@@ -1014,13 +1155,14 @@ export class AuthService {
     }> = [];
 
     for (const [state, data] of this.pkceStates.entries()) {
+      const userEmail = _getUserEmailFromPkceUser(data.user);
       statesList.push({
         state: state,
         isComplete: data.isComplete,
         expiresAt: data.expiresAt,
         hasUser: !!data.user,
         hasAccessToken: !!data.accessToken,
-        userEmail: data.user?.email || data.user?.response?.email || undefined,
+        userEmail: userEmail ?? undefined,
       });
     }
 
@@ -1030,7 +1172,7 @@ export class AuthService {
       attempts: number;
     }> = [];
 
-    for (const [email, verification] of this.verificationCodes.entries()) {
+    for (const [_email, verification] of this.verificationCodes.entries()) {
       verificationsList.push({
         email: verification.email,
         expiresAt: verification.expiresAt,
@@ -1092,7 +1234,7 @@ export class AuthService {
           message: '이미 가입된 이메일입니다. 로그인해주세요.',
         };
       }
-    } catch (error) {
+    } catch {
       // 복호화 실패 또는 기타 에러
       throw new BadRequestException(
         '유효하지 않은 보안 토큰입니다. 이메일 인증을 다시 진행해주세요.',
@@ -1103,11 +1245,22 @@ export class AuthService {
   /**
    * 특정 state의 상세 정보 조회 (디버깅용)
    */
-  async getDebugStateDetail(state: string): Promise<{
+  getDebugStateDetail(state: string): {
     message: string;
     exists: boolean;
-    data?: any;
-  }> {
+    data?: {
+      state: string;
+      isComplete: boolean;
+      expiresAt: Date;
+      hasAccessToken: boolean;
+      hasUser: boolean;
+      userInfo: null | {
+        email?: string;
+        name?: string;
+        socialProvider?: string;
+      };
+    };
+  } {
     const pkceData = this.pkceStates.get(state);
 
     if (!pkceData) {
@@ -1126,6 +1279,12 @@ export class AuthService {
       };
     }
 
+    const email = _getUserEmailFromPkceUser(pkceData.user);
+    const name = _getUserNameFromPkceUser(pkceData.user);
+    const socialProvider = isRecord(pkceData.user)
+      ? getString(pkceData.user.socialName)
+      : undefined;
+
     return {
       message: '해당 state의 상세 정보입니다.',
       exists: true,
@@ -1137,9 +1296,9 @@ export class AuthService {
         hasUser: !!pkceData.user,
         userInfo: pkceData.user
           ? {
-              email: pkceData.user.email || pkceData.user.response?.email,
-              name: pkceData.user.name || pkceData.user.response?.nickname,
-              socialProvider: pkceData.user.socialName || 'Unknown',
+              email,
+              name,
+              socialProvider: socialProvider ?? 'Unknown',
             }
           : null,
       },

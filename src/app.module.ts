@@ -11,11 +11,37 @@ import { StationsModule } from './stations/stations.module';
 import { RoutesModule } from './routes/routes.module';
 import { NavigationModule } from './navigation/navigation.module';
 import { TtsModule } from './tts/tts.module';
-
+import { ClsModule } from 'nestjs-cls';
 import { RedisModule } from '@liaoliaots/nestjs-redis';
+import { HttpLoggingModule } from './common/http/http-logging.module';
+import { TypeormWinstonLogger } from './common/logger/typeorm-logger';
+import type { Request } from 'express';
+
+type ClsLike = {
+  set(key: string, value: unknown): void;
+};
 
 @Module({
   imports: [
+    // CLS 모듈 설정 (Trace ID 관리용)
+
+    ClsModule.forRoot({
+      global: true,
+      middleware: {
+        mount: true,
+        setup: (cls: ClsLike, req: Request) => {
+          // Trace ID를 CLS에 저장 (헤더에서 가져오거나 생성)
+          const traceIdHeader =
+            req.headers['x-trace-id'] ?? req.headers['x-request-id'];
+          const traceId =
+            typeof traceIdHeader === 'string' ? traceIdHeader : undefined;
+          if (traceId !== undefined) {
+            cls.set('traceId', traceId);
+          }
+        },
+      },
+    }),
+
     // 환경변수 모듈 설정
     ConfigModule.forRoot({
       isGlobal: true,
@@ -29,22 +55,38 @@ import { RedisModule } from '@liaoliaots/nestjs-redis';
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        type: 'postgres',
-        host: configService.getOrThrow<string>('DB_HOST'),
-        port: +configService.getOrThrow<number>('DB_PORT'),
-        username: configService.getOrThrow<string>('DB_USERNAME'),
-        password: configService.getOrThrow<string>('DB_PASSWORD'),
-        database: configService.getOrThrow<string>('DB_DATABASE'),
+      useFactory: (configService: ConfigService) => {
+        const isProd = (process.env.NODE_ENV || 'development') === 'production';
+        const enableQueryLog = !isProd && process.env.DB_QUERY_LOG === '1';
 
-        ssl: {
-          rejectUnauthorized: false,
-        },
+        return {
+          logger: new TypeormWinstonLogger(enableQueryLog),
+          logging: isProd
+            ? ['error', 'warn']
+            : enableQueryLog
+              ? ['error', 'warn', 'query']
+              : ['error', 'warn'],
+          // warn-level slow query logging (ms)
+          maxQueryExecutionTime: isProd ? 1000 : 300,
+          type: 'postgres',
+          host: configService.getOrThrow<string>('DB_HOST'),
+          port: +configService.getOrThrow<number>('DB_PORT'),
+          username: configService.getOrThrow<string>('DB_USERNAME'),
+          password: configService.getOrThrow<string>('DB_PASSWORD'),
+          database: configService.getOrThrow<string>('DB_DATABASE'),
 
-        autoLoadEntities: true,
-        synchronize: true, // 개발용으로만 true, 프로덕션에서는 false
-      }),
+          ssl: {
+            rejectUnauthorized: false,
+          },
+
+          autoLoadEntities: true,
+          synchronize: true, // 개발용으로만 true, 프로덕션에서는 false
+        };
+      },
     }),
+
+    // HttpService(axios) outgoing logging (global)
+    HttpLoggingModule,
 
     // Redis 모듈 글로벌 등록
     RedisModule.forRoot({
