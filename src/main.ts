@@ -5,7 +5,9 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { createWinstonLogger } from './common/logger/winston.config';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
+import { SentryInterceptor } from './common/interceptors/sentry.interceptor';
 import { ClsService } from 'nestjs-cls';
+import * as Sentry from '@sentry/nestjs';
 
 async function bootstrap() {
   // ConfigService를 먼저 가져와서 환경 변수 확인
@@ -18,6 +20,23 @@ async function bootstrap() {
   // Winston Logger 생성
   const winstonLogger = createWinstonLogger(configService);
 
+  // Sentry 초기화 (에러 모니터링 전용, production에서만)
+  const nodeEnv = configService.get<string>('NODE_ENV', 'local');
+  const sentryDsn = configService.get<string>('SENTRY_DSN');
+  if (nodeEnv === 'production' && sentryDsn) {
+    const tracesSampleRate = Number(
+      configService.get<string>('SENTRY_TRACES_SAMPLE_RATE', '0.1'),
+    );
+
+    Sentry.init({
+      dsn: sentryDsn,
+      environment: nodeEnv,
+      tracesSampleRate: Number.isFinite(tracesSampleRate)
+        ? tracesSampleRate
+        : 0.1,
+    });
+  }
+
   // NestJS 앱 생성 (Winston Logger 사용)
   const app = await NestFactory.create(AppModule, {
     logger: winstonLogger,
@@ -25,6 +44,7 @@ async function bootstrap() {
 
   // Global Interceptor 등록 (요청/응답 로깅)
   const clsService = app.get(ClsService);
+  app.useGlobalInterceptors(new SentryInterceptor(configService, clsService));
   app.useGlobalInterceptors(new LoggingInterceptor(clsService));
 
   // helmet 임시 비활성화 - Swagger 테스트용
