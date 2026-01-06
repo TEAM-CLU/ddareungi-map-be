@@ -84,6 +84,26 @@ TTS_S3_BUCKET=your-tts-bucket-name
    pnpm run start:local
    ```
 
+## 📡 Sentry (에러 모니터링) 설정
+
+운영 환경(production)에서 발생하는 런타임 에러를 Sentry로 전송하여 실시간으로 감지하고,
+Stack Trace 및 Trace ID 등 컨텍스트 정보를 기반으로 장애 대응 속도를 높입니다.
+
+### 필수/선택 환경변수
+
+```env
+# production 환경에서만 전송됩니다. (NODE_ENV=production)
+SENTRY_DSN=your_sentry_dsn
+
+# 성능 모니터링(Tracing) 샘플링 비율 (기본값: 0.1)
+SENTRY_TRACES_SAMPLE_RATE=0.1
+```
+
+### 테스트 방법
+
+- `GET /test/sentry-error` 호출 시 의도적으로 에러를 발생시킵니다.
+- production 환경에서 호출하면 Sentry 대시보드에 에러가 유입되는지 확인할 수 있습니다.
+
 ## �️ TTS (Text-to-Speech) 설정
 
 네비게이션 인스트럭션을 음성으로 변환하여 S3에 캐싱하는 기능입니다.
@@ -105,8 +125,8 @@ TTS_S3_BUCKET=ddareungimap-tts-cache
 
 # EC2 배포 환경 (.env.production)
 # ====================================
-# Google Cloud TTS: AWS Secrets Manager에서 자격 증명 가져오기
-GOOGLE_CREDENTIALS_SECRET_NAME=your-project/googleCloud
+# Google Cloud TTS (프로덕션: 파일 경로)
+GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/service-account-key.json
 
 # AWS 설정: EC2 IAM Role 사용 (자동 인증)
 # AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY 설정 불필요
@@ -115,9 +135,10 @@ TTS_S3_BUCKET=ddareungimap-tts-cache
 ```
 
 > 📝 **구성 가이드**:
+>
 > - Google Cloud에서 TTS API 활성화 및 서비스 계정 생성
 > - AWS S3 버킷 생성 (전역 고유 이름 사용)
-> - AWS Secrets Manager에 Google 키 저장
+> - 프로덕션 환경에서도 서비스 계정 키 파일을 안전하게 배포하고 `GOOGLE_APPLICATION_CREDENTIALS`로 경로 지정
 > - 음성: ko-KR-Wavenet-A (한국어 여성) 권장
 
 ### Google Cloud TTS 설정 방법
@@ -147,37 +168,8 @@ TTS_S3_BUCKET=ddareungimap-tts-cache
    **EC2 배포 환경 (.env.production):**
 
    ```bash
-   # AWS Secrets Manager에 저장된 시크릿 이름
-   GOOGLE_CREDENTIALS_SECRET_NAME=ddareungi-map/google-tts-credentials
+   GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/service-account-key.json
    ```
-
-   **AWS Secrets Manager 설정 방법:**
-   1. AWS Console > Secrets Manager > "새 보안 암호 저장"
-   2. 보안 암호 유형: "다른 유형의 보안 암호"
-   3. 키/값 쌍 대신 "일반 텍스트" 탭 선택
-   4. Google 서비스 계정 JSON 키 파일 내용 전체를 붙여넣기
-   5. 보안 암호 이름: 프로젝트에 맞는 이름 (예: `myproject/googleCloud`)
-   6. EC2 IAM Role에 다음 권한 추가:
-
-   ```json
-   {
-     "Version": "2012-10-17",
-     "Statement": [
-       {
-         "Effect": "Allow",
-         "Action": ["secretsmanager:GetSecretValue"],
-         "Resource": "arn:aws:secretsmanager:ap-northeast-2:*:secret:your-project/googleCloud-*"
-       }
-     ]
-   }
-   ```
-
-   **장점:**
-   - ✅ Git에 민감한 파일을 올리지 않음
-   - ✅ EC2에 별도 파일 업로드 불필요
-   - ✅ AWS Secrets Manager로 안전하게 관리
-   - ✅ 시크릿 자동 로테이션 지원
-   - ✅ 로컬에서만 키 파일 사용
 
 ### AWS S3 설정 방법
 
