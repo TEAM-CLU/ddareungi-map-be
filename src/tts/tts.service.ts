@@ -136,8 +136,23 @@ export class TtsService {
         try {
           const record = JSON.parse(existing) as TtsRecord;
           if (record.status === 'ready' && record.s3Url) {
-            this.logger.debug(`Cache hit for hash=${hash}`);
-            return { status: 'ready', url: record.s3Url, hash, cached: true };
+            // Redis hit이더라도 S3 객체가 실제로 존재하는지 확인 (stale cache 방지)
+            const existsInS3 = await this.s3Exists(
+              bucket,
+              record.s3Key ?? s3Key,
+            );
+            if (existsInS3) {
+              this.logger.debug(`Cache hit for hash=${hash}`);
+              // 네비게이션 세션/재검색에서 재사용 시 TTL을 다시 3일로 연장
+              await this.redis.expire(key, REDIS_TTL);
+              return {
+                status: 'ready',
+                url: record.s3Url,
+                textKo: record.textKo ?? textKo,
+                hash,
+                cached: true,
+              };
+            }
           }
         } catch {
           this.logger.warn(`Failed to parse cached record for hash=${hash}`);
@@ -348,14 +363,21 @@ export class TtsService {
         try {
           const record = JSON.parse(existing) as TtsRecord;
           if (record.status === 'ready' && record.s3Url) {
-            this.logger.debug(`Cache hit for permanent message: ${text}`);
-            return {
-              status: 'ready',
-              url: record.s3Url,
-              textKo: text,
-              hash,
-              cached: true,
-            };
+            // Redis hit이더라도 S3 객체가 실제로 존재하는지 확인 (stale cache 방지)
+            const existsInS3 = await this.s3Exists(
+              bucket,
+              record.s3Key ?? s3Key,
+            );
+            if (existsInS3) {
+              this.logger.debug(`Cache hit for permanent message: ${text}`);
+              return {
+                status: 'ready',
+                url: record.s3Url,
+                textKo: record.textKo ?? normalized,
+                hash,
+                cached: true,
+              };
+            }
           }
         } catch {
           this.logger.warn(`Failed to parse cached permanent message: ${text}`);
@@ -498,7 +520,17 @@ export class TtsService {
     try {
       const record = JSON.parse(existing) as TtsRecord;
       if (record.status === 'ready' && record.s3Url) {
-        return { status: 'ready', url: record.s3Url, hash };
+        // Redis hit이더라도 S3 객체가 실제로 존재하는지 확인 (stale cache 방지)
+        const existsInS3 = await this.s3Exists(bucket, record.s3Key ?? s3Key);
+        if (existsInS3) {
+          return {
+            status: 'ready',
+            url: record.s3Url,
+            textKo: record.textKo,
+            hash,
+          };
+        }
+        return null;
       }
       return { status: record.status, hash, error: record.error };
     } catch {
@@ -550,12 +582,103 @@ export class TtsService {
     try {
       const record = JSON.parse(existing) as TtsRecord;
       if (record.status === 'ready' && record.s3Url) {
-        return { status: 'ready', url: record.s3Url, textKo: text, hash };
+        const existsInS3 = await this.s3Exists(bucket, record.s3Key ?? s3Key);
+        if (existsInS3) {
+          return {
+            status: 'ready',
+            url: record.s3Url,
+            textKo: record.textKo ?? normalized,
+            hash,
+          };
+        }
+        return null;
       }
       return { status: record.status, hash, error: record.error };
     } catch {
       return null;
     }
+  }
+
+  /**
+   * S3 객체 존재 여부 조회 (임시 TTS)
+   * - Redis 캐시 여부(ready + s3Url)와 S3 존재 여부를 함께 반환
+   */
+  async lookupS3(
+    text: string,
+    lang = 'ko-KR',
+    voice?: string,
+  ): Promise<{
+    redisCached: boolean;
+    s3Exists: boolean;
+    s3Key: string;
+    url?: string;
+  }> {
+    const normalized = normalizeText(text);
+    const textKo = this.translationService.translateToKorean(normalized);
+    const hash = this.hashText(`${lang}:${voice || ''}:${textKo}`);
+    const bucket = this.bucketOrThrow();
+    const key = this.redisKey(hash);
+    const s3Key = this.s3Key('temporary', lang, hash);
+
+    // Redis ready-cache 여부 확인 (record.status=ready && s3Url 존재)
+    let redisCached = false;
+    const cached = await this.redis.get(key);
+    if (cached) {
+      try {
+        const record = JSON.parse(cached) as TtsRecord;
+        redisCached = record.status === 'ready' && !!record.s3Url;
+      } catch {
+        redisCached = false;
+      }
+    }
+
+    const s3Exists = await this.s3Exists(bucket, s3Key);
+    return {
+      redisCached,
+      s3Exists,
+      s3Key,
+      url: s3Exists ? this.s3Url(bucket, s3Key) : undefined,
+    };
+  }
+
+  /**
+   * S3 객체 존재 여부 조회 (고정 메시지 TTS)
+   * - Redis 캐시 여부(ready + s3Url)와 S3 존재 여부를 함께 반환
+   */
+  async lookupS3Permanent(
+    text: string,
+    lang = 'ko-KR',
+    voice?: string,
+  ): Promise<{
+    redisCached: boolean;
+    s3Exists: boolean;
+    s3Key: string;
+    url?: string;
+  }> {
+    const normalized = normalizeText(text);
+    const hash = this.hashText(`${lang}:${voice || ''}:${normalized}`);
+    const bucket = this.bucketOrThrow();
+    const key = this.redisKey(hash);
+    const s3Key = this.s3Key('permanent', lang, hash);
+
+    let redisCached = false;
+    const cached = await this.redis.get(key);
+    if (cached) {
+      try {
+        const record = JSON.parse(cached) as TtsRecord;
+        redisCached = record.status === 'ready' && !!record.s3Url;
+      } catch {
+        redisCached = false;
+      }
+    }
+
+    const s3Exists = await this.s3Exists(bucket, s3Key);
+    return {
+      redisCached,
+      s3Exists,
+      s3Key,
+      url: s3Exists ? this.s3Url(bucket, s3Key) : undefined,
+    };
   }
 
   /**
@@ -606,10 +729,8 @@ export class TtsService {
       }
     }
 
-    // 최신순 정렬(가능하면 updatedAt 우선)
-    items.sort(
-      (a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt),
-    );
+    // 최신순 정렬: createdAt 기준 내림차순 (요청사항)
+    items.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
 
     return { items, nextCursor };
   }

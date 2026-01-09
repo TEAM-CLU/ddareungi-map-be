@@ -39,6 +39,41 @@ class PermanentTtsDto {
   text: string;
 }
 
+class S3LookupResponseDto {
+  @ApiProperty({
+    description:
+      'Redis 캐시 여부 (record 파싱 성공 + status=ready + s3Url 존재)',
+    example: true,
+  })
+  redisCached: boolean;
+
+  @ApiProperty({
+    description: '요청한 텍스트',
+    example: 'Turn left onto 공릉로27길',
+  })
+  text: string;
+
+  @ApiProperty({
+    description: 'S3 객체 존재 여부',
+    example: true,
+  })
+  s3Exists: boolean;
+
+  @ApiProperty({
+    description: 'S3 객체 Key',
+    example: 'tts/temp/ko-KR/abc123.mp3',
+    required: false,
+  })
+  s3Key?: string;
+
+  @ApiProperty({
+    description: 'TTS public URL (s3Exists=true일 때)',
+    example: 'https://bucket.s3.amazonaws.com/tts/temp/ko-KR/abc123.mp3',
+    required: false,
+  })
+  ttsUrl?: string;
+}
+
 @ApiTags('TTS 테스트')
 @Controller('tts')
 export class TtsController {
@@ -289,5 +324,73 @@ export class TtsController {
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+  }
+
+  @Get('lookup-s3')
+  @ApiOperation({
+    summary: 'TTS S3 객체 조회 (임시)',
+    description:
+      'Redis를 조회하지 않고 S3에 해당 TTS 객체가 존재하는지 확인합니다. (tts/temp/*)',
+  })
+  @ApiQuery({
+    name: 'text',
+    description: '조회할 텍스트',
+    example: 'Turn left onto 공릉로27길',
+    required: true,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'S3 조회 성공',
+    type: SuccessResponseDto,
+  })
+  async lookupS3(
+    @Query('text') text?: string,
+  ): Promise<SuccessResponseDto<S3LookupResponseDto>> {
+    if (!text || !text.trim()) {
+      throw new HttpException('text는 필수입니다', HttpStatus.BAD_REQUEST);
+    }
+
+    const result = await this.ttsService.lookupS3(text);
+    return SuccessResponseDto.create('TTS S3 조회 성공', {
+      redisCached: result.redisCached,
+      text,
+      s3Exists: result.s3Exists,
+      s3Key: result.s3Key,
+      ttsUrl: result.url,
+    });
+  }
+
+  @Get('lookup-s3-permanent')
+  @ApiOperation({
+    summary: 'TTS S3 객체 조회 (고정 메시지)',
+    description:
+      'Redis를 조회하지 않고 S3에 해당 TTS 객체가 존재하는지 확인합니다. (tts/permanent/*)',
+  })
+  @ApiQuery({
+    name: 'text',
+    description: '조회할 고정 메시지 텍스트',
+    example: '음성 안내를 시작합니다',
+    required: true,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'S3 조회 성공',
+    type: SuccessResponseDto,
+  })
+  async lookupS3Permanent(
+    @Query('text') text?: string,
+  ): Promise<SuccessResponseDto<S3LookupResponseDto>> {
+    if (!text || !text.trim()) {
+      throw new HttpException('text는 필수입니다', HttpStatus.BAD_REQUEST);
+    }
+
+    const result = await this.ttsService.lookupS3Permanent(text);
+    return SuccessResponseDto.create('고정 메시지 TTS S3 조회 성공', {
+      redisCached: result.redisCached,
+      text,
+      s3Exists: result.s3Exists,
+      s3Key: result.s3Key,
+      ttsUrl: result.url,
+    });
   }
 }
