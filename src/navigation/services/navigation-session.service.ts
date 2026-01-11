@@ -13,9 +13,9 @@ export const REDIS_KEY_PREFIX = {
 } as const;
 
 /**
- * 네비게이션 세션 TTL (1시간)
+ * 네비게이션 세션 TTL (10분)
  */
-export const NAVIGATION_SESSION_TTL = 3600;
+export const NAVIGATION_SESSION_TTL = 600;
 
 /**
  * 세션 데이터 인터페이스

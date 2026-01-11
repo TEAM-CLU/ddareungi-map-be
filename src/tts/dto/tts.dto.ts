@@ -53,6 +53,14 @@ export class TtsResponseDto {
     required: false,
   })
   error?: string;
+
+  @ApiProperty({
+    description:
+      '캐시 히트 여부 (true: Redis/S3 재사용, false: 새로 합성/업로드)',
+    example: true,
+    required: false,
+  })
+  cached?: boolean;
 }
 
 export interface TtsRecord {

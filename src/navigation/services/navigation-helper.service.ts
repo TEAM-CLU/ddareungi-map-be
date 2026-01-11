@@ -58,22 +58,18 @@ export class NavigationHelperService {
       return instructions;
     }
 
-    // 인스트럭션 텍스트를 한글로 번역 (응답 직전/TTS 직전 1회 적용)
-    const translatedInstructions: InstructionDto[] = instructions.map(
-      (instruction) => ({
-        ...instruction,
-        text: this.translationService.translateToKorean(instruction.text),
-      }),
-    );
-
     this.logger.log(`TTS 합성 시작: ${instructions.length}개의 인스트럭션`);
     const ttsResults = await this.ttsService.batchSynthesize(
-      translatedInstructions,
+      instructions,
       'ko-KR',
     );
 
-    return translatedInstructions.map((instruction) => {
-      const ttsResult = ttsResults.get(instruction.text);
+    return instructions.map((instruction) => {
+      const originalText = instruction.text;
+      const ttsResult = ttsResults.get(originalText);
+      const textKo =
+        ttsResult?.textKo ??
+        this.translationService.translateToKorean(originalText);
 
       // 다음 회전 좌표 계산 로직
       let nextTurnCoordinate: { lat: number; lng: number } | undefined;
@@ -86,6 +82,7 @@ export class NavigationHelperService {
         );
         return {
           ...instruction,
+          text: textKo,
           nextTurnCoordinate,
           ttsUrl: ttsResult?.url,
         };
@@ -127,6 +124,7 @@ export class NavigationHelperService {
 
       return {
         ...instruction,
+        text: textKo,
         nextTurnCoordinate,
         ttsUrl: ttsResult?.url,
       };

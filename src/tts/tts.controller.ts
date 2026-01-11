@@ -39,6 +39,41 @@ class PermanentTtsDto {
   text: string;
 }
 
+class S3LookupResponseDto {
+  @ApiProperty({
+    description:
+      'Redis 캐시 여부 (record 파싱 성공 + status=ready + s3Url 존재)',
+    example: true,
+  })
+  redisCached: boolean;
+
+  @ApiProperty({
+    description: '요청한 텍스트',
+    example: 'Turn left onto 공릉로27길',
+  })
+  text: string;
+
+  @ApiProperty({
+    description: 'S3 객체 존재 여부',
+    example: true,
+  })
+  s3Exists: boolean;
+
+  @ApiProperty({
+    description: 'S3 객체 Key',
+    example: 'tts/temp/ko-KR/abc123.mp3',
+    required: false,
+  })
+  s3Key?: string;
+
+  @ApiProperty({
+    description: 'TTS public URL (s3Exists=true일 때)',
+    example: 'https://bucket.s3.amazonaws.com/tts/temp/ko-KR/abc123.mp3',
+    required: false,
+  })
+  ttsUrl?: string;
+}
+
 @ApiTags('TTS 테스트')
 @Controller('tts')
 export class TtsController {
@@ -55,10 +90,13 @@ export class TtsController {
     description: 'TTS 생성 성공',
     type: SuccessResponseDto,
   })
-  async testTts(
-    @Body() dto: TestTtsDto,
-  ): Promise<
-    SuccessResponseDto<{ text: string; textKo: string; ttsUrl?: string }>
+  async testTts(@Body() dto: TestTtsDto): Promise<
+    SuccessResponseDto<{
+      text: string;
+      textKo: string;
+      cached: boolean;
+      ttsUrl?: string;
+    }>
   > {
     try {
       // synthesizeAndCache가 이미 번역을 수행함
@@ -68,9 +106,14 @@ export class TtsController {
         throw new Error(result.error || 'TTS 생성 실패');
       }
 
-      return SuccessResponseDto.create('TTS 생성 성공', {
+      const message = result.cached
+        ? '캐시된 TTS를 반환했습니다.'
+        : 'TTS를 새로 생성했습니다.';
+
+      return SuccessResponseDto.create(message, {
         text: dto.text,
         textKo: (result.textKo as string) || dto.text,
+        cached: Boolean(result.cached),
         ttsUrl: result.url,
       });
     } catch (error) {
@@ -95,7 +138,9 @@ export class TtsController {
   })
   async createPermanentTts(
     @Body() dto: PermanentTtsDto,
-  ): Promise<SuccessResponseDto<{ text: string; ttsUrl?: string }>> {
+  ): Promise<
+    SuccessResponseDto<{ text: string; cached: boolean; ttsUrl?: string }>
+  > {
     try {
       const result = await this.ttsService.synthesizePermanent(dto.text);
 
@@ -103,8 +148,13 @@ export class TtsController {
         throw new Error(result.error || 'TTS 생성 실패');
       }
 
-      return SuccessResponseDto.create('고정 메시지 TTS 생성 성공', {
+      const message = result.cached
+        ? '캐시된 고정 메시지 TTS를 반환했습니다.'
+        : '고정 메시지 TTS를 새로 생성했습니다.';
+
+      return SuccessResponseDto.create(message, {
         text: dto.text,
+        cached: Boolean(result.cached),
         ttsUrl: result.url,
       });
     } catch (error) {
@@ -118,12 +168,26 @@ export class TtsController {
   @Get('lookup')
   @ApiOperation({
     summary: 'TTS 캐시 조회',
-    description: 'Redis에 캐싱되어 있는 TTS를 조회합니다 (번역 적용).',
+    description:
+      'text가 있으면 특정 TTS를 조회하고, text가 없으면 임시(TTL) TTS 캐시 목록을 조회합니다.',
   })
   @ApiQuery({
     name: 'text',
     description: '조회할 텍스트',
     example: 'Turn left onto 공릉로27길',
+    required: false,
+  })
+  @ApiQuery({
+    name: 'cursor',
+    description: 'Redis SCAN cursor (페이징용). 최초 호출은 생략 또는 "0".',
+    required: false,
+    example: '0',
+  })
+  @ApiQuery({
+    name: 'limit',
+    description: '목록 조회 시 최대 개수 (기본 200, 최대 1000)',
+    required: false,
+    example: 200,
   })
   @ApiResponse({
     status: 200,
@@ -135,11 +199,29 @@ export class TtsController {
     description: '캐시에 TTS가 없음',
   })
   async lookupTts(
-    @Query('text') text: string,
+    @Query('text') text?: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
   ): Promise<
-    SuccessResponseDto<{ text: string; cached: boolean; ttsUrl?: string }>
+    SuccessResponseDto<
+      | { text: string; cached: boolean; ttsUrl?: string }
+      | { items: unknown[]; nextCursor: string }
+    >
   > {
     try {
+      // 전체 조회 (임시 캐시 목록)
+      if (!text || !text.trim()) {
+        const { items, nextCursor } = await this.ttsService.listCached(
+          'temporary',
+          cursor || '0',
+          limit ? Number(limit) : 200,
+        );
+        return SuccessResponseDto.create('임시 TTS 캐시 목록 조회 성공', {
+          items,
+          nextCursor,
+        });
+      }
+
       const result = await this.ttsService.lookup(text);
 
       if (!result) {
@@ -166,12 +248,25 @@ export class TtsController {
   @ApiOperation({
     summary: '고정 메시지 TTS 캐시 조회',
     description:
-      'Redis에 캐싱되어 있는 고정 메시지 TTS를 조회합니다 (번역 미적용).',
+      'text가 있으면 특정 고정 메시지 TTS를 조회하고, text가 없으면 고정 메시지 캐시 목록을 조회합니다.',
   })
   @ApiQuery({
     name: 'text',
     description: '조회할 고정 메시지',
     example: '음성 안내를 시작합니다',
+    required: false,
+  })
+  @ApiQuery({
+    name: 'cursor',
+    description: 'Redis SCAN cursor (페이징용). 최초 호출은 생략 또는 "0".',
+    required: false,
+    example: '0',
+  })
+  @ApiQuery({
+    name: 'limit',
+    description: '목록 조회 시 최대 개수 (기본 200, 최대 1000)',
+    required: false,
+    example: 200,
   })
   @ApiResponse({
     status: 200,
@@ -183,11 +278,32 @@ export class TtsController {
     description: '캐시에 TTS가 없음',
   })
   async lookupPermanentTts(
-    @Query('text') text: string,
+    @Query('text') text?: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
   ): Promise<
-    SuccessResponseDto<{ text: string; cached: boolean; ttsUrl?: string }>
+    SuccessResponseDto<
+      | { text: string; cached: boolean; ttsUrl?: string }
+      | { items: unknown[]; nextCursor: string }
+    >
   > {
     try {
+      // 전체 조회 (고정 메시지 캐시 목록)
+      if (!text || !text.trim()) {
+        const { items, nextCursor } = await this.ttsService.listCached(
+          'permanent',
+          cursor || '0',
+          limit ? Number(limit) : 200,
+        );
+        return SuccessResponseDto.create(
+          '고정 메시지 TTS 캐시 목록 조회 성공',
+          {
+            items,
+            nextCursor,
+          },
+        );
+      }
+
       const result = await this.ttsService.lookupPermanent(text);
 
       if (!result) {
@@ -208,5 +324,73 @@ export class TtsController {
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+  }
+
+  @Get('lookup-s3')
+  @ApiOperation({
+    summary: 'TTS S3 객체 조회 (임시)',
+    description:
+      'Redis를 조회하지 않고 S3에 해당 TTS 객체가 존재하는지 확인합니다. (tts/temp/*)',
+  })
+  @ApiQuery({
+    name: 'text',
+    description: '조회할 텍스트',
+    example: 'Turn left onto 공릉로27길',
+    required: true,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'S3 조회 성공',
+    type: SuccessResponseDto,
+  })
+  async lookupS3(
+    @Query('text') text?: string,
+  ): Promise<SuccessResponseDto<S3LookupResponseDto>> {
+    if (!text || !text.trim()) {
+      throw new HttpException('text는 필수입니다', HttpStatus.BAD_REQUEST);
+    }
+
+    const result = await this.ttsService.lookupS3(text);
+    return SuccessResponseDto.create('TTS S3 조회 성공', {
+      redisCached: result.redisCached,
+      text,
+      s3Exists: result.s3Exists,
+      s3Key: result.s3Key,
+      ttsUrl: result.url,
+    });
+  }
+
+  @Get('lookup-s3-permanent')
+  @ApiOperation({
+    summary: 'TTS S3 객체 조회 (고정 메시지)',
+    description:
+      'Redis를 조회하지 않고 S3에 해당 TTS 객체가 존재하는지 확인합니다. (tts/permanent/*)',
+  })
+  @ApiQuery({
+    name: 'text',
+    description: '조회할 고정 메시지 텍스트',
+    example: '음성 안내를 시작합니다',
+    required: true,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'S3 조회 성공',
+    type: SuccessResponseDto,
+  })
+  async lookupS3Permanent(
+    @Query('text') text?: string,
+  ): Promise<SuccessResponseDto<S3LookupResponseDto>> {
+    if (!text || !text.trim()) {
+      throw new HttpException('text는 필수입니다', HttpStatus.BAD_REQUEST);
+    }
+
+    const result = await this.ttsService.lookupS3Permanent(text);
+    return SuccessResponseDto.create('고정 메시지 TTS S3 조회 성공', {
+      redisCached: result.redisCached,
+      text,
+      s3Exists: result.s3Exists,
+      s3Key: result.s3Key,
+      ttsUrl: result.url,
+    });
   }
 }
