@@ -149,6 +149,7 @@ export class NavigationController {
     description:
       '큰 이탈 시 현재 위치부터 목적지까지 새 경로를 검색하고 Redis에 저장합니다. ' +
       '통합된 좌표/인스트럭션을 반환합니다. ' +
+      'travlemode에 따라 walking은 출발 대여소부터 도착지까지 전체 경로를 검색하고 biking은 기존 출발 대여소도착 대여소까지 자전거 경로를 검색합니다.' +
       '※ circular(원형) 경로는 재검색 불가 (return만 가능)',
   })
   @ApiBody({ type: RerouteNavigationDto })
@@ -175,6 +176,7 @@ export class NavigationController {
           sessionId,
           dto.currentLocation,
           dto.remainingWaypoints,
+          dto.travelMode ?? 'biking',
         );
       return SuccessResponseDto.create('새로운 경로가 검색되었습니다.', result);
     } catch (err) {

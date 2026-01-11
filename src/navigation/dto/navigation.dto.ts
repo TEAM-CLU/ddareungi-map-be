@@ -5,6 +5,7 @@ import {
   IsNotEmpty,
   IsArray,
   IsOptional,
+  IsIn,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import {
@@ -16,6 +17,8 @@ import {
 // ============================================
 // 요청 DTO
 // ============================================
+
+export type TravelMode = 'walking' | 'biking';
 
 export class StartNavigationDto {
   @ApiProperty({
@@ -36,6 +39,18 @@ export class RerouteNavigationDto {
   @ValidateNested()
   @Type(() => CoordinateDto)
   currentLocation: CoordinateDto;
+
+  @ApiProperty({
+    description:
+      '현재 이동 상태 (walking: 걷는 중, biking: 자전거 타는 중). 미입력 시 biking으로 처리됩니다.',
+    example: 'biking',
+    required: false,
+    enum: ['walking', 'biking'],
+  })
+  @IsOptional()
+  @IsString()
+  @IsIn(['walking', 'biking'])
+  travelMode?: TravelMode;
 
   @ApiProperty({
     description: '남은 경유지 배열 (선택적, 프론트엔드에서 계산)',

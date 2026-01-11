@@ -9,6 +9,8 @@ import { FullRerouteResponseDto } from '../dto/navigation.dto';
 import { NavigationHelperService } from './navigation-helper.service';
 import { NavigationSessionService } from './navigation-session.service';
 import { GraphHopperService } from '../../routes/services/graphhopper.service';
+import { StationRouteService } from '../../routes/services/station-route.service';
+import type { TravelMode } from '../dto/navigation.dto';
 
 /**
  * 완전 재검색 서비스
@@ -24,6 +26,7 @@ export class NavigationRerouteService {
     private readonly helperService: NavigationHelperService,
     private readonly sessionService: NavigationSessionService,
     private readonly graphHopperService: GraphHopperService,
+    private readonly stationRouteService: StationRouteService,
   ) {}
 
   /**
@@ -41,6 +44,7 @@ export class NavigationRerouteService {
     sessionId: string,
     currentLocation: CoordinateDto,
     remainingWaypoints?: CoordinateDto[],
+    travelMode: TravelMode = 'biking',
   ): Promise<FullRerouteResponseDto> {
     // 1. SessionService를 통해 세션 + 경로 데이터 조회
     const sessionWithRoute =
@@ -72,7 +76,8 @@ export class NavigationRerouteService {
       `완전 재검색 시작: sessionId=${sessionId}, routeType=${originalRoute.routeType}, ` +
         `currentLocation=(${currentLocation.lat}, ${currentLocation.lng}), ` +
         `endStation=${endStation.name} (${endStationCoord.lat}, ${endStationCoord.lng}), ` +
-        `remainingWaypoints=${remainingWaypoints?.length || 0}개`,
+        `remainingWaypoints=${remainingWaypoints?.length || 0}개, ` +
+        `travelMode=${travelMode}`,
     );
 
     // 4. 원본 경로에서 마지막 도보 세그먼트 추출 (도착 대여소 → 도착지)
@@ -100,29 +105,95 @@ export class NavigationRerouteService {
 
     this.logger.debug(`원본 경로의 자전거 프로필: ${bikeProfile}`);
 
-    // 6. 자전거 경로만 재검색 (현재 위치 → [경유지들] → 도착 대여소)
-    // - GraphHopper로 직접 자전거 경로만 검색 (대여소 간 도보 제외)
-    this.logger.debug(
-      `자전거 경로 재검색: 현재 위치 → [${remainingWaypoints?.length || 0}개 경유지] → 도착 대여소`,
-    );
+    const waypointsForBike: CoordinateDto[] =
+      remainingWaypoints && remainingWaypoints.length > 0
+        ? remainingWaypoints
+        : (originalRoute.waypoints ?? []);
 
-    const bikeSegments = await this.searchBikeRouteWithWaypoints(
-      currentLocation,
-      remainingWaypoints || [],
-      endStationCoord,
-      bikeProfile,
-    );
+    let startStationForRedis = originalRoute.startStation;
+    let startStationForResponse = originalRoute.startStation;
 
-    this.logger.debug(
-      `자전거 경로 재검색 완료: ${bikeSegments.length}개 세그먼트`,
-    );
+    let finalSegments: RouteSegmentDto[] = [];
 
-    // 6. 자전거 경로 + 원본 마지막 도보 세그먼트 통합
-    const finalSegments = [...bikeSegments, finalWalkingSegment];
+    if (travelMode === 'walking') {
+      // walking: 현재 위치 근처 출발 대여소를 새로 탐색하고, 도보+자전거+도보 전체 재구성
+      const startStation =
+        await this.stationRouteService.findNearestAvailableStation({
+          lat: currentLocation.lat,
+          lng: currentLocation.lng,
+        });
 
-    this.logger.debug(
-      `최종 segments: ${finalSegments.length}개 (재검색 자전거 ${bikeSegments.length}개 + 원본 도보 1개)`,
-    );
+      if (!startStation) {
+        throw new Error(
+          `현재 위치 근처에 이용 가능한 출발 대여소를 찾을 수 없습니다. 좌표: ${currentLocation.lat}, ${currentLocation.lng}`,
+        );
+      }
+
+      const startStationCoord: CoordinateDto = {
+        lat: startStation.lat,
+        lng: startStation.lng,
+      };
+
+      startStationForRedis = startStation;
+      startStationForResponse = startStation;
+
+      this.logger.debug(
+        `출발 대여소 재탐색(walking): ${startStation.name} (${startStationCoord.lat}, ${startStationCoord.lng})`,
+      );
+
+      // 현재 위치 → 출발 대여소 (도보)
+      const walkingToStartStationPath =
+        await this.graphHopperService.getSingleRoute(
+          { lat: currentLocation.lat, lng: currentLocation.lng },
+          { lat: startStationCoord.lat, lng: startStationCoord.lng },
+          'foot',
+          true,
+        );
+      const walkingToStartStationSegment =
+        this.helperService.convertGraphHopperPathToSegment(
+          walkingToStartStationPath,
+          'walking',
+        );
+
+      // 출발 대여소 → [경유지들] → 도착 대여소 (자전거)
+      this.logger.debug(
+        `자전거 경로 재검색(walking): 출발 대여소 → [${waypointsForBike.length}개 경유지] → 도착 대여소`,
+      );
+      const bikeSegments = await this.searchBikeRouteWithWaypoints(
+        startStationCoord,
+        waypointsForBike,
+        endStationCoord,
+        bikeProfile,
+      );
+      this.logger.debug(
+        `자전거 경로 재검색 완료(walking): ${bikeSegments.length}개 세그먼트`,
+      );
+
+      // 도보(현재→출발대여소) + 자전거 + 원본 마지막 도보(도착대여소→목적지) 통합
+      finalSegments = [
+        walkingToStartStationSegment,
+        ...bikeSegments,
+        finalWalkingSegment,
+      ];
+    } else {
+      // biking: 기존 로직 유지 (현재 위치 → [남은 경유지들] → 도착 대여소) + 원본 마지막 도보 세그먼트
+      this.logger.debug(
+        `자전거 경로 재검색(biking): 현재 위치 → [${waypointsForBike.length}개 경유지] → 도착 대여소`,
+      );
+      const bikeSegments = await this.searchBikeRouteWithWaypoints(
+        currentLocation,
+        waypointsForBike,
+        endStationCoord,
+        bikeProfile,
+      );
+      this.logger.debug(
+        `자전거 경로 재검색 완료(biking): ${bikeSegments.length}개 세그먼트`,
+      );
+
+      finalSegments = [...bikeSegments, finalWalkingSegment];
+    }
+
+    this.logger.debug(`최종 segments: ${finalSegments.length}개`);
 
     // 9. Instructions 추출
     const allInstructions: InstructionDto[] = finalSegments
@@ -174,9 +245,9 @@ export class NavigationRerouteService {
       routeType: originalRoute.routeType,
       origin: originalRoute.origin,
       destination: originalRoute.destination,
-      waypoints: remainingWaypoints, // 프론트엔드가 계산한 남은 경유지
+      waypoints: waypointsForBike,
       targetDistance: originalRoute.targetDistance,
-      startStation: originalRoute.startStation, // 출발 대여소 유지
+      startStation: startStationForRedis, // walking이면 현재 위치 기준으로 재탐색
       endStation: originalRoute.endStation, // 도착 대여소 유지
     };
 
@@ -193,13 +264,13 @@ export class NavigationRerouteService {
     );
 
     // 15. 대여소 정보 추출 (원본 경로 유지)
-    const startStationInfo = originalRoute.startStation
+    const startStationInfo = startStationForResponse
       ? {
-          stationId: originalRoute.startStation.number,
-          stationName: originalRoute.startStation.name,
+          stationId: startStationForResponse.number,
+          stationName: startStationForResponse.name,
           location: {
-            lat: originalRoute.startStation.lat,
-            lng: originalRoute.startStation.lng,
+            lat: startStationForResponse.lat,
+            lng: startStationForResponse.lng,
           },
         }
       : undefined;
@@ -252,7 +323,7 @@ export class NavigationRerouteService {
       bbox,
       startStation: startStationInfo,
       endStation: endStationInfo,
-      waypoints: remainingWaypoints,
+      waypoints: waypointsForBike,
       coordinates,
       instructions: instructionsWithTts,
       segments: segmentsWithoutGeometryAndInstructions,
