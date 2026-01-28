@@ -234,6 +234,27 @@ export class StationQueryService {
   }
 
   /**
+   * 지도 영역 내 모든 대여소 조회 + 실시간 자전거 수 동기화
+   * - findStationsInMapArea(거리순, DB-only) 결과를 기준으로
+   * - 조회된 모든 대여소에 대해 서울시 실시간 API 기반 재고를 동기화한 뒤 반환
+   *
+   * 주의: 조회 결과가 많을수록 (대여소 수 * 실시간 API 호출)로 인해 응답 시간이 길어질 수 있습니다.
+   */
+  async findStationsInMapAreaWithRealtimeSync(
+    latitude: number,
+    longitude: number,
+    radius: number,
+  ): Promise<StationResponseDto[]> {
+    const stations = await this.findStationsInMapArea(
+      latitude,
+      longitude,
+      radius,
+    );
+    await this.stationRealtimeService.syncRealtimeInfoForStations(stations);
+    return stations;
+  }
+
+  /**
    * 대여소 번호 배열로 실시간 재고 정보 조회 및 동기화
    * 성능 최적화를 위해 별도 엔드포인트로 분리
    */
