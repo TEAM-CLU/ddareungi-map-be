@@ -29,6 +29,24 @@ export class NavigationRerouteService {
     private readonly stationRouteService: StationRouteService,
   ) {}
 
+  private rewriteLastArrivalInstruction(
+    segment: RouteSegmentDto,
+    newText: string,
+  ): void {
+    const instructions = segment.instructions;
+    if (!instructions || instructions.length === 0) return;
+
+    const last = instructions[instructions.length - 1];
+    const looksLikeArrival =
+      last.sign === 4 ||
+      /Arrive at/i.test(last.text) ||
+      last.text.includes('도착');
+
+    if (looksLikeArrival) {
+      last.text = newText;
+    }
+  }
+
   /**
    * 완전 재검색 (Full Reroute)
    * - 자전거 경로만 재검색: 현재 위치 → [남은 경유지들] → 도착 대여소
@@ -154,6 +172,10 @@ export class NavigationRerouteService {
           walkingToStartStationPath,
           'walking',
         );
+      this.rewriteLastArrivalInstruction(
+        walkingToStartStationSegment,
+        'Arrive at start station',
+      );
 
       // 출발 대여소 → [경유지들] → 도착 대여소 (자전거)
       this.logger.debug(
@@ -405,6 +427,15 @@ export class NavigationRerouteService {
           path,
           'biking',
           profile,
+        );
+
+        // 종점 의미에 따라 도착 안내 치환
+        // - 마지막 구간: 도착 대여소
+        // - 중간 구간: 경유지
+        const isLastLeg = i === allPoints.length - 2;
+        this.rewriteLastArrivalInstruction(
+          segment,
+          isLastLeg ? 'Arrive at end station' : 'Arrive at waypoint',
         );
 
         segments.push(segment);

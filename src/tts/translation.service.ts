@@ -12,6 +12,7 @@ const KOREAN_REGEX = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/;
 // 예: "Turn sharp right onto 중랑천 자전거길 출입로 (노원고 방면)" -> "중랑천 자전거길 출입로"
 const KOREAN_ROAD_REGEX = /onto\s+([가-힣0-9][^()]*)/i;
 const WAYPOINT_REGEX = /Waypoint\s+(\d+)/i;
+const ARRIVAL_KO_REGEX = /도착했습니다$/;
 
 /**
  * 방향 인스트럭션 매핑 (GraphHopper instruction → 한글 안내)
@@ -34,6 +35,8 @@ const DIRECTION_PATTERNS: ReadonlyArray<[RegExp, string]> = [
   // Continue
   [/Continue/i, '직진'],
   // Arrival
+  [/Arrive at start station/i, '출발 대여소에 도착했습니다'],
+  [/Arrive at end station/i, '도착 대여소에 도착했습니다'],
   [/Arrive at destination/i, '목적지에 도착했습니다'],
   [/Arrive at waypoint/i, '경유지에 도착했습니다'],
   // Roundabout
@@ -96,6 +99,9 @@ export class TranslationService {
       }
     }
 
+    const isArrivalKorean = (value: string): boolean =>
+      ARRIVAL_KO_REGEX.test(value);
+
     // 4. 도로명과 방향 결합
     if (roadName && direction) {
       if (direction === '직진') {
@@ -109,10 +115,7 @@ export class TranslationService {
         direction === '우측으로 계속'
       ) {
         return `${roadName} ${direction}입니다`;
-      } else if (
-        direction === '목적지에 도착했습니다' ||
-        direction === '경유지에 도착했습니다'
-      ) {
+      } else if (isArrivalKorean(direction)) {
         return direction;
       } else {
         return `${roadName}로 진입입니다`;
@@ -121,10 +124,7 @@ export class TranslationService {
 
     // 5. 도로명 없이 방향만
     if (direction) {
-      if (
-        direction === '목적지에 도착했습니다' ||
-        direction === '경유지에 도착했습니다'
-      ) {
+      if (isArrivalKorean(direction)) {
         return direction;
       }
       return `${direction}입니다`;
