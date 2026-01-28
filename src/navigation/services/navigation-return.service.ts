@@ -171,10 +171,22 @@ export class NavigationReturnService {
           'Arrive at waypoint',
         ) ||
         returnInstructions[returnInstructions.length - 1].text.includes(
+          'Arrive at start station',
+        ) ||
+        returnInstructions[returnInstructions.length - 1].text.includes(
+          'Arrive at end station',
+        ) ||
+        returnInstructions[returnInstructions.length - 1].text.includes(
           '목적지에 도착',
         ) ||
         returnInstructions[returnInstructions.length - 1].text.includes(
           '경유지에 도착',
+        ) ||
+        returnInstructions[returnInstructions.length - 1].text.includes(
+          '출발 대여소에 도착',
+        ) ||
+        returnInstructions[returnInstructions.length - 1].text.includes(
+          '도착 대여소에 도착',
         ))
     ) {
       this.logger.debug(
@@ -243,8 +255,12 @@ export class NavigationReturnService {
           remainingInstructions.length > 0 &&
           (remainingInstructions[0].text.includes('Arrive at destination') ||
             remainingInstructions[0].text.includes('Arrive at waypoint') ||
+            remainingInstructions[0].text.includes('Arrive at start station') ||
+            remainingInstructions[0].text.includes('Arrive at end station') ||
             remainingInstructions[0].text.includes('목적지에 도착') ||
-            remainingInstructions[0].text.includes('경유지에 도착'))
+            remainingInstructions[0].text.includes('경유지에 도착') ||
+            remainingInstructions[0].text.includes('출발 대여소에 도착') ||
+            remainingInstructions[0].text.includes('도착 대여소에 도착'))
         ) {
           this.logger.debug(
             `[남은 경로] 첫 번째 instruction 제거 (도착 지점): "${remainingInstructions[0].text}"`,

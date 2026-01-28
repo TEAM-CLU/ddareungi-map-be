@@ -74,6 +74,21 @@ export class RouteBuilderService {
         this.routeConverter.convertToRouteSegment(walkingToStart);
       walkingSegment.type = 'walking';
       walkingSegment.summary = walkingSummary;
+      // 출발 대여소 도착 안내로 치환 (세그먼트 종점은 대여소)
+      if (
+        walkingSegment.instructions &&
+        walkingSegment.instructions.length > 0
+      ) {
+        const last =
+          walkingSegment.instructions[walkingSegment.instructions.length - 1];
+        if (
+          last.sign === 4 ||
+          /Arrive at/i.test(last.text) ||
+          last.text.includes('도착')
+        ) {
+          last.text = 'Arrive at start station';
+        }
+      }
       segments.push(walkingSegment);
 
       totalDistance += walkingSummary.distance;
@@ -116,6 +131,23 @@ export class RouteBuilderService {
       );
       const segment = this.routeConverter.convertToRouteSegment(selectedRoute);
       segment.summary = bikeSummary;
+
+      // 자전거 구간 종점 도착 안내 구분
+      // - 마지막 구간(도착 대여소): end station
+      // - 중간 구간(경유지): waypoint
+      if (segment.instructions && segment.instructions.length > 0) {
+        const last = segment.instructions[segment.instructions.length - 1];
+        const looksLikeArrival =
+          last.sign === 4 ||
+          /Arrive at/i.test(last.text) ||
+          last.text.includes('도착');
+        if (looksLikeArrival) {
+          last.text =
+            i === points.length - 2
+              ? 'Arrive at end station'
+              : 'Arrive at waypoint';
+        }
+      }
       segments.push(segment);
 
       // 총합 계산

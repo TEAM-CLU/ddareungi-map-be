@@ -26,6 +26,24 @@ const DEFAULT_CATEGORY = '일반 경로';
 export class RouteConverterService {
   constructor(private readonly routeUtil: RouteUtilService) {}
 
+  private rewriteLastArrivalInstruction(
+    segment: RouteSegmentDto,
+    newText: string,
+  ): void {
+    const instructions = segment.instructions;
+    if (!instructions || instructions.length === 0) return;
+
+    const last = instructions[instructions.length - 1];
+    const looksLikeArrival =
+      last.sign === 4 ||
+      /Arrive at/i.test(last.text) ||
+      last.text.includes('도착');
+
+    if (looksLikeArrival) {
+      last.text = newText;
+    }
+  }
+
   // ============================================================================
   // Public API - Route Building
   // ============================================================================
@@ -53,6 +71,10 @@ export class RouteConverterService {
       this.buildSegment('biking', bikeRoute),
       this.buildSegment('walking', walkingFromEnd),
     ];
+
+    // 세그먼트 종점 도착 안내 구분 (대여소/목적지)
+    this.rewriteLastArrivalInstruction(segments[0], 'Arrive at start station');
+    this.rewriteLastArrivalInstruction(segments[1], 'Arrive at end station');
 
     const summary = this.buildSummary(
       [walkingToStart, bikeRoute, walkingFromEnd],
@@ -95,6 +117,10 @@ export class RouteConverterService {
       this.buildSegment('biking', circularBikeRoute),
       this.buildSegment('walking', walkingToStart),
     ];
+
+    // 원형 경로: 출발 대여소 도착(도보), 도착 대여소 도착(자전거)
+    this.rewriteLastArrivalInstruction(segments[0], 'Arrive at start station');
+    this.rewriteLastArrivalInstruction(segments[1], 'Arrive at end station');
 
     const summary = this.buildSummary(
       [walkingToStation, circularBikeRoute, walkingToStart],
@@ -150,6 +176,11 @@ export class RouteConverterService {
       this.buildSegment('biking', bikeToStation),
       this.buildSegment('walking', walkingToStart),
     ];
+
+    // 왕복/원형 공통: 출발 대여소 도착(도보)
+    this.rewriteLastArrivalInstruction(segments[0], 'Arrive at start station');
+    // 목적지에서 대여소로 복귀하는 자전거 구간(마지막 자전거 세그먼트)은 대여소 도착
+    this.rewriteLastArrivalInstruction(segments[2], 'Arrive at end station');
 
     const maxBikeGradient = Math.max(
       this.routeUtil.calculateMaxGradient(bikeToDestination),
