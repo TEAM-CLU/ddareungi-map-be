@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>따릉이맵 로그인 결과</title>
+    <style>
+      :root {
+        --primary: #00C897;
+        --error: #FF4D4F;
+        --bg: #F5F7FA;
+      }
+
+      body {
+        margin: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        background-color: var(--bg);
+        font-family: sans-serif;
+      }
+
+      .card {
+        background: white;
+        padding: 40px;
+        border-radius: 24px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+        text-align: center;
+        width: 85%;
+        max-width: 360px;
+      }
+
+      .icon {
+        font-size: 64px;
+        margin-bottom: 24px;
+      }
+
+      h2 {
+        margin: 0 0 12px;
+        font-size: 22px;
+        font-weight: bold;
+      }
+
+      p {
+        color: #666;
+        font-size: 16px;
+        margin-bottom: 24px;
+        line-height: 1.5;
+      }
+
+      .btn {
+        display: inline-block;
+        padding: 12px 24px;
+        background: var(--primary);
+        color: white;
+        border-radius: 12px;
+        text-decoration: none;
+        font-weight: bold;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="card">
+      <div id="icon" class="icon">⌛</div>
+      <h2 id="title">처리 중...</h2>
+      <p id="message">잠시만 기다려주세요.</p>
+      <a href="#" onclick="window.close()" class="btn">창 닫기</a>
+    </div>
+
+    <script>
+      // URL 쿼리 파라미터(status, state) 파싱
+      const params = new URLSearchParams(window.location.search);
+      const status = params.get('status');
+      const state = params.get('state');
+
+      const iconEl = document.getElementById('icon');
+      const titleEl = document.getElementById('title');
+      const messageEl = document.getElementById('message');
+
+      if (status === 'success') {
+        iconEl.innerText = '✅';
+        iconEl.style.color = '#00C897';
+        titleEl.innerText = '로그인 성공!';
+        messageEl.innerText = '따릉이맵 서비스 이용을 위한\n인증이 완료되었습니다.';
+
+        // 앱(WebView)으로 데이터 전달
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'GOOGLE_LOGIN_SUCCESS', state }));
+        }
+      } else {
+        iconEl.innerText = '❌';
+        iconEl.style.color = '#FF4D4F';
+        titleEl.innerText = '로그인 실패';
+        messageEl.innerText = '인증 처리 중 오류가 발생했습니다.\n다시 시도해주세요.';
+      }
+
+      // 3초 후 자동 창 닫기 시도
+      setTimeout(() => {
+        if (window.close) window.close();
+      }, 3000);
+    </script>
+  </body>
+
+</html>

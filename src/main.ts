@@ -8,6 +8,8 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { SentryInterceptor } from './common/interceptors/sentry.interceptor';
 import { ClsService } from 'nestjs-cls';
 import * as Sentry from '@sentry/nestjs';
+import { join } from 'path';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 
 async function bootstrap() {
   // ConfigService를 먼저 가져와서 환경 변수 확인
@@ -38,9 +40,11 @@ async function bootstrap() {
   }
 
   // NestJS 앱 생성 (Winston Logger 사용)
-  const app = await NestFactory.create(AppModule, {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger: winstonLogger,
   });
+
+  app.useStaticAssets(join(__dirname, '..', 'public'));
 
   // Global Interceptor 등록 (요청/응답 로깅)
   const clsService = app.get(ClsService);
