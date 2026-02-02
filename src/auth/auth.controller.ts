@@ -103,9 +103,9 @@ export class AuthController {
     description: '인증 실패 (잘못된 코드, 만료된 코드, 시도 횟수 초과 등)',
     type: ErrorResponseDto,
   })
-  verifyEmail(@Body() verifyEmailDto: VerifyEmailDto) {
+  async verifyEmail(@Body() verifyEmailDto: VerifyEmailDto) {
     try {
-      const result = this.authService.verifyEmail(verifyEmailDto);
+      const result = await this.authService.verifyEmail(verifyEmailDto);
       return SuccessResponseDto.create(result.message, {
         isVerified: result.isVerified,
         securityToken: result.securityToken,
@@ -311,9 +311,9 @@ export class AuthController {
     description: 'Google PKCE 로그인 URL 생성 성공',
     type: SuccessResponseDto,
   })
-  getGooglePKCEUrl() {
+  async getGooglePKCEUrl() {
     try {
-      const result = this.authService.getGooglePKCEAuthUrl();
+      const result = await this.authService.getGooglePKCEAuthUrl();
       return SuccessResponseDto.create('Google PKCE 로그인 URL입니다.', result);
     } catch (error) {
       const message =
@@ -336,9 +336,9 @@ export class AuthController {
     description: 'Kakao PKCE 로그인 URL 생성 성공',
     type: SuccessResponseDto,
   })
-  getKakaoPKCEUrl() {
+  async getKakaoPKCEUrl() {
     try {
-      const result = this.authService.getKakaoPKCEAuthUrl();
+      const result = await this.authService.getKakaoPKCEAuthUrl();
       return SuccessResponseDto.create('Kakao PKCE 로그인 URL입니다.', result);
     } catch (error) {
       const message =
@@ -361,9 +361,9 @@ export class AuthController {
     description: 'Naver PKCE 로그인 URL 생성 성공',
     type: SuccessResponseDto,
   })
-  getNaverPKCEUrl() {
+  async getNaverPKCEUrl() {
     try {
-      const result = this.authService.getNaverPKCEAuthUrl();
+      const result = await this.authService.getNaverPKCEAuthUrl();
       return SuccessResponseDto.create('Naver PKCE 로그인 URL입니다.', result);
     } catch (error) {
       const message =
@@ -510,16 +510,17 @@ export class AuthController {
       Expires: '0',
     });
 
-    const result = this.authService.checkAuthStatus(clientState);
+    // (async) Redis 기반 조회
+    return this.authService.checkAuthStatus(clientState).then((result) => {
+      // 폴링 간격 권장사항 추가
+      const data = {
+        state: result.state,
+        isComplete: result.isComplete,
+        recommendedPollingInterval: result.isComplete ? 0 : 3000, // 완료되면 0, 미완료면 3초
+      };
 
-    // 폴링 간격 권장사항 추가
-    const data = {
-      state: result.state,
-      isComplete: result.isComplete,
-      recommendedPollingInterval: result.isComplete ? 0 : 3000, // 완료되면 0, 미완료면 3초
-    };
-
-    return res.json(SuccessResponseDto.create(result.message, data));
+      return res.json(SuccessResponseDto.create(result.message, data));
+    });
   }
 
   @Post('exchange-token')
@@ -547,7 +548,7 @@ export class AuthController {
     description: '토큰 교환 실패',
     type: ErrorResponseDto,
   })
-  exchangeToken(@Body('codeVerifier') codeVerifier: string) {
+  async exchangeToken(@Body('codeVerifier') codeVerifier: string) {
     if (!codeVerifier) {
       throw new HttpException(
         ErrorResponseDto.create(
@@ -560,7 +561,7 @@ export class AuthController {
 
     try {
       const result =
-        this.authService.exchangeTokenWithCodeVerifier(codeVerifier);
+        await this.authService.exchangeTokenWithCodeVerifier(codeVerifier);
       return SuccessResponseDto.create('토큰 교환 성공', result);
     } catch (error) {
       const message =
@@ -632,8 +633,8 @@ export class AuthController {
       },
     },
   })
-  getDebugStates() {
-    const result = this.authService.getDebugStates();
+  async getDebugStates() {
+    const result = await this.authService.getDebugStates();
     return SuccessResponseDto.create(result.message, {
       count: result.count,
       states: result.states,
@@ -670,8 +671,8 @@ export class AuthController {
       },
     },
   })
-  getDebugStateDetail(@Param('state') state: string) {
-    const result = this.authService.getDebugStateDetail(state);
+  async getDebugStateDetail(@Param('state') state: string) {
+    const result = await this.authService.getDebugStateDetail(state);
     return SuccessResponseDto.create(result.message, {
       exists: result.exists,
       ...result.data,

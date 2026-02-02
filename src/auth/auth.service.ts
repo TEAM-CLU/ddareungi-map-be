@@ -6,6 +6,8 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { RedisService } from '@liaoliaots/nestjs-redis';
+import type { Redis } from 'ioredis';
 import { MailService } from '../mail/mail.service';
 import {
   SendVerificationEmailDto,
@@ -30,7 +32,8 @@ import axios from 'axios';
 interface EmailVerification {
   email: string;
   code: string;
-  expiresAt: Date;
+  createdAt: number;
+  expiresAt: number;
   attempts: number;
 }
 
@@ -38,7 +41,7 @@ type JwtPayloadWithUserId = { userId: number };
 
 type PkceStateData = {
   codeVerifier: string;
-  expiresAt: Date;
+  expiresAt: number;
   isComplete: boolean;
   accessToken?: string;
   user?: unknown;
@@ -88,22 +91,51 @@ function _getUserNameFromPkceUser(user: unknown): string | undefined {
   return naverResp ? getString(naverResp.nickname) : undefined;
 }
 
+const PKCE_STATE_KEY_PREFIX = 'pkce:state:';
+const PKCE_VERIFIER_KEY_PREFIX = 'pkce:verifier:';
+const EMAIL_VERIFY_KEY_PREFIX = 'verify:email:';
+
+const PKCE_TTL_INITIAL_SECONDS = 60 * 10; // 10분
+const PKCE_TTL_AFTER_CALLBACK_SECONDS = 60 * 5; // 5분
+const EMAIL_VERIFY_TTL_SECONDS = 60 * 10; // 10분
+const EMAIL_VERIFY_RESEND_COOLDOWN_MS = 60 * 1000; // 1분
+
+function safeJsonParse<T>(raw: string): T | null {
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
 @Injectable()
 export class AuthService {
-  // 실제 프로덕션에서는 Redis나 데이터베이스를 사용해야 합니다
-  private verificationCodes = new Map<string, EmailVerification>();
-  // PKCE state별 사용자 정보 및 토큰 저장소 (codeVerifier 포함)
-  private pkceStates = new Map<string, PkceStateData>();
+  private readonly redis: Redis;
 
   constructor(
     private mailService: MailService,
     private configService: ConfigService,
     private readonly jwtService: JwtService,
     private readonly cryptoService: CryptoService,
+    private readonly redisService: RedisService,
 
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
-  ) {}
+  ) {
+    this.redis = this.redisService.getOrThrow();
+  }
+
+  private pkceStateKey(state: string): string {
+    return `${PKCE_STATE_KEY_PREFIX}${state}`;
+  }
+
+  private pkceVerifierKey(codeVerifier: string): string {
+    return `${PKCE_VERIFIER_KEY_PREFIX}${codeVerifier}`;
+  }
+
+  private emailVerifyKey(normalizedEmail: string): string {
+    return `${EMAIL_VERIFY_KEY_PREFIX}${normalizedEmail}`;
+  }
 
   /**
    * 이메일 인증 코드 발송
@@ -115,14 +147,16 @@ export class AuthService {
 
     // 이메일 주소 정규화 (소문자로 변환)
     const normalizedEmail = email.toLowerCase();
+    const key = this.emailVerifyKey(normalizedEmail);
 
     // 기존 인증 시도 확인 (1분 내 재전송 방지)
-    const existingVerification = this.verificationCodes.get(normalizedEmail);
+    const existingRaw = await this.redis.get(key);
+    const existingVerification = existingRaw
+      ? safeJsonParse<EmailVerification>(existingRaw)
+      : null;
     if (existingVerification) {
-      const timeDiff =
-        Date.now() -
-        (existingVerification.expiresAt.getTime() - 10 * 60 * 1000); // 10분 - 경과시간
-      if (timeDiff < 60 * 1000) {
+      const timeDiff = Date.now() - existingVerification.createdAt;
+      if (timeDiff < EMAIL_VERIFY_RESEND_COOLDOWN_MS) {
         // 1분 미만
         throw new BadRequestException(
           '인증 코드는 1분에 한 번만 요청할 수 있습니다.',
@@ -136,13 +170,21 @@ export class AuthService {
     ).toString();
 
     // 인증 정보 저장 (10분 유효)
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-    this.verificationCodes.set(normalizedEmail, {
+    const createdAt = Date.now();
+    const expiresAt = createdAt + EMAIL_VERIFY_TTL_SECONDS * 1000;
+    const verification: EmailVerification = {
       email: normalizedEmail,
       code: verificationCode,
+      createdAt,
       expiresAt,
       attempts: 0,
-    });
+    };
+
+    await this.redis.setex(
+      key,
+      EMAIL_VERIFY_TTL_SECONDS,
+      JSON.stringify(verification),
+    );
 
     try {
       // 이메일 발송
@@ -152,7 +194,7 @@ export class AuthService {
       );
     } catch {
       // 이메일 발송 실패 시 저장된 인증 정보 삭제
-      this.verificationCodes.delete(normalizedEmail);
+      await this.redis.del(key);
       throw new BadRequestException(
         '이메일 발송에 실패했습니다. 잠시 후 다시 시도해주세요.',
       );
@@ -162,19 +204,23 @@ export class AuthService {
   /**
    * 이메일 인증 코드 확인
    */
-  verifyEmail(verifyEmailDto: VerifyEmailDto): VerifyEmailResponseDto {
+  async verifyEmail(
+    verifyEmailDto: VerifyEmailDto,
+  ): Promise<VerifyEmailResponseDto> {
     const { email, verificationCode } = verifyEmailDto;
     const normalizedEmail = email.toLowerCase();
+    const key = this.emailVerifyKey(normalizedEmail);
 
-    const verification = this.verificationCodes.get(normalizedEmail);
+    const raw = await this.redis.get(key);
+    const verification = raw ? safeJsonParse<EmailVerification>(raw) : null;
 
     if (!verification) {
       throw new BadRequestException('인증 코드를 먼저 요청해주세요.');
     }
 
     // 만료 시간 확인
-    if (new Date() > verification.expiresAt) {
-      this.verificationCodes.delete(normalizedEmail);
+    if (Date.now() > verification.expiresAt) {
+      await this.redis.del(key);
       throw new BadRequestException(
         '인증 코드가 만료되었습니다. 새로운 코드를 요청해주세요.',
       );
@@ -182,7 +228,7 @@ export class AuthService {
 
     // 시도 횟수 확인 (5회 제한)
     if (verification.attempts >= 5) {
-      this.verificationCodes.delete(normalizedEmail);
+      await this.redis.del(key);
       throw new BadRequestException(
         '인증 시도 횟수를 초과했습니다. 새로운 코드를 요청해주세요.',
       );
@@ -190,14 +236,53 @@ export class AuthService {
 
     // 인증 코드 확인
     if (verification.code !== verificationCode) {
-      verification.attempts += 1;
+      // attempts 동시 업데이트를 위해 CAS(WATCH/MULTI)로 반영
+      for (let i = 0; i < 3; i++) {
+        await this.redis.watch(key);
+        const curRaw = await this.redis.get(key);
+        if (!curRaw) {
+          await this.redis.unwatch();
+          throw new BadRequestException('인증 코드를 먼저 요청해주세요.');
+        }
+        const cur = safeJsonParse<EmailVerification>(curRaw);
+        if (!cur) {
+          await this.redis.unwatch();
+          throw new BadRequestException('인증 코드 데이터가 손상되었습니다.');
+        }
+
+        const ttl = await this.redis.ttl(key);
+        if (ttl <= 0) {
+          await this.redis.unwatch();
+          throw new BadRequestException(
+            '인증 코드가 만료되었습니다. 새로운 코드를 요청해주세요.',
+          );
+        }
+
+        const next: EmailVerification = {
+          ...cur,
+          attempts: (cur.attempts ?? 0) + 1,
+        };
+
+        const tx = this.redis.multi();
+        tx.setex(key, ttl, JSON.stringify(next));
+        const execResult = await tx.exec();
+        if (execResult) {
+          await this.redis.unwatch();
+          throw new BadRequestException(
+            `인증 코드가 일치하지 않습니다. (${next.attempts}/5)`,
+          );
+        }
+        // 경쟁 상태: 재시도
+      }
+
+      // CAS 재시도 실패 시 보수적으로 실패 처리
       throw new BadRequestException(
-        `인증 코드가 일치하지 않습니다. (${verification.attempts}/5)`,
+        '인증 코드 확인 중 충돌이 발생했습니다. 잠시 후 다시 시도해주세요.',
       );
     }
 
     // 인증 성공 - 저장된 정보 삭제
-    this.verificationCodes.delete(normalizedEmail);
+    await this.redis.del(key);
 
     // 이메일을 암호화하여 securityToken 생성
     const securityToken = this.cryptoService.encrypt(normalizedEmail);
@@ -557,7 +642,11 @@ export class AuthService {
   /**
    * Google PKCE 로그인 URL 생성
    */
-  getGooglePKCEAuthUrl() {
+  async getGooglePKCEAuthUrl(): Promise<{
+    authUrl: string;
+    codeVerifier: string;
+    state: string;
+  }> {
     const clientId = this.configService.get<string>('GOOGLE_CLIENT_ID');
     const redirectUri = this.configService.get<string>(
       'GOOGLE_PKCE_CALLBACK_URL',
@@ -571,14 +660,25 @@ export class AuthService {
     const pkce = this.generatePKCE();
     const state = crypto.randomBytes(16).toString('base64url');
 
-    // state와 codeVerifier 매핑 저장 (초기 상태)
-    this.pkceStates.set(state, {
+    // state와 codeVerifier 매핑 저장 (초기 상태, 10분)
+    const stateKey = this.pkceStateKey(state);
+    const verifierKey = this.pkceVerifierKey(pkce.codeVerifier);
+    const initialPkceData: PkceStateData = {
       accessToken: '', // 콜백에서 채워질 예정
       user: null, // 콜백에서 채워질 예정
       codeVerifier: pkce.codeVerifier,
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10분
+      expiresAt: Date.now() + PKCE_TTL_INITIAL_SECONDS * 1000,
       isComplete: false, // 초기 상태는 미완료
-    });
+    };
+
+    const tx = this.redis.multi();
+    tx.setex(
+      stateKey,
+      PKCE_TTL_INITIAL_SECONDS,
+      JSON.stringify(initialPkceData),
+    );
+    tx.setex(verifierKey, PKCE_TTL_INITIAL_SECONDS, state);
+    await tx.exec();
 
     const baseUrl = 'https://accounts.google.com/o/oauth2/auth';
     const params = new URLSearchParams();
@@ -600,7 +700,11 @@ export class AuthService {
   /**
    * Kakao PKCE 로그인 URL 생성
    */
-  getKakaoPKCEAuthUrl() {
+  async getKakaoPKCEAuthUrl(): Promise<{
+    authUrl: string;
+    codeVerifier: string;
+    state: string;
+  }> {
     const clientId = this.configService.get<string>('KAKAO_CLIENT_ID');
     const redirectUri = this.configService.get<string>(
       'KAKAO_PKCE_CALLBACK_URL',
@@ -614,14 +718,25 @@ export class AuthService {
     const pkce = this.generatePKCE();
     const state = crypto.randomBytes(16).toString('base64url');
 
-    // state와 codeVerifier 매핑 저장 (초기 상태)
-    this.pkceStates.set(state, {
+    // state와 codeVerifier 매핑 저장 (초기 상태, 10분)
+    const stateKey = this.pkceStateKey(state);
+    const verifierKey = this.pkceVerifierKey(pkce.codeVerifier);
+    const initialPkceData: PkceStateData = {
       accessToken: '', // 콜백에서 채워질 예정
       user: null, // 콜백에서 채워질 예정
       codeVerifier: pkce.codeVerifier,
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10분
+      expiresAt: Date.now() + PKCE_TTL_INITIAL_SECONDS * 1000,
       isComplete: false, // 초기 상태는 미완료
-    });
+    };
+
+    const tx = this.redis.multi();
+    tx.setex(
+      stateKey,
+      PKCE_TTL_INITIAL_SECONDS,
+      JSON.stringify(initialPkceData),
+    );
+    tx.setex(verifierKey, PKCE_TTL_INITIAL_SECONDS, state);
+    await tx.exec();
 
     const baseUrl = 'https://kauth.kakao.com/oauth/authorize';
     const params = new URLSearchParams();
@@ -642,7 +757,11 @@ export class AuthService {
   /**
    * Naver PKCE 로그인 URL 생성
    */
-  getNaverPKCEAuthUrl() {
+  async getNaverPKCEAuthUrl(): Promise<{
+    authUrl: string;
+    codeVerifier: string;
+    state: string;
+  }> {
     const clientId = this.configService.get<string>('NAVER_CLIENT_ID');
     const redirectUri = this.configService.get<string>(
       'NAVER_PKCE_CALLBACK_URL',
@@ -656,14 +775,25 @@ export class AuthService {
     const pkce = this.generatePKCE();
     const state = crypto.randomBytes(16).toString('base64url');
 
-    // state와 codeVerifier 매핑 저장 (초기 상태)
-    this.pkceStates.set(state, {
+    // state와 codeVerifier 매핑 저장 (초기 상태, 10분)
+    const stateKey = this.pkceStateKey(state);
+    const verifierKey = this.pkceVerifierKey(pkce.codeVerifier);
+    const initialPkceData: PkceStateData = {
       accessToken: '', // 콜백에서 채워질 예정
       user: null, // 콜백에서 채워질 예정
       codeVerifier: pkce.codeVerifier,
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10분
+      expiresAt: Date.now() + PKCE_TTL_INITIAL_SECONDS * 1000,
       isComplete: false, // 초기 상태는 미완료
-    });
+    };
+
+    const tx = this.redis.multi();
+    tx.setex(
+      stateKey,
+      PKCE_TTL_INITIAL_SECONDS,
+      JSON.stringify(initialPkceData),
+    );
+    tx.setex(verifierKey, PKCE_TTL_INITIAL_SECONDS, state);
+    await tx.exec();
 
     const baseUrl = 'https://nid.naver.com/oauth2.0/authorize';
     const params = new URLSearchParams();
@@ -687,8 +817,18 @@ export class AuthService {
   async handleGooglePKCECallback(code: string, state: string): Promise<string> {
     try {
       // 0. 기존 state 데이터에서 code_verifier 조회
-      const existingPkceData = this.pkceStates.get(state);
+      const stateKey = this.pkceStateKey(state);
+      const existingRaw = await this.redis.get(stateKey);
+      const existingPkceData = existingRaw
+        ? safeJsonParse<PkceStateData>(existingRaw)
+        : null;
       if (!existingPkceData) {
+        throw new UnauthorizedException(
+          'Invalid state - no matching PKCE data found',
+        );
+      }
+      if (Date.now() > existingPkceData.expiresAt) {
+        await this.redis.del(stateKey);
         throw new UnauthorizedException(
           'Invalid state - no matching PKCE data found',
         );
@@ -782,13 +922,23 @@ export class AuthService {
       const authResult = await this.handleGoogleLogin(googleProfile);
 
       // 5. 기존 state 데이터 업데이트 (codeVerifier 유지, 로그인 완료 표시)
-      this.pkceStates.set(state, {
+      const verifierKey = this.pkceVerifierKey(existingPkceData.codeVerifier);
+      const updatedPkceData: PkceStateData = {
         accessToken: authResult.accessToken,
         user: googleProfile,
         codeVerifier: existingPkceData.codeVerifier, // 기존 codeVerifier 유지
-        expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5분으로 갱신
+        expiresAt: Date.now() + PKCE_TTL_AFTER_CALLBACK_SECONDS * 1000, // 5분으로 갱신
         isComplete: true, // 로그인 완료
-      });
+      };
+
+      const tx = this.redis.multi();
+      tx.setex(
+        stateKey,
+        PKCE_TTL_AFTER_CALLBACK_SECONDS,
+        JSON.stringify(updatedPkceData),
+      );
+      tx.setex(verifierKey, PKCE_TTL_AFTER_CALLBACK_SECONDS, state);
+      await tx.exec();
 
       // 7. state 반환 (딥링크에 사용)
       return state;
@@ -805,8 +955,18 @@ export class AuthService {
   async handleKakaoPKCECallback(code: string, state: string): Promise<string> {
     try {
       // 0. 기존 state 데이터에서 code_verifier 조회
-      const existingPkceData = this.pkceStates.get(state);
+      const stateKey = this.pkceStateKey(state);
+      const existingRaw = await this.redis.get(stateKey);
+      const existingPkceData = existingRaw
+        ? safeJsonParse<PkceStateData>(existingRaw)
+        : null;
       if (!existingPkceData) {
+        throw new UnauthorizedException(
+          'Invalid state - no matching PKCE data found',
+        );
+      }
+      if (Date.now() > existingPkceData.expiresAt) {
+        await this.redis.del(stateKey);
         throw new UnauthorizedException(
           'Invalid state - no matching PKCE data found',
         );
@@ -859,13 +1019,23 @@ export class AuthService {
       const authResult = await this.handleKakaoLogin(kakaoProfile);
 
       // 4. 기존 state 데이터 업데이트 (codeVerifier 유지, 로그인 완료 표시)
-      this.pkceStates.set(state, {
+      const verifierKey = this.pkceVerifierKey(existingPkceData.codeVerifier);
+      const updatedPkceData: PkceStateData = {
         accessToken: authResult.accessToken,
         user: kakaoProfile,
         codeVerifier: existingPkceData.codeVerifier, // 기존 codeVerifier 유지
-        expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5분으로 갱신
+        expiresAt: Date.now() + PKCE_TTL_AFTER_CALLBACK_SECONDS * 1000, // 5분으로 갱신
         isComplete: true, // 로그인 완료
-      });
+      };
+
+      const tx = this.redis.multi();
+      tx.setex(
+        stateKey,
+        PKCE_TTL_AFTER_CALLBACK_SECONDS,
+        JSON.stringify(updatedPkceData),
+      );
+      tx.setex(verifierKey, PKCE_TTL_AFTER_CALLBACK_SECONDS, state);
+      await tx.exec();
 
       // 5. state 반환 (딥링크에 사용)
       return state;
@@ -883,8 +1053,18 @@ export class AuthService {
   async handleNaverPKCECallback(code: string, state: string): Promise<string> {
     try {
       // 0. 기존 state 데이터에서 code_verifier 조회
-      const existingPkceData = this.pkceStates.get(state);
+      const stateKey = this.pkceStateKey(state);
+      const existingRaw = await this.redis.get(stateKey);
+      const existingPkceData = existingRaw
+        ? safeJsonParse<PkceStateData>(existingRaw)
+        : null;
       if (!existingPkceData) {
+        throw new UnauthorizedException(
+          'Invalid state - no matching PKCE data found',
+        );
+      }
+      if (Date.now() > existingPkceData.expiresAt) {
+        await this.redis.del(stateKey);
         throw new UnauthorizedException(
           'Invalid state - no matching PKCE data found',
         );
@@ -938,13 +1118,23 @@ export class AuthService {
       const authResult = await this.handleNaverLogin(naverProfile);
 
       // 4. 기존 state 데이터 업데이트 (codeVerifier 유지, 로그인 완료 표시)
-      this.pkceStates.set(state, {
+      const verifierKey = this.pkceVerifierKey(existingPkceData.codeVerifier);
+      const updatedPkceData: PkceStateData = {
         accessToken: authResult.accessToken,
         user: naverProfile,
         codeVerifier: existingPkceData.codeVerifier, // 기존 codeVerifier 유지
-        expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5분으로 갱신
+        expiresAt: Date.now() + PKCE_TTL_AFTER_CALLBACK_SECONDS * 1000, // 5분으로 갱신
         isComplete: true, // 로그인 완료
-      });
+      };
+
+      const tx = this.redis.multi();
+      tx.setex(
+        stateKey,
+        PKCE_TTL_AFTER_CALLBACK_SECONDS,
+        JSON.stringify(updatedPkceData),
+      );
+      tx.setex(verifierKey, PKCE_TTL_AFTER_CALLBACK_SECONDS, state);
+      await tx.exec();
 
       // 5. state 반환 (딥링크에 사용)
       return state;
@@ -957,43 +1147,42 @@ export class AuthService {
   }
 
   // 🔐 codeVerifier 검증으로 토큰 반환
-  exchangeTokenWithCodeVerifier(codeVerifier: string): { accessToken: string } {
+  async exchangeTokenWithCodeVerifier(
+    codeVerifier: string,
+  ): Promise<{ accessToken: string }> {
     try {
-      // 모든 state를 순회하여 일치하는 codeVerifier 찾기
-      let matchingState: string | null = null;
-      let matchingData: PkceStateData | null = null;
-
-      for (const [state, pkceData] of this.pkceStates.entries()) {
-        // 만료 확인
-        if (pkceData.expiresAt < new Date()) {
-          this.pkceStates.delete(state);
-          continue;
-        }
-
-        // codeVerifier 일치 확인
-        if (pkceData.codeVerifier === codeVerifier) {
-          matchingState = state;
-          matchingData = pkceData;
-          break;
-        }
+      const verifierKey = this.pkceVerifierKey(codeVerifier);
+      const state = await this.redis.get(verifierKey);
+      if (!state) {
+        throw new UnauthorizedException('Invalid or expired code verifier');
       }
 
-      if (!matchingData || !matchingState) {
+      const stateKey = this.pkceStateKey(state);
+      const raw = await this.redis.get(stateKey);
+      const pkceData = raw ? safeJsonParse<PkceStateData>(raw) : null;
+      if (!pkceData || Date.now() > pkceData.expiresAt) {
+        const txCleanup = this.redis.multi();
+        txCleanup.del(stateKey);
+        txCleanup.del(verifierKey);
+        await txCleanup.exec();
         throw new UnauthorizedException('Invalid or expired code verifier');
       }
 
       // 로그인이 완료되지 않은 경우
-      if (!matchingData.isComplete || !matchingData.accessToken) {
+      if (!pkceData.isComplete || !pkceData.accessToken) {
         throw new UnauthorizedException('Social login not completed yet');
       }
 
       // 토큰 반환 데이터 저장
       const result = {
-        accessToken: matchingData.accessToken, // 우리 서비스 JWT 토큰
+        accessToken: pkceData.accessToken, // 우리 서비스 JWT 토큰
       };
 
       // 성공적으로 토큰을 교환했으므로 state 삭제
-      this.pkceStates.delete(matchingState);
+      const tx = this.redis.multi();
+      tx.del(stateKey);
+      tx.del(verifierKey);
+      await tx.exec();
 
       return result;
     } catch (error: unknown) {
@@ -1039,17 +1228,18 @@ export class AuthService {
   }
 
   // 🔄 폴링 API - 소셜 로그인 완료 상태 확인
-  checkAuthStatus(clientState?: string): {
+  async checkAuthStatus(clientState?: string): Promise<{
     state: string | null;
     isComplete: boolean;
     message: string;
-  } {
-    // 만료된 데이터 정리
-    this.cleanupExpiredAuthData();
+  }> {
+    const now = Date.now();
 
     // 특정 clientState가 제공된 경우 해당 state만 확인
     if (clientState) {
-      const pkceData = this.pkceStates.get(clientState);
+      const stateKey = this.pkceStateKey(clientState);
+      const raw = await this.redis.get(stateKey);
+      const pkceData = raw ? safeJsonParse<PkceStateData>(raw) : null;
 
       if (!pkceData) {
         return {
@@ -1059,8 +1249,8 @@ export class AuthService {
         };
       }
 
-      if (pkceData.expiresAt < new Date()) {
-        this.pkceStates.delete(clientState);
+      if (now > pkceData.expiresAt) {
+        await this.redis.del(stateKey);
         return {
           state: null,
           isComplete: false,
@@ -1084,15 +1274,39 @@ export class AuthService {
     }
 
     // clientState가 없는 경우, 완료된 state가 있는지 확인
-    for (const [state, data] of this.pkceStates.entries()) {
-      if (data.isComplete && data.expiresAt > new Date()) {
-        return {
-          state: state,
-          isComplete: true,
-          message: '소셜 로그인이 완료되었습니다.',
-        };
+    let cursor = '0';
+    do {
+      const [nextCursor, keys] = await this.redis.scan(
+        cursor,
+        'MATCH',
+        `${PKCE_STATE_KEY_PREFIX}*`,
+        'COUNT',
+        '50',
+      );
+      cursor = nextCursor;
+
+      if (keys.length > 0) {
+        const raws = await this.redis.mget(...keys);
+        for (let i = 0; i < keys.length; i++) {
+          const raw = raws[i];
+          if (!raw) continue;
+          const data = safeJsonParse<PkceStateData>(raw);
+          if (!data) continue;
+          if (now > data.expiresAt) {
+            await this.redis.del(keys[i]);
+            continue;
+          }
+          if (data.isComplete) {
+            const state = keys[i].replace(PKCE_STATE_KEY_PREFIX, '');
+            return {
+              state,
+              isComplete: true,
+              message: '소셜 로그인이 완료되었습니다.',
+            };
+          }
+        }
       }
-    }
+    } while (cursor !== '0');
 
     return {
       state: null,
@@ -1103,21 +1317,7 @@ export class AuthService {
 
   // 만료된 인증 데이터 정리
   private cleanupExpiredAuthData(): void {
-    const now = new Date();
-
-    // 만료된 인증 코드 삭제
-    for (const [email, verification] of this.verificationCodes.entries()) {
-      if (now > verification.expiresAt) {
-        this.verificationCodes.delete(email);
-      }
-    }
-
-    // 만료된 PKCE 상태 삭제
-    for (const [state, data] of this.pkceStates.entries()) {
-      if (now > data.expiresAt) {
-        this.pkceStates.delete(state);
-      }
-    }
+    // Redis TTL로 자동 만료되므로 별도 정리가 필요 없습니다.
   }
 
   // ==================== 디버깅용 메서드들 ====================
@@ -1125,7 +1325,7 @@ export class AuthService {
   /**
    * 저장된 PKCE 상태들을 조회 (디버깅용)
    */
-  getDebugStates(): {
+  async getDebugStates(): Promise<{
     message: string;
     count: number;
     states: Array<{
@@ -1141,9 +1341,8 @@ export class AuthService {
       expiresAt: Date;
       attempts: number;
     }>;
-  } {
-    // 만료된 데이터 먼저 정리
-    this.cleanupExpiredAuthData();
+  }> {
+    const now = Date.now();
 
     const statesList: Array<{
       state: string;
@@ -1154,17 +1353,37 @@ export class AuthService {
       userEmail?: string;
     }> = [];
 
-    for (const [state, data] of this.pkceStates.entries()) {
-      const userEmail = _getUserEmailFromPkceUser(data.user);
-      statesList.push({
-        state: state,
-        isComplete: data.isComplete,
-        expiresAt: data.expiresAt,
-        hasUser: !!data.user,
-        hasAccessToken: !!data.accessToken,
-        userEmail: userEmail ?? undefined,
-      });
-    }
+    let cursor = '0';
+    do {
+      const [nextCursor, keys] = await this.redis.scan(
+        cursor,
+        'MATCH',
+        `${PKCE_STATE_KEY_PREFIX}*`,
+        'COUNT',
+        '100',
+      );
+      cursor = nextCursor;
+      if (keys.length === 0) continue;
+
+      const raws = await this.redis.mget(...keys);
+      for (let i = 0; i < keys.length; i++) {
+        const raw = raws[i];
+        if (!raw) continue;
+        const data = safeJsonParse<PkceStateData>(raw);
+        if (!data) continue;
+        if (now > data.expiresAt) continue;
+        const state = keys[i].replace(PKCE_STATE_KEY_PREFIX, '');
+        const userEmail = _getUserEmailFromPkceUser(data.user);
+        statesList.push({
+          state,
+          isComplete: data.isComplete,
+          expiresAt: new Date(data.expiresAt),
+          hasUser: !!data.user,
+          hasAccessToken: !!data.accessToken,
+          userEmail: userEmail ?? undefined,
+        });
+      }
+    } while (cursor !== '0');
 
     const verificationsList: Array<{
       email: string;
@@ -1172,13 +1391,32 @@ export class AuthService {
       attempts: number;
     }> = [];
 
-    for (const [_email, verification] of this.verificationCodes.entries()) {
-      verificationsList.push({
-        email: verification.email,
-        expiresAt: verification.expiresAt,
-        attempts: verification.attempts,
-      });
-    }
+    cursor = '0';
+    do {
+      const [nextCursor, keys] = await this.redis.scan(
+        cursor,
+        'MATCH',
+        `${EMAIL_VERIFY_KEY_PREFIX}*`,
+        'COUNT',
+        '100',
+      );
+      cursor = nextCursor;
+      if (keys.length === 0) continue;
+
+      const raws = await this.redis.mget(...keys);
+      for (let i = 0; i < keys.length; i++) {
+        const raw = raws[i];
+        if (!raw) continue;
+        const v = safeJsonParse<EmailVerification>(raw);
+        if (!v) continue;
+        if (now > v.expiresAt) continue;
+        verificationsList.push({
+          email: v.email,
+          expiresAt: new Date(v.expiresAt),
+          attempts: v.attempts,
+        });
+      }
+    } while (cursor !== '0');
 
     return {
       message: '현재 저장된 PKCE 상태들과 인증 코드들입니다.',
@@ -1245,7 +1483,7 @@ export class AuthService {
   /**
    * 특정 state의 상세 정보 조회 (디버깅용)
    */
-  getDebugStateDetail(state: string): {
+  async getDebugStateDetail(state: string): Promise<{
     message: string;
     exists: boolean;
     data?: {
@@ -1260,8 +1498,10 @@ export class AuthService {
         socialProvider?: string;
       };
     };
-  } {
-    const pkceData = this.pkceStates.get(state);
+  }> {
+    const stateKey = this.pkceStateKey(state);
+    const raw = await this.redis.get(stateKey);
+    const pkceData = raw ? safeJsonParse<PkceStateData>(raw) : null;
 
     if (!pkceData) {
       return {
@@ -1271,8 +1511,8 @@ export class AuthService {
     }
 
     // 만료 확인
-    if (pkceData.expiresAt < new Date()) {
-      this.pkceStates.delete(state);
+    if (Date.now() > pkceData.expiresAt) {
+      await this.redis.del(stateKey);
       return {
         message: '해당 state는 만료되어 삭제되었습니다.',
         exists: false,
@@ -1291,7 +1531,7 @@ export class AuthService {
       data: {
         state: state,
         isComplete: pkceData.isComplete,
-        expiresAt: pkceData.expiresAt,
+        expiresAt: new Date(pkceData.expiresAt),
         hasAccessToken: !!pkceData.accessToken,
         hasUser: !!pkceData.user,
         userInfo: pkceData.user
