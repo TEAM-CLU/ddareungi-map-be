@@ -1,278 +1,78 @@
 <!DOCTYPE html>
-<html>
+<html lang="ko">
 
   <head>
-    <meta name="referrer" content="origin" />
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <script
-      src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=ae70aa1322a44f53f606358780b90d31&autoload=false&libraries=services,clusterer,drawing"></script>
-    <link rel="stylesheet"
-      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/variable/pretendardvariable.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>따릉이맵</title>
     <style>
-      * {
+      html,
+      body {
+        height: 100%;
         margin: 0;
         padding: 0;
       }
 
-      body,
-      html {
+      #map {
         width: 100%;
         height: 100%;
-        overflow: hidden;
       }
     </style>
   </head>
 
   <body>
-    <main id="map" style="height: 100vh; width: 100%"></main>
+    <div id="map"></div>
+    <script
+      src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=__KAKAO_MAP_API__&autoload=false&libraries=services,clusterer"></script>
+
+    <script src="/myLocation.js"></script>
+    <script src="/routing.js"></script>
+    <script src="/navigation.js"></script>
+    <script src="/search.js"></script>
+    <script src="/station.js"></script>
+    <script src="/bookmark.js"></script>
+
+    <script>
+      // 최소 동작용 초기화(기존 public/*.js 모듈들이 kakao/map 전역을 기대하는 구조를 최대한 유지)
+      window.addEventListener('DOMContentLoaded', () => {
+        if (!window.kakao || !window.kakao.maps) {
+          console.error('Kakao maps SDK not loaded');
+          return;
+        }
+
+        kakao.maps.load(() => {
+          const DEFAULT_LAT = 37.5665;
+          const DEFAULT_LNG = 126.978;
+          const container = document.getElementById('map');
+          const map = new kakao.maps.Map(container, {
+            center: new kakao.maps.LatLng(DEFAULT_LAT, DEFAULT_LNG),
+            level: 5,
+          });
+
+          try {
+            // 각 모듈이 존재하면 초기화(방어적)
+            window.MyLocation?.initMyLocationSetting?.(
+              kakao,
+              map,
+              DEFAULT_LAT,
+              DEFAULT_LNG,
+            );
+            window.Route?.initRouteSetting?.(kakao, map, DEFAULT_LAT, DEFAULT_LNG);
+            window.Navigation?.initNavigationSetting?.(
+              kakao,
+              map,
+              DEFAULT_LAT,
+              DEFAULT_LNG,
+            );
+            window.Search?.initSearchSetting?.(kakao, map);
+            window.Station?.initStationSeting?.(kakao, map);
+            window.Bookmark?.initBookmarkSetting?.(kakao, map);
+          } catch (e) {
+            console.error('Map init error:', e);
+          }
+        });
+      });
+    </script>
   </body>
-  <script>
-    // 전역 변수 초기 세팅(window.var로 각 피쳐 js에서 접근가능)
-    let map;
-    window.isSelectedRouteDetailModalOpen = false;
-    window.isCompassMode = false;
-    const DEFAULT_LAT = 37.5665;
-    const DEFAULT_LNG = 126.978;
-
-    kakao.maps.load(() => {
-      // 맵 생성
-      const mapContainer = document.getElementById('map');
-      const mapOption = {
-        center: new kakao.maps.LatLng(DEFAULT_LAT, DEFAULT_LNG),
-        level: 2,
-      };
-      map = new kakao.maps.Map(mapContainer, mapOption);
-
-      // 다른 JS 파일(모듈)들이 로드될 때까지 대기
-      const waitForOtherScripts = setInterval(() => {
-        if (
-          window.MyLocation &&
-          window.Route &&
-          window.Navigation &&
-          window.Search &&
-          window.Station &&
-          window.Bookmark &&
-          window.kakao &&
-          window.kakao.maps
-        ) {
-          clearInterval(waitForOtherScripts);
-
-          // 각 모듈 초기화
-          MyLocation.initMyLocationSetting(
-            kakao,
-            map,
-            DEFAULT_LAT,
-            DEFAULT_LNG,
-          );
-          Route.initRouteSetting(kakao, map, DEFAULT_LAT, DEFAULT_LNG);
-          Navigation.initNavigationSetting(
-            kakao,
-            map,
-            DEFAULT_LAT,
-            DEFAULT_LNG,
-          );
-          Search.initSearchSetting(kakao, map);
-          Station.initStationSeting(kakao, map);
-          Bookmark.initBookmarkSetting(kakao, map);
-
-          // 실시간 맵 초기 센터 좌표 RN에 최초 전송
-          (function sendInitialCenter() {
-            const centerCoord = map.getCenter();
-            window.ReactNativeWebView?.postMessage(
-              JSON.stringify({
-                type: 'changeMapCenter',
-                lat: centerCoord.getLat(),
-                lng: centerCoord.getLng(),
-              }),
-            );
-          })();
-
-          // 이후엔 idle 때마다 전송
-          kakao.maps.event.addListener(map, 'idle', () => {
-            const centerCoord = map.getCenter();
-            window.ReactNativeWebView?.postMessage(
-              JSON.stringify({
-                type: 'changeMapCenter',
-                lat: centerCoord.getLat(),
-                lng: centerCoord.getLng(),
-              }),
-            );
-          });
-
-          // 모든 모듈 초기화가 끝난 후 RN에 맵 로딩 완료 알림 전송(중요)
-          if (window.ReactNativeWebView) {
-            window.ReactNativeWebView.postMessage(
-              JSON.stringify({ type: 'mapReady', isReady: true }),
-            );
-          } else {
-            // 혹시 브릿지가 늦게 붙을 경우를 대비한 안전장치
-            setTimeout(() => {
-              window.ReactNativeWebView?.postMessage(
-                JSON.stringify({ type: 'mapReady', isReady: true }),
-              );
-            }, 500);
-          }
-        }
-      }, 100);
-    });
-
-    // RN 메시지 타입별 처리(중요)
-    const handleMessage = event => {
-      try {
-        const data = JSON.parse(event.data);
-        // === 내 위치 관련 메시지 처리 ===
-
-        // 1. 내 위치 업데이트
-        if (data.type === 'updateMyLocation') {
-          MyLocation.updateMyLocation(data.lat, data.lng, data.accuracy ?? 30);
-        }
-
-        // 2. 내 방향 업데이트
-        if (data.type === 'rotateMyHeading') {
-          MyLocation.rotateMyHeading(data.heading);
-        }
-
-        // 3. 내 위치로 이동
-        if (data.type === 'setCenterOnMyLocation') {
-          map.setCenter(MyLocation.myLocationMarker.getPosition());
-        }
-
-        // 4. 내 위치 + 나침반 모드 on
-        if (data.type === 'myLocationCompassOn') {
-          window.isCompassMode = data.isCompassMode;
-          MyLocation.setMyHeadingOverlayVisible(true);
-          const marker = MyLocation.myLocationMarker;
-          if (marker) {
-            map.setCenter(marker.getPosition());
-          }
-        }
-
-        // 5. 나침반 모드 off
-        if (data.type === 'myLocationCompassOff') {
-          window.isCompassMode = data.isCompassMode;
-          MyLocation.setMyHeadingOverlayVisible(false);
-        }
-
-        // === 검색 관련 메시지 처리 ===
-
-        // 6. 장소 마커 표시
-        if (data.type === 'showPlaceMarker') {
-          Search.showPlaceMarker(
-            data.lat,
-            data.lng,
-            data.placeName,
-            data.placeInfo,
-          );
-        }
-
-        // 7. 현재 장소 마커 제거
-        if (data.type === 'clearCurrentPlaceMarker') {
-          Search.clearCurrentPlaceMarker();
-        }
-
-        // === 라우팅(경로) 관련 메시지 처리 ===
-
-        if (data.type === 'stopFollowingMyLocation')
-          window.isSelectedRouteDetailModalOpen =
-            data.isSelectedRouteDetailModalOpen;
-
-        // 8. 정적 경로 생성
-        if (data.type === 'drawStaticPath') {
-          Route.drawStaticPath(data.staticPathData);
-        }
-
-        // 9. 정적 경로 삭제
-        if (data.type === 'clearStaticPath') {
-          Route.clearStaticPath();
-        }
-
-        // 10. 정적 경로에 맞게 지도 bounds 조정
-        if (data.type === 'focusOnStaticPath') {
-          Route.focusOnStaticPath();
-        }
-
-        // === 대여소 관련 메시지 처리 ===
-
-        // 12. 대여소 마커 표시
-        if (data.type === 'updateStationDataList') {
-          Station.createStationMarkers(data.stations);
-        }
-        // 13. 대여소 재고정보 업데이트
-        if (data.type === 'updateTargetedStationBikeCountList') {
-          Station.updateStationBikeCountList(data.stationBikeCountList);
-        }
-
-        // 14. 대여소 마커 표시 on/off
-        if (data.type === 'toggleStationMarkers') {
-          Station.toggleStationMarkers(data.isVisible);
-        }
-
-        // 15. Nearby 클릭 대여소 포커싱
-        if (data.type === 'focusOnTargetedNearbyStation') {
-          Station.focusOnTargetedNearbyStation(data.targetedStationData);
-        }
-
-        // === 즐겨찾기 관련 메시지 처리 ===
-
-        // 16. 즐겨찾기 마커 업데이트 (생성 및 갱신)
-        if (data.type === 'updateBookmarks') {
-          Bookmark.createBookmarkMarkers(data.bookmarks);
-        }
-
-        // 17. 즐겨찾기 마커 지우기
-        if (data.type === 'clearBookmarks') {
-          Bookmark.clearBookmarkMarkers();
-        }
-
-        // 19. 즐겨찾기 마커 표시 on/off
-        if (data.type === 'toggleBookmarkMarkers') {
-          Bookmark.toggleBookmarkMarkers(data.isVisible);
-        }
-
-        // 20. 단일 즐겨찾기 마커 표시 (토글 상태와 무관)
-        if (data.type === 'showSingleBookmarkMarker') {
-          Bookmark.showSingleBookmarkMarker(data.bookmarkData);
-        }
-        // === 내비게이션 기능 ===
-        if (data.type === 'replaceMyLocationMarker') {
-          MyLocation.replaceMyLocationMarker(data.isNavigationMode);
-        }
-
-        // 21. 네비게이션 경로 그리기
-        if (data.type === 'drawNavigationPath') {
-          Navigation.drawNavigationPath(data.navigationPathData);
-        }
-
-        // 22. 네비게이션 현재 interval 업데이트
-        if (data.type === 'updateNavigationCurrentInterval') {
-          Navigation.updateNavigationCurrentInterval({
-            currentIntervalIndex: data.currentIntervalIndex,
-            intervals: data.intervals,
-            fullPathCoordinateList: data.fullPathCoordinateList,
-          });
-        }
-
-        // 23. 네비게이션 경로 지우기
-        if (data.type === 'clearNavigationPath') {
-          Navigation.clearNavigationPath();
-        }
-
-        // 24. 네비게이션 경로에 맞게 지도 bounds 조정
-        if (data.type === 'focusOnNavigationPath') {
-          Navigation.focusOnNavigationPath();
-        }
-      } catch (error) { }
-    };
-
-    document.addEventListener('message', handleMessage);
-    window.addEventListener('message', handleMessage);
-  </script>
-  <script src="./src/features/location/utils/myLocation.js" defer></script>
-  <script src="./src/features/routing/utils/routing.js" defer></script>
-  <script src="./src/features/navigation/utils/navigation.js" defer></script>
-  <script src="./src/features/search/utils/search.js" defer></script>
-  <script src="./src/features/station/utils/station.js" defer></script>
-  <script src="./src/features/bookmark/utils/bookmark.js" defer></script>
 
 </html>

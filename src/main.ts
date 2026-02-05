@@ -8,7 +8,6 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { SentryInterceptor } from './common/interceptors/sentry.interceptor';
 import { ClsService } from 'nestjs-cls';
 import * as Sentry from '@sentry/nestjs';
-import { join } from 'path';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 
 async function bootstrap() {
@@ -43,8 +42,6 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger: winstonLogger,
   });
-
-  app.useStaticAssets(join(__dirname, '..', 'public'));
 
   // Global Interceptor 등록 (요청/응답 로깅)
   const clsService = app.get(ClsService);

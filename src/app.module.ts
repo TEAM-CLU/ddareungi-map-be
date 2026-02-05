@@ -11,6 +11,7 @@ import { StationsModule } from './stations/stations.module';
 import { RoutesModule } from './routes/routes.module';
 import { NavigationModule } from './navigation/navigation.module';
 import { TtsModule } from './tts/tts.module';
+import { MapModule } from './map/map.module';
 import { ClsModule } from 'nestjs-cls';
 import { RedisModule } from '@liaoliaots/nestjs-redis';
 import { HttpLoggingModule } from './common/http/http-logging.module';
@@ -105,6 +106,7 @@ type ClsLike = {
     RoutesModule,
     NavigationModule,
     TtsModule,
+    MapModule,
   ],
   controllers: [AppController],
   providers: [AppService],

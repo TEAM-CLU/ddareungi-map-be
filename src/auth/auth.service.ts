@@ -4,6 +4,9 @@ import {
   UnauthorizedException,
   NotFoundException,
   ConflictException,
+  InternalServerErrorException,
+  Logger,
+  HttpException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '@liaoliaots/nestjs-redis';
@@ -27,6 +30,7 @@ import { CryptoService } from '../common/crypto.service';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import axios from 'axios';
+import type { PkceErrorCode } from './pkce-error-code';
 
 // 이메일 인증 정보를 저장할 인터페이스
 interface EmailVerification {
@@ -111,6 +115,7 @@ function safeJsonParse<T>(raw: string): T | null {
 @Injectable()
 export class AuthService {
   private readonly redis: Redis;
+  private readonly logger = new Logger(AuthService.name);
 
   constructor(
     private mailService: MailService,
@@ -135,6 +140,38 @@ export class AuthService {
 
   private emailVerifyKey(normalizedEmail: string): string {
     return `${EMAIL_VERIFY_KEY_PREFIX}${normalizedEmail}`;
+  }
+
+  private hashForLog(value: string): string {
+    return crypto.createHash('sha256').update(value).digest('hex').slice(0, 12);
+  }
+
+  private logPkceError(params: {
+    provider: 'google' | 'kakao' | 'naver';
+    stage: string;
+    errorCode: PkceErrorCode;
+    state?: string;
+    code?: string;
+    error: unknown;
+  }): void {
+    const errorObj =
+      params.error instanceof Error
+        ? params.error
+        : new Error(String(params.error));
+
+    this.logger.error({
+      message: `[PKCE] ${params.provider} ${params.stage} failed (${params.errorCode})`,
+      provider: params.provider,
+      stage: params.stage,
+      errorCode: params.errorCode,
+      stateHash: params.state ? this.hashForLog(params.state) : undefined,
+      codeHash: params.code ? this.hashForLog(params.code) : undefined,
+      error: {
+        name: errorObj.name,
+        message: errorObj.message,
+        stack: errorObj.stack,
+      },
+    });
   }
 
   /**
@@ -823,15 +860,17 @@ export class AuthService {
         ? safeJsonParse<PkceStateData>(existingRaw)
         : null;
       if (!existingPkceData) {
-        throw new UnauthorizedException(
-          'Invalid state - no matching PKCE data found',
-        );
+        throw new UnauthorizedException({
+          code: 'INVALID_STATE',
+          message: 'Invalid state - no matching PKCE data found',
+        });
       }
       if (Date.now() > existingPkceData.expiresAt) {
         await this.redis.del(stateKey);
-        throw new UnauthorizedException(
-          'Invalid state - no matching PKCE data found',
-        );
+        throw new UnauthorizedException({
+          code: 'AUTH_TIMEOUT',
+          message: 'PKCE state expired',
+        });
       }
 
       // 1. Access Token 요청 (저장된 code_verifier 사용)
@@ -943,10 +982,46 @@ export class AuthService {
       // 7. state 반환 (딥링크에 사용)
       return state;
     } catch (error) {
-      console.error('Google PKCE callback error:', error);
-      throw new BadRequestException(
-        'Google 로그인 처리 중 오류가 발생했습니다.',
-      );
+      // 이미 분류된 HttpException은 그대로 올려서 컨트롤러가 errorCode를 알 수 있게 함
+      if (error instanceof HttpException) {
+        const resp = error.getResponse() as unknown;
+        const code =
+          typeof resp === 'object' && resp !== null && 'code' in resp
+            ? String((resp as { code?: unknown }).code)
+            : 'INTERNAL_ERROR';
+        this.logPkceError({
+          provider: 'google',
+          stage: 'callback',
+          errorCode: code as PkceErrorCode,
+          state,
+          code,
+          error,
+        });
+        throw error;
+      }
+
+      const errorCode: PkceErrorCode = axios.isAxiosError(error)
+        ? 'PKCE_VERIFY_FAIL'
+        : 'INTERNAL_ERROR';
+      this.logPkceError({
+        provider: 'google',
+        stage: 'callback',
+        errorCode,
+        state,
+        code,
+        error,
+      });
+
+      if (axios.isAxiosError(error)) {
+        throw new BadRequestException({
+          code: 'PKCE_VERIFY_FAIL',
+          message: 'Google PKCE verification failed',
+        });
+      }
+      throw new InternalServerErrorException({
+        code: 'INTERNAL_ERROR',
+        message: 'Google PKCE internal error',
+      });
     }
   }
   /**
@@ -961,15 +1036,17 @@ export class AuthService {
         ? safeJsonParse<PkceStateData>(existingRaw)
         : null;
       if (!existingPkceData) {
-        throw new UnauthorizedException(
-          'Invalid state - no matching PKCE data found',
-        );
+        throw new UnauthorizedException({
+          code: 'INVALID_STATE',
+          message: 'Invalid state - no matching PKCE data found',
+        });
       }
       if (Date.now() > existingPkceData.expiresAt) {
         await this.redis.del(stateKey);
-        throw new UnauthorizedException(
-          'Invalid state - no matching PKCE data found',
-        );
+        throw new UnauthorizedException({
+          code: 'AUTH_TIMEOUT',
+          message: 'PKCE state expired',
+        });
       }
 
       // 1. Access Token 요청 (저장된 code_verifier 사용)
@@ -1040,10 +1117,45 @@ export class AuthService {
       // 5. state 반환 (딥링크에 사용)
       return state;
     } catch (error) {
-      console.error('Kakao PKCE callback error:', error);
-      throw new BadRequestException(
-        '카카오 로그인 처리 중 오류가 발생했습니다.',
-      );
+      if (error instanceof HttpException) {
+        const resp = error.getResponse() as unknown;
+        const code =
+          typeof resp === 'object' && resp !== null && 'code' in resp
+            ? String((resp as { code?: unknown }).code)
+            : 'INTERNAL_ERROR';
+        this.logPkceError({
+          provider: 'kakao',
+          stage: 'callback',
+          errorCode: code as PkceErrorCode,
+          state,
+          code,
+          error,
+        });
+        throw error;
+      }
+
+      const errorCode: PkceErrorCode = axios.isAxiosError(error)
+        ? 'PKCE_VERIFY_FAIL'
+        : 'INTERNAL_ERROR';
+      this.logPkceError({
+        provider: 'kakao',
+        stage: 'callback',
+        errorCode,
+        state,
+        code,
+        error,
+      });
+
+      if (axios.isAxiosError(error)) {
+        throw new BadRequestException({
+          code: 'PKCE_VERIFY_FAIL',
+          message: 'Kakao PKCE verification failed',
+        });
+      }
+      throw new InternalServerErrorException({
+        code: 'INTERNAL_ERROR',
+        message: 'Kakao PKCE internal error',
+      });
     }
   }
 
@@ -1059,15 +1171,17 @@ export class AuthService {
         ? safeJsonParse<PkceStateData>(existingRaw)
         : null;
       if (!existingPkceData) {
-        throw new UnauthorizedException(
-          'Invalid state - no matching PKCE data found',
-        );
+        throw new UnauthorizedException({
+          code: 'INVALID_STATE',
+          message: 'Invalid state - no matching PKCE data found',
+        });
       }
       if (Date.now() > existingPkceData.expiresAt) {
         await this.redis.del(stateKey);
-        throw new UnauthorizedException(
-          'Invalid state - no matching PKCE data found',
-        );
+        throw new UnauthorizedException({
+          code: 'AUTH_TIMEOUT',
+          message: 'PKCE state expired',
+        });
       }
 
       // 1. Access Token 요청 (저장된 code_verifier 사용)
@@ -1139,10 +1253,45 @@ export class AuthService {
       // 5. state 반환 (딥링크에 사용)
       return state;
     } catch (error) {
-      console.error('Naver PKCE callback error:', error);
-      throw new BadRequestException(
-        '네이버 로그인 처리 중 오류가 발생했습니다.',
-      );
+      if (error instanceof HttpException) {
+        const resp = error.getResponse() as unknown;
+        const code =
+          typeof resp === 'object' && resp !== null && 'code' in resp
+            ? String((resp as { code?: unknown }).code)
+            : 'INTERNAL_ERROR';
+        this.logPkceError({
+          provider: 'naver',
+          stage: 'callback',
+          errorCode: code as PkceErrorCode,
+          state,
+          code,
+          error,
+        });
+        throw error;
+      }
+
+      const errorCode: PkceErrorCode = axios.isAxiosError(error)
+        ? 'PKCE_VERIFY_FAIL'
+        : 'INTERNAL_ERROR';
+      this.logPkceError({
+        provider: 'naver',
+        stage: 'callback',
+        errorCode,
+        state,
+        code,
+        error,
+      });
+
+      if (axios.isAxiosError(error)) {
+        throw new BadRequestException({
+          code: 'PKCE_VERIFY_FAIL',
+          message: 'Naver PKCE verification failed',
+        });
+      }
+      throw new InternalServerErrorException({
+        code: 'INTERNAL_ERROR',
+        message: 'Naver PKCE internal error',
+      });
     }
   }
 

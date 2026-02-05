@@ -11,6 +11,7 @@ import {
   Query,
   Param,
   HttpException,
+  Logger,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
@@ -26,6 +27,8 @@ import {
   SuccessResponseDto,
   ErrorResponseDto,
 } from '../common/api-response.dto';
+import { isPkceErrorCode } from './pkce-error-code';
+import * as crypto from 'crypto';
 
 declare module 'express' {
   interface Request {
@@ -36,7 +39,85 @@ declare module 'express' {
 @ApiTags('인증 (Authentication)')
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(private readonly authService: AuthService) {}
+
+  private hashForLog(value: string): string {
+    return crypto.createHash('sha256').update(value).digest('hex').slice(0, 12);
+  }
+
+  private buildAuthResultRedirectUrl(params: {
+    status: 'success' | 'error';
+    provider: 'google' | 'kakao' | 'naver';
+    state?: string;
+    errorCode?: string;
+    errorMessage?: string;
+  }): string {
+    const frag = new URLSearchParams();
+    frag.set('status', params.status);
+    frag.set('provider', params.provider);
+    if (params.state) frag.set('state', params.state);
+    if (params.errorCode) frag.set('errorCode', params.errorCode);
+    if (params.errorMessage) frag.set('errorMessage', params.errorMessage);
+    // 결과 페이지는 고정 경로만 사용 (오픈 리다이렉트 방지)
+    return `/auth_result.html#${frag.toString()}`;
+  }
+
+  private mapProviderOAuthErrorToErrorCode(
+    oauthError?: string,
+  ): string | undefined {
+    if (!oauthError) return undefined;
+    // OAuth 표준: access_denied (사용자가 동의/로그인을 취소)
+    if (oauthError === 'access_denied') return 'USER_CANCEL';
+    return 'PKCE_VERIFY_FAIL';
+  }
+
+  private mapExceptionToErrorCode(error: unknown): string {
+    if (error instanceof HttpException) {
+      const resp = error.getResponse() as unknown;
+      const code =
+        typeof resp === 'object' && resp !== null && 'code' in resp
+          ? (resp as { code?: unknown }).code
+          : undefined;
+      if (isPkceErrorCode(code)) return code;
+    }
+
+    // 기본값(예상치 못한 예외)
+    return 'INTERNAL_ERROR';
+  }
+
+  private pickSafeErrorMessage(error: unknown): string | undefined {
+    // 화이트리스트 방식: 허용된 고정 문구만 전달
+    if (!(error instanceof HttpException)) return undefined;
+
+    const resp = error.getResponse() as unknown;
+    const msgCandidate = (() => {
+      if (typeof resp === 'string') return resp;
+      if (typeof resp === 'object' && resp !== null) {
+        const anyResp = resp as { message?: unknown; error?: unknown };
+        if (typeof anyResp.message === 'string') return anyResp.message;
+        // Nest 기본 형태에서 message가 배열인 경우가 있음(여기선 전송 안 함)
+        if (typeof anyResp.error === 'string') return anyResp.error;
+      }
+      return undefined;
+    })();
+
+    if (!msgCandidate) return undefined;
+
+    const whitelist = new Set<string>([
+      'PKCE state expired',
+      'Invalid state - no matching PKCE data found',
+      'Google PKCE verification failed',
+      'Kakao PKCE verification failed',
+      'Naver PKCE verification failed',
+      'Google PKCE internal error',
+      'Kakao PKCE internal error',
+      'Naver PKCE internal error',
+    ]);
+
+    return whitelist.has(msgCandidate) ? msgCandidate : undefined;
+  }
 
   @Post('send-verification-email')
   @HttpCode(HttpStatus.OK)
@@ -384,22 +465,75 @@ export class AuthController {
     @Query('code') code: string,
     @Query('state') state: string,
     @Res() res: Response,
+    @Query('error') oauthError?: string,
+    @Query('error_description') oauthErrorDescription?: string,
   ) {
     try {
+      res.set({ 'Cache-Control': 'no-store' });
+
+      // provider가 OAuth 에러를 콜백으로 내려주는 케이스(사용자 취소/동의 거부 등)
+      if (oauthError) {
+        const errorCode = this.mapProviderOAuthErrorToErrorCode(oauthError);
+        this.logger.warn({
+          message: '[PKCE] google callback oauthError',
+          provider: 'google',
+          oauthError,
+          oauthErrorDescription,
+          stateHash: state ? this.hashForLog(state) : undefined,
+        });
+        return res.redirect(
+          303,
+          this.buildAuthResultRedirectUrl({
+            status: 'error',
+            provider: 'google',
+            errorCode: errorCode ?? 'PKCE_VERIFY_FAIL',
+          }),
+        );
+      }
+
       if (!code || !state) {
-        // 실패 시 쿼리 파라미터와 함께 리다이렉트
-        return res.redirect('/auth_result.html?status=error');
+        return res.redirect(
+          303,
+          this.buildAuthResultRedirectUrl({
+            status: 'error',
+            provider: 'google',
+            errorCode: 'PKCE_VERIFY_FAIL',
+          }),
+        );
       }
 
       await this.authService.handleGooglePKCECallback(code, state);
 
-      // 성공 시 결과 페이지로 리다이렉트 (state 전달)
       return res.redirect(
-        `/auth_result.html?status=success&state=${encodeURIComponent(state)}`,
+        303,
+        this.buildAuthResultRedirectUrl({
+          status: 'success',
+          provider: 'google',
+          state,
+        }),
       );
     } catch (error) {
-      console.error('Callback error:', error);
-      return res.redirect('/auth_result.html?status=error');
+      const errorCode = this.mapExceptionToErrorCode(error);
+      const errorMessage = this.pickSafeErrorMessage(error);
+      this.logger.error({
+        message: '[PKCE] google callback failed',
+        provider: 'google',
+        errorCode,
+        stateHash: state ? this.hashForLog(state) : undefined,
+        error:
+          error instanceof Error
+            ? { name: error.name, message: error.message, stack: error.stack }
+            : { message: String(error) },
+      });
+      return res.redirect(
+        303,
+        this.buildAuthResultRedirectUrl({
+          status: 'error',
+          provider: 'google',
+          errorCode,
+          errorMessage,
+        }),
+      );
     }
   }
 
@@ -412,22 +546,74 @@ export class AuthController {
     @Query('code') code: string,
     @Query('state') state: string,
     @Res() res: Response,
+    @Query('error') oauthError?: string,
+    @Query('error_description') oauthErrorDescription?: string,
   ) {
     try {
+      res.set({ 'Cache-Control': 'no-store' });
+
+      if (oauthError) {
+        const errorCode = this.mapProviderOAuthErrorToErrorCode(oauthError);
+        this.logger.warn({
+          message: '[PKCE] kakao callback oauthError',
+          provider: 'kakao',
+          oauthError,
+          oauthErrorDescription,
+          stateHash: state ? this.hashForLog(state) : undefined,
+        });
+        return res.redirect(
+          303,
+          this.buildAuthResultRedirectUrl({
+            status: 'error',
+            provider: 'kakao',
+            errorCode: errorCode ?? 'PKCE_VERIFY_FAIL',
+          }),
+        );
+      }
+
       if (!code || !state) {
-        // 실패 시 쿼리 파라미터와 함께 리다이렉트
-        return res.redirect('/auth_result.html?status=error');
+        return res.redirect(
+          303,
+          this.buildAuthResultRedirectUrl({
+            status: 'error',
+            provider: 'kakao',
+            errorCode: 'PKCE_VERIFY_FAIL',
+          }),
+        );
       }
 
       await this.authService.handleKakaoPKCECallback(code, state);
 
-      // 성공 시 결과 페이지로 리다이렉트 (state 전달)
       return res.redirect(
-        `/auth_result.html?status=success&state=${encodeURIComponent(state)}`,
+        303,
+        this.buildAuthResultRedirectUrl({
+          status: 'success',
+          provider: 'kakao',
+          state,
+        }),
       );
     } catch (error) {
-      console.error('Callback error:', error);
-      return res.redirect('/auth_result.html?status=error');
+      const errorCode = this.mapExceptionToErrorCode(error);
+      const errorMessage = this.pickSafeErrorMessage(error);
+      this.logger.error({
+        message: '[PKCE] kakao callback failed',
+        provider: 'kakao',
+        errorCode,
+        stateHash: state ? this.hashForLog(state) : undefined,
+        error:
+          error instanceof Error
+            ? { name: error.name, message: error.message, stack: error.stack }
+            : { message: String(error) },
+      });
+      return res.redirect(
+        303,
+        this.buildAuthResultRedirectUrl({
+          status: 'error',
+          provider: 'kakao',
+          errorCode,
+          errorMessage,
+        }),
+      );
     }
   }
 
@@ -440,22 +626,74 @@ export class AuthController {
     @Query('code') code: string,
     @Query('state') state: string,
     @Res() res: Response,
+    @Query('error') oauthError?: string,
+    @Query('error_description') oauthErrorDescription?: string,
   ) {
     try {
+      res.set({ 'Cache-Control': 'no-store' });
+
+      if (oauthError) {
+        const errorCode = this.mapProviderOAuthErrorToErrorCode(oauthError);
+        this.logger.warn({
+          message: '[PKCE] naver callback oauthError',
+          provider: 'naver',
+          oauthError,
+          oauthErrorDescription,
+          stateHash: state ? this.hashForLog(state) : undefined,
+        });
+        return res.redirect(
+          303,
+          this.buildAuthResultRedirectUrl({
+            status: 'error',
+            provider: 'naver',
+            errorCode: errorCode ?? 'PKCE_VERIFY_FAIL',
+          }),
+        );
+      }
+
       if (!code || !state) {
-        // 실패 시 쿼리 파라미터와 함께 리다이렉트
-        return res.redirect('/auth_result.html?status=error');
+        return res.redirect(
+          303,
+          this.buildAuthResultRedirectUrl({
+            status: 'error',
+            provider: 'naver',
+            errorCode: 'PKCE_VERIFY_FAIL',
+          }),
+        );
       }
 
       await this.authService.handleNaverPKCECallback(code, state);
 
-      // 성공 시 결과 페이지로 리다이렉트 (state 전달)
       return res.redirect(
-        `/auth_result.html?status=success&state=${encodeURIComponent(state)}`,
+        303,
+        this.buildAuthResultRedirectUrl({
+          status: 'success',
+          provider: 'naver',
+          state,
+        }),
       );
     } catch (error) {
-      console.error('Callback error:', error);
-      return res.redirect('/auth_result.html?status=error');
+      const errorCode = this.mapExceptionToErrorCode(error);
+      const errorMessage = this.pickSafeErrorMessage(error);
+      this.logger.error({
+        message: '[PKCE] naver callback failed',
+        provider: 'naver',
+        errorCode,
+        stateHash: state ? this.hashForLog(state) : undefined,
+        error:
+          error instanceof Error
+            ? { name: error.name, message: error.message, stack: error.stack }
+            : { message: String(error) },
+      });
+      return res.redirect(
+        303,
+        this.buildAuthResultRedirectUrl({
+          status: 'error',
+          provider: 'naver',
+          errorCode,
+          errorMessage,
+        }),
+      );
     }
   }
 
