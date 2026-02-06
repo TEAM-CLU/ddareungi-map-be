@@ -17,6 +17,7 @@ const state = params.get('state') || undefined;
 const provider = (params.get('provider') || '').trim().toLowerCase();
 const errorCode = (params.get('errorCode') || '').trim() || undefined;
 const errorMessage = (params.get('errorMessage') || '').trim() || undefined;
+const existingProvider = (params.get('existingProvider') || '').trim().toLowerCase() || undefined;
 
 const iconEl = document.getElementById('icon');
 const titleEl = document.getElementById('title');
@@ -30,6 +31,19 @@ const providerKo =
       : provider === 'naver'
         ? '네이버'
         : '소셜';
+
+const existingProviderKo =
+  existingProvider === 'google'
+    ? '구글'
+    : existingProvider === 'kakao'
+      ? '카카오'
+      : existingProvider === 'naver'
+        ? '네이버'
+        : existingProvider === 'local'
+          ? '이메일/비밀번호(일반 로그인)'
+          : existingProvider
+            ? '기존 계정'
+            : '기존 계정';
 
 const errorMessageByCode = {
   USER_CANCEL: '로그인을 취소하셨습니다.',
@@ -57,6 +71,7 @@ if (status === 'success') {
         provider,
         status: 'success',
         state,
+        existingProvider,
       }),
     );
   }
@@ -66,9 +81,21 @@ if (status === 'success') {
     iconEl.style.color = '#FF4D4F';
   }
   if (titleEl) titleEl.innerText = '로그인 실패';
-  const detail =
-    (errorCode && errorMessageByCode[errorCode]) ||
-    '인증 처리 중 오류가 발생했습니다.\n다시 시도해주세요.';
+  const detail = (() => {
+    if (errorCode === 'EMAIL_CONFLICT') {
+      if (existingProvider === 'local') {
+        return '이미 이메일/비밀번호(일반 로그인)로 가입된 이메일입니다.\n일반 로그인으로 진행해주세요.';
+      }
+      if (existingProvider) {
+        return `이미 ${existingProviderKo}로 가입된 이메일입니다.\n${existingProviderKo}로 로그인해주세요.`;
+      }
+      return '이미 사용 중인 이메일입니다.\n기존 방식으로 로그인해주세요.';
+    }
+    return (
+      (errorCode && errorMessageByCode[errorCode]) ||
+      '인증 처리 중 오류가 발생했습니다.\n다시 시도해주세요.'
+    );
+  })();
   if (messageEl) messageEl.innerText = detail;
 
   if (window.ReactNativeWebView) {
@@ -79,6 +106,7 @@ if (status === 'success') {
         provider,
         status: 'error',
         errorCode: errorCode || 'unknown',
+        existingProvider,
         // UI에는 노출하지 않되, RN에서 디버깅/분기용으로만 전달
         errorMessage: errorMessage || undefined,
       }),

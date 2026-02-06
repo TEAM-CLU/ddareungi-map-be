@@ -5,6 +5,38 @@ import DailyRotateFile from 'winston-daily-rotate-file';
 import { utilities, WinstonModule } from 'nest-winston';
 
 /**
+ * KST(Asia/Seoul) 기준 타임스탬프 생성
+ * - 서버/컨테이너의 TZ 설정과 무관하게 로그에 KST로 기록되도록 강제
+ * - 포맷: YYYY-MM-DD HH:mm:ss.SSS
+ */
+function kstTimestamp(date: Date = new Date()): string {
+  const dtf = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  });
+
+  const parts = dtf.formatToParts(date);
+  const get = (type: string) =>
+    parts.find((p) => p.type === type)?.value ?? '00';
+
+  const yyyy = get('year');
+  const mm = get('month');
+  const dd = get('day');
+  const hh = get('hour');
+  const mi = get('minute');
+  const ss = get('second');
+  const ms = String(date.getMilliseconds()).padStart(3, '0');
+
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}.${ms}`;
+}
+
+/**
  * 민감 정보(PII) 마스킹을 위한 필드 목록
  */
 const SENSITIVE_FIELDS = [
@@ -84,7 +116,7 @@ const maskSensitiveFormat = winston.format((info) => {
  * JSON 포맷터 (Production용)
  */
 const jsonFormat = winston.format.combine(
-  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss.SSS' }),
+  winston.format.timestamp({ format: () => kstTimestamp() }),
   winston.format.errors({ stack: true }),
   maskSensitiveFormat(),
   winston.format.json(),
@@ -94,7 +126,7 @@ const jsonFormat = winston.format.combine(
  * NestLike 포맷터 (Development용)
  */
 const nestLikeFormat = winston.format.combine(
-  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss.SSS' }),
+  winston.format.timestamp({ format: () => kstTimestamp() }),
   winston.format.errors({ stack: true }),
   maskSensitiveFormat(),
   utilities.format.nestLike('DdareungiMap', {

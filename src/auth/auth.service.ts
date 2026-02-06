@@ -386,8 +386,18 @@ export class AuthService {
         });
 
         if (existingEmailUser) {
+          const existingProvider = (() => {
+            const raw = (existingEmailUser.socialName || '').toLowerCase();
+            if (raw.includes('kakao')) return 'kakao';
+            if (raw.includes('naver')) return 'naver';
+            if (raw.includes('google')) return 'google';
+            if (!raw || raw === 'socialuser') return 'local';
+            return 'unknown';
+          })();
           throw new ConflictException({
             statusCode: 409,
+            code: 'EMAIL_CONFLICT',
+            existingProvider,
             message: `이미 사용 중인 이메일입니다. (기존 계정: ${existingEmailUser.socialName || '일반 회원'})`,
           });
         }
@@ -472,8 +482,18 @@ export class AuthService {
         });
 
         if (existingEmailUser) {
+          const existingProvider = (() => {
+            const raw = (existingEmailUser.socialName || '').toLowerCase();
+            if (raw.includes('kakao')) return 'kakao';
+            if (raw.includes('naver')) return 'naver';
+            if (raw.includes('google')) return 'google';
+            if (!raw || raw === 'socialuser') return 'local';
+            return 'unknown';
+          })();
           throw new ConflictException({
             statusCode: 409,
+            code: 'EMAIL_CONFLICT',
+            existingProvider,
             message: `이미 사용 중인 이메일입니다. (기존 계정: ${existingEmailUser.socialName || '일반 회원'})`,
           });
         }
@@ -561,8 +581,18 @@ export class AuthService {
         });
 
         if (existingEmailUser) {
+          const existingProvider = (() => {
+            const raw = (existingEmailUser.socialName || '').toLowerCase();
+            if (raw.includes('kakao')) return 'kakao';
+            if (raw.includes('naver')) return 'naver';
+            if (raw.includes('google')) return 'google';
+            if (!raw || raw === 'socialuser') return 'local';
+            return 'unknown';
+          })();
           throw new ConflictException({
             statusCode: 409,
+            code: 'EMAIL_CONFLICT',
+            existingProvider,
             message: `이미 사용 중인 이메일입니다. (기존 계정: ${existingEmailUser.socialName || '일반 회원'})`,
           });
         }

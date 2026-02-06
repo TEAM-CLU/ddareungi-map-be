@@ -53,6 +53,7 @@ export class AuthController {
     state?: string;
     errorCode?: string;
     errorMessage?: string;
+    existingProvider?: string;
   }): string {
     const frag = new URLSearchParams();
     frag.set('status', params.status);
@@ -60,6 +61,9 @@ export class AuthController {
     if (params.state) frag.set('state', params.state);
     if (params.errorCode) frag.set('errorCode', params.errorCode);
     if (params.errorMessage) frag.set('errorMessage', params.errorMessage);
+    if (params.existingProvider) {
+      frag.set('existingProvider', params.existingProvider);
+    }
     // 결과 페이지는 고정 경로만 사용 (오픈 리다이렉트 방지)
     return `/auth_result.html#${frag.toString()}`;
   }
@@ -515,6 +519,18 @@ export class AuthController {
     } catch (error) {
       const errorCode = this.mapExceptionToErrorCode(error);
       const errorMessage = this.pickSafeErrorMessage(error);
+      const existingProvider =
+        error instanceof HttpException
+          ? (() => {
+              const resp = error.getResponse() as unknown;
+              if (typeof resp === 'object' && resp !== null) {
+                const v = (resp as { existingProvider?: unknown })
+                  .existingProvider;
+                return typeof v === 'string' ? v : undefined;
+              }
+              return undefined;
+            })()
+          : undefined;
       this.logger.error({
         message: '[PKCE] google callback failed',
         provider: 'google',
@@ -532,6 +548,7 @@ export class AuthController {
           provider: 'google',
           errorCode,
           errorMessage,
+          existingProvider,
         }),
       );
     }
@@ -595,6 +612,18 @@ export class AuthController {
     } catch (error) {
       const errorCode = this.mapExceptionToErrorCode(error);
       const errorMessage = this.pickSafeErrorMessage(error);
+      const existingProvider =
+        error instanceof HttpException
+          ? (() => {
+              const resp = error.getResponse() as unknown;
+              if (typeof resp === 'object' && resp !== null) {
+                const v = (resp as { existingProvider?: unknown })
+                  .existingProvider;
+                return typeof v === 'string' ? v : undefined;
+              }
+              return undefined;
+            })()
+          : undefined;
       this.logger.error({
         message: '[PKCE] kakao callback failed',
         provider: 'kakao',
@@ -612,6 +641,7 @@ export class AuthController {
           provider: 'kakao',
           errorCode,
           errorMessage,
+          existingProvider,
         }),
       );
     }
@@ -675,6 +705,18 @@ export class AuthController {
     } catch (error) {
       const errorCode = this.mapExceptionToErrorCode(error);
       const errorMessage = this.pickSafeErrorMessage(error);
+      const existingProvider =
+        error instanceof HttpException
+          ? (() => {
+              const resp = error.getResponse() as unknown;
+              if (typeof resp === 'object' && resp !== null) {
+                const v = (resp as { existingProvider?: unknown })
+                  .existingProvider;
+                return typeof v === 'string' ? v : undefined;
+              }
+              return undefined;
+            })()
+          : undefined;
       this.logger.error({
         message: '[PKCE] naver callback failed',
         provider: 'naver',
@@ -692,6 +734,7 @@ export class AuthController {
           provider: 'naver',
           errorCode,
           errorMessage,
+          existingProvider,
         }),
       );
     }

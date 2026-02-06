@@ -76,6 +76,13 @@ type ClsLike = {
           password: configService.getOrThrow<string>('DB_PASSWORD'),
           database: configService.getOrThrow<string>('DB_DATABASE'),
 
+          // 모든 DB 세션에서 타임존을 KST(Asia/Seoul)로 고정
+          // - timestamptz 컬럼의 표시/변환 기준이 KST로 통일됨
+          // - timestamp(without tz) 컬럼에 저장될 때도 KST 기준으로 변환되어 들어감
+          extra: {
+            options: '-c timezone=Asia/Seoul',
+          },
+
           ssl: {
             rejectUnauthorized: false,
           },
