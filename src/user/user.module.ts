@@ -9,6 +9,7 @@ import { UserController } from './user.controller';
 import { UserStatsController } from './user-stats.controller';
 import { UserStatsService } from './services/user-stats.service';
 import { AuthModule } from '../auth/auth.module';
+import { WithdrawByEmailGuard } from './guards/withdraw-by-email.guard';
 
 @Module({
   imports: [
@@ -29,7 +30,7 @@ import { AuthModule } from '../auth/auth.module';
     }),
     AuthModule, // 추가
   ],
-  providers: [UserService, UserStatsService],
+  providers: [UserService, UserStatsService, WithdrawByEmailGuard],
   controllers: [UserController, UserStatsController],
   exports: [UserService, UserStatsService], // 필요 시 다른 모듈에서 사용 가능하도록 export
 })

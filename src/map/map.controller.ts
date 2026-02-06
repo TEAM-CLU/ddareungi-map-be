@@ -82,4 +82,18 @@ export class MapController {
       })
       .send(html);
   }
+
+  @Get('auth_result.js')
+  async getAuthResultJs(@Res() res: Response) {
+    const filePath = join(process.cwd(), 'public', 'auth_result.js');
+    const js = await readFile(filePath, 'utf-8');
+
+    return res
+      .status(200)
+      .set({
+        'Content-Type': 'application/javascript; charset=utf-8',
+        'Cache-Control': 'no-store',
+      })
+      .send(js);
+  }
 }

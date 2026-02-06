@@ -23,6 +23,7 @@ import {
   ApiResponse,
   ApiBody,
   ApiBearerAuth,
+  ApiHeader,
 } from '@nestjs/swagger';
 import { UserService } from './user.service';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -36,6 +37,8 @@ import {
 } from '../common/api-response.dto';
 import { CheckEmailDto } from './dto/check-email.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { WithdrawByEmailDto } from './dto/withdraw-by-email.dto';
+import { WithdrawByEmailGuard } from './guards/withdraw-by-email.guard';
 
 @ApiTags('유저 (User)')
 @Controller('user')
@@ -537,6 +540,58 @@ export class UserController {
       await this.userService.withdraw(req.user.userId);
       return SuccessResponseDto.create('회원 탈퇴가 완료되었습니다.', null);
     } catch (error) {
+      const message =
+        error instanceof Error ? error.message : '알 수 없는 오류';
+      throw new HttpException(
+        ErrorResponseDto.create(HttpStatus.BAD_REQUEST, message),
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+  }
+
+  @Delete('withdraw/email')
+  @UseGuards(WithdrawByEmailGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '이메일 기반 회원 탈퇴(관리자용)',
+    description:
+      '이메일로 사용자를 탈퇴(삭제)합니다. 악용 방지를 위해 x-withdraw-by-email-token(또는 x-admin-token) 헤더가 필요합니다.',
+  })
+  @ApiHeader({
+    name: 'x-withdraw-by-email-token',
+    required: false,
+    description:
+      'WITHDRAW_BY_EMAIL_TOKEN 환경변수와 일치해야 합니다. (대체 헤더: x-admin-token / ADMIN_API_TOKEN)',
+  })
+  @ApiBody({ type: WithdrawByEmailDto })
+  @ApiResponse({
+    status: 200,
+    description: '회원 탈퇴 성공',
+    type: SuccessResponseDto,
+    schema: {
+      example: {
+        statusCode: 200,
+        message: '회원 탈퇴가 완료되었습니다.',
+        data: null,
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: '권한 없음 (관리자 토큰 누락/불일치)',
+    type: ErrorResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: '사용자를 찾을 수 없음',
+    type: ErrorResponseDto,
+  })
+  async withdrawUserByEmail(@Body() dto: WithdrawByEmailDto) {
+    try {
+      await this.userService.withdrawByEmail(dto.email);
+      return SuccessResponseDto.create('회원 탈퇴가 완료되었습니다.', null);
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
       const message =
         error instanceof Error ? error.message : '알 수 없는 오류';
       throw new HttpException(

@@ -43,6 +43,24 @@ export class UserService {
     await this.userRepository.remove(user); // onDelete: 'CASCADE'로 연관 데이터도 삭제
   }
 
+  /**
+   * 이메일 기반 회원 탈퇴 (관리자/운영 도구용)
+   */
+  async withdrawByEmail(email: string): Promise<void> {
+    const normalizedEmail = email.toLowerCase();
+    const user = await this.userRepository.findOne({
+      where: { email: normalizedEmail },
+      select: ['userId'],
+    });
+    if (!user) {
+      throw new NotFoundException({
+        statusCode: 404,
+        message: '사용자를 찾을 수 없습니다.',
+      });
+    }
+    await this.withdraw(user.userId);
+  }
+
   async register(createUserDto: CreateUserDto): Promise<void> {
     const { email, password } = createUserDto;
     const normalizedEmail = email.toLowerCase(); // 이메일 정규화
