@@ -67,10 +67,12 @@
       <div id="icon" class="icon">⌛</div>
       <h2 id="title">처리 중...</h2>
       <p id="message">잠시만 기다려주세요.</p>
-      <a href="#" onclick="window.close()" class="btn">창 닫기</a>
+      <!-- JS가 차단/미실행이어도 최소한 이동 가능하도록 href를 둠 -->
+      <a href="/" id="closeBtn" class="btn">창 닫기</a>
     </div>
 
-    <script src="/auth_result.js" defer></script>
+    <!-- 캐시/프록시가 오래된 JS를 주는 경우 방어용 버전 쿼리 -->
+    <script src="/auth_result.js?v=1" defer></script>
   </body>
 
 </html>

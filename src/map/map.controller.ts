@@ -78,7 +78,12 @@ export class MapController {
       .status(200)
       .set({
         'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'no-store',
+        // 운영 프록시/브라우저 캐시까지 최대한 무력화
+        'Cache-Control':
+          'no-store, no-cache, must-revalidate, proxy-revalidate',
+        Pragma: 'no-cache',
+        Expires: '0',
+        'Surrogate-Control': 'no-store',
       })
       .send(html);
   }
@@ -92,7 +97,11 @@ export class MapController {
       .status(200)
       .set({
         'Content-Type': 'application/javascript; charset=utf-8',
-        'Cache-Control': 'no-store',
+        'Cache-Control':
+          'no-store, no-cache, must-revalidate, proxy-revalidate',
+        Pragma: 'no-cache',
+        Expires: '0',
+        'Surrogate-Control': 'no-store',
       })
       .send(js);
   }

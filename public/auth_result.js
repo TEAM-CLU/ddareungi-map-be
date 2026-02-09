@@ -54,6 +54,50 @@ const errorMessageByCode = {
   INTERNAL_ERROR: '서버 점검 중입니다. 잠시 후 이용해 주세요.',
 };
 
+function requestClose() {
+  // 1) RN(WebView)라면 앱에 닫기 요청 전달 (앱에서 처리)
+  if (window.ReactNativeWebView) {
+    window.ReactNativeWebView.postMessage(
+      JSON.stringify({
+        type: 'AUTH_RESULT_CLOSE_REQUEST',
+      }),
+    );
+  }
+
+  // 2) 팝업/스크립트로 열린 창이면 close 가능
+  try {
+    if (window.opener) {
+      window.close();
+      return;
+    }
+    window.close();
+  } catch {
+    // ignore
+  }
+
+  // 3) 대부분의 브라우저는 사용자가 직접 연 탭을 window.close로 닫지 못하게 함 → fallback
+  setTimeout(() => {
+    try {
+      if (window.history.length > 1) {
+        window.history.back();
+      } else {
+        window.location.href = '/';
+      }
+    } catch {
+      // ignore
+    }
+  }, 50);
+}
+
+// 인라인 onclick은 CSP에서 막힐 수 있으므로 JS로 이벤트 바인딩
+const closeBtn = document.getElementById('closeBtn');
+if (closeBtn) {
+  closeBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    requestClose();
+  });
+}
+
 if (status === 'success') {
   if (iconEl) {
     iconEl.innerText = '✅';
@@ -116,6 +160,6 @@ if (status === 'success') {
 
 // 3초 후 자동 창 닫기 시도
 setTimeout(() => {
-  if (window.close) window.close();
+  requestClose();
 }, 3000);
 
