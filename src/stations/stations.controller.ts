@@ -190,17 +190,25 @@ export class StationsController {
       const stationNumbers = body.stationNumbers;
       // 대여소 번호를 id로 변환
       const stationIds: string[] = [];
+      let notFoundCount = 0;
       for (const number of stationNumbers) {
         const station = await this.stationQueryService.findByNumber(number);
-        if (station) stationIds.push(String(station.id));
+        if (station) {
+          stationIds.push(String(station.id));
+        } else {
+          notFoundCount++;
+        }
       }
-      const result =
+      const { successCount, skippedCount, failureCount } =
         await this.stationRealtimeService.syncRealtimeInfoByIds(stationIds);
+
+      const totalFailureCount = failureCount + notFoundCount;
       return SuccessResponseDto.create(
-        `부분 대여소 실시간 대여정보 동기화가 완료되었습니다. (성공: ${result.size}개, 실패: ${stationIds.length - result.size}개)`,
+        `부분 대여소 실시간 대여정보 동기화가 완료되었습니다. (성공: ${successCount}개, 스킵: ${skippedCount}개, 실패: ${totalFailureCount}개)`,
         {
-          successCount: result.size,
-          failureCount: stationIds.length - result.size,
+          successCount,
+          skippedCount,
+          failureCount: totalFailureCount,
         },
       );
     } catch (error) {

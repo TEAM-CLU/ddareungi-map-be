@@ -10,6 +10,7 @@ import { StationQueryService } from './services/station-query.service';
 import { StationManagementService } from './services/station-management.service';
 import { StationDomainService } from './services/station-domain.service';
 import { StationMapperService } from './services/station-mapper.service';
+import { StationSyncLockService } from './services/station-sync-lock.service';
 import { Station } from './entities/station.entity';
 import { SyncLog } from './entities/sync-log.entity';
 
@@ -20,6 +21,7 @@ import { SyncLog } from './entities/sync-log.entity';
     StationsService,
     SeoulApiService,
     StationSyncService,
+    StationSyncLockService,
     StationRealtimeService,
     StationQueryService,
     StationManagementService,
