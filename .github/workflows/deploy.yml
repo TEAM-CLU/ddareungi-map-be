@@ -42,7 +42,7 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
-          source: 'dist,package.json,pnpm-lock.yaml'
+          source: 'dist,package.json,pnpm-lock.yaml,public'
           target: '/home/ubuntu/ddareungi-map-be'
 
           # 🚨🚨🚨 오류 해결: 이 줄을 삭제하거나 주석 처리합니다. 🚨🚨🚨
