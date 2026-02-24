@@ -260,7 +260,8 @@
         if (data.type === 'focusOnNavigationPath') {
           Navigation.focusOnNavigationPath();
         }
-      } catch (error) {}
+      } catch (error) {
+      console.error(error)}
     };
 
     document.addEventListener('message', handleMessage);
