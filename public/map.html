@@ -244,12 +244,9 @@
 
         // 22. 네비게이션 현재 interval 업데이트
         if (data.type === 'updateNavigationCurrentInterval') {
-          Navigation.updateNavigationCurrentInterval({
-            currentIntervalIndex: data.currentIntervalIndex,
-            intervals: data.intervals,
-            fullPathCoordinateList: data.fullPathCoordinateList,
-          });
-        }
+  Navigation.updateNavigationCurrentInterval(data.currentIntervalIndex);
+}
+
 
         // 23. 네비게이션 경로 지우기
         if (data.type === 'clearNavigationPath') {
