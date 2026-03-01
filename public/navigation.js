@@ -541,6 +541,7 @@
         walkingToOriginCoords: [],
       };
     }
+
     // 출발대여소는 항상 존재한다고 가정
     const firstIdx = findNearestIndexOnPath(
       coords,
@@ -608,21 +609,16 @@
     if (kakaoPathForFocusOnBound.length > 0) kakaoPathForFocusOnBound = [];
 
     clearWaypointsMarkers();
+
     // 기존 경로 폴리라인들 전부 제거
     navigationBikeRouteOutlineList.forEach(polyline => {
-      if (polyline) {
-        polyline.setMap(null);
-      }
+      if (polyline) polyline.setMap(null);
     });
     navigationBikeRouteMainList.forEach(polyline => {
-      if (polyline) {
-        polyline.setMap(null);
-      }
+      if (polyline) polyline.setMap(null);
     });
     navigationBikeRouteGrayList.forEach(polyline => {
-      if (polyline) {
-        polyline.setMap(null);
-      }
+      if (polyline) polyline.setMap(null);
     });
 
     navigationBikeRouteOutlineList = [];
@@ -645,10 +641,6 @@
       navigationWalkingToOriginDot.setMap(null);
       navigationWalkingToOriginDot.setPath([]);
     }
-
-    if (mapRef) {
-      // no-op
-    }
   };
 
   // interval 정보를 포함한 네비게이션 경로 렌더링
@@ -657,6 +649,8 @@
       routeType,
       startPoint,
       endPoint,
+      originPoint = null, // RN에서 전달한 원점(없으면 startPoint fallback)
+      pathMode = 'normal', // normal | loop-recovery
       waypoints,
       fullPathCoordinateList,
       intervals,
@@ -666,13 +660,16 @@
       walkingPolicy = 'all',
     } = navigationPathData;
 
+    const isLoopRecoveryMode =
+      routeType === 'loop' && pathMode === 'loop-recovery';
+
     const shouldDrawStartWalking = walkingPolicy === 'all';
     const shouldDrawEndWalking =
       walkingPolicy === 'all' || walkingPolicy === 'only-end';
 
     clearNavigationPath();
 
-    // 마커 찍기 - selectedRouteData 기반
+    // 마커 찍기
     if (routeType === 'constant') {
       const [startLng, startLat] = startPoint;
       const [endLng, endLat] = endPoint;
@@ -711,9 +708,12 @@
     }
 
     if (routeType === 'loop') {
-      const [originLng, originLat] = startPoint;
+      const [fallbackOriginLng, fallbackOriginLat] = startPoint;
+      const [originLng, originLat] =
+        originPoint ?? [fallbackOriginLng, fallbackOriginLat];
 
-      if (shouldDrawStartWalking) {
+      // loop-recovery라도 원점 마커는 항상 원래 원점에 표시
+      if (shouldDrawStartWalking || isLoopRecoveryMode) {
         const originPos = new kakaoRef.maps.LatLng(originLat, originLng);
         originMarker.setPosition(originPos);
         originMarker.setMap(mapRef);
@@ -727,6 +727,7 @@
         startStationMarker.setPosition(startStationPos);
         startStationMarker.setMap(mapRef);
       }
+
       if (endStationPoint) {
         const endStationPos = new kakaoRef.maps.LatLng(
           endStationPoint.lat,
@@ -735,6 +736,7 @@
         endStationMarker.setPosition(endStationPos);
         endStationMarker.setMap(mapRef);
       }
+
       if (waypoints) {
         createWaypointsMarkers(waypoints);
       }
@@ -744,20 +746,28 @@
       fullPathCoordinateList,
     );
 
-    const {
-      walkingToStartCoords,
-      bikeRouteCoords,
-      walkingToEndCoords,
-      walkingToOriginCoords,
-    } = splitPathByStations(
-      fullPathCoordinateList,
-      startStationPoint,
-      endStationPoint,
-      routeType,
-    );
+    // loop-recovery는 "현재위치->복귀->남은경로"를 그대로 사용
+    let walkingToStartCoords = [];
+    let bikeRouteCoords = fullPathCoordinateList;
+    let walkingToEndCoords = [];
+    let walkingToOriginCoords = [];
+
+    if (!isLoopRecoveryMode) {
+      const splitResult = splitPathByStations(
+        fullPathCoordinateList,
+        startStationPoint,
+        endStationPoint,
+        routeType,
+      );
+
+      walkingToStartCoords = splitResult.walkingToStartCoords;
+      bikeRouteCoords = splitResult.bikeRouteCoords;
+      walkingToEndCoords = splitResult.walkingToEndCoords;
+      walkingToOriginCoords = splitResult.walkingToOriginCoords;
+    }
 
     // 도보 구간 점선 렌더링
-    if (shouldDrawStartWalking) {
+    if (shouldDrawStartWalking && !isLoopRecoveryMode) {
       if (walkingToStartCoords && walkingToStartCoords.length > 0) {
         const sampledWalkingToStartCoords = samplePathByDistance(
           walkingToStartCoords,
@@ -771,11 +781,14 @@
       }
 
       if (walkingToOriginCoords && walkingToOriginCoords.length > 0) {
-        const shouldUseHalfLoopWalking = routeType === 'loop';
+        const shouldUseHalfLoopWalking =
+          routeType === 'loop' && !isLoopRecoveryMode;
         let walkingToOriginCoordsForRender = walkingToOriginCoords;
+
         if (shouldUseHalfLoopWalking) {
           const targetPoint =
             waypoints && waypoints.length > 0 ? waypoints[0] : null;
+
           if (targetPoint) {
             const exactIdx = findExactIndexOnPath(
               walkingToOriginCoords,
@@ -790,6 +803,7 @@
                     targetPoint.lat,
                     targetPoint.lng,
                   );
+
             if (nearestIdx > 0) {
               walkingToOriginCoordsForRender = walkingToOriginCoords.slice(
                 0,
@@ -803,6 +817,7 @@
             );
           }
         }
+
         const sampledWalkingToOriginCoords = samplePathByDistance(
           walkingToOriginCoordsForRender,
           WALKING_SAMPLE_DISTANCE_M,
@@ -815,7 +830,7 @@
       }
     }
 
-    if (shouldDrawEndWalking) {
+    if (shouldDrawEndWalking && !isLoopRecoveryMode) {
       if (walkingToEndCoords && walkingToEndCoords.length > 0) {
         const sampledWalkingToEndCoords = samplePathByDistance(
           walkingToEndCoords,
@@ -832,8 +847,13 @@
     // 자전거 구간을 세그먼트/interval 단위로 렌더링
     if (bikeRouteCoords && bikeRouteCoords.length > 0 && intervals) {
       const shouldUseHalfLoopPath =
-        routeType === 'loop' && waypoints && waypoints.length === 1;
+        routeType === 'loop' &&
+        waypoints &&
+        waypoints.length === 1 &&
+        !isLoopRecoveryMode;
+
       let bikeRouteCoordsForRender = bikeRouteCoords;
+
       if (shouldUseHalfLoopPath) {
         const exactIdx = findExactIndexOnPath(
           bikeRouteCoords,
@@ -848,12 +868,12 @@
                 waypoints[0].lat,
                 waypoints[0].lng,
               );
+
         if (nearestIdx > 0) {
           bikeRouteCoordsForRender = bikeRouteCoords.slice(0, nearestIdx + 1);
         }
       }
 
-      // splitPathByStations가 이미 정확한 bikeRouteCoords를 추출함
       // fullPathCoordinateList에서 bikeRouteCoords의 시작 위치를 찾음
       const [firstLng, firstLat] = bikeRouteCoordsForRender[0];
 
@@ -861,10 +881,9 @@
         ([lng, lat]) => lng === firstLng && lat === firstLat,
       );
 
-      // bikeEndIdx는 시작 인덱스 + 길이 - 1 (수학적으로 정확)
+      // bikeEndIdx는 시작 인덱스 + 길이 - 1
       const bikeEndIdx = bikeStartIdx + bikeRouteCoordsForRender.length - 1;
 
-      // 전체 자전거 구간을 LatLng로 변환
       const fullBikeKakaoPath = convertToKakaoLatLngArray(
         bikeRouteCoordsForRender,
       );
@@ -875,11 +894,13 @@
       cachedBikeStartIdx = bikeStartIdx;
 
       const loopSegmentColors = ['#00E676', '#00B0FF', '#FF9100', '#FF4081'];
-      const hasWaypointSegments = waypoints && waypoints.length >= 1;
-      const segments = getBikeRouteSegmentsByWaypoints(
-        bikeRouteCoordsForRender,
-        waypoints,
-      );
+
+      // loop-recovery는 복귀+잔여 경로를 단일 자전거 경로로 렌더
+      const hasWaypointSegments =
+        !isLoopRecoveryMode && waypoints && waypoints.length >= 1;
+      const segments = !isLoopRecoveryMode
+        ? getBikeRouteSegmentsByWaypoints(bikeRouteCoordsForRender, waypoints)
+        : null;
 
       if (segments && segments.length > 0) {
         segments.forEach((segmentCoords, idx) => {
@@ -913,7 +934,11 @@
           attachBikeRouteClick(outlineLine, idx, segmentPath, segmentColor);
 
           const useAlternate =
-            routeType === 'loop' && waypoints && waypoints.length === 1;
+            routeType === 'loop' &&
+            waypoints &&
+            waypoints.length === 1 &&
+            !isLoopRecoveryMode;
+
           createBikeRouteArrows(
             segmentCoords,
             segmentColor,
@@ -938,15 +963,22 @@
           strokeStyle: 'solid',
           zIndex: 5,
         });
+
         bikeRouteOutline.setMap(mapRef);
         navigationBikeRouteOutlineList.push(bikeRouteOutline);
+
         bikeRouteMain.setMap(mapRef);
         navigationBikeRouteMainList.push(bikeRouteMain);
+
         attachBikeRouteClick(bikeRouteMain, 0, fullBikeKakaoPath, '#00E676');
         attachBikeRouteClick(bikeRouteOutline, 0, fullBikeKakaoPath, '#00E676');
 
         const useAlternate =
-          routeType === 'loop' && waypoints && waypoints.length === 1;
+          routeType === 'loop' &&
+          waypoints &&
+          waypoints.length === 1 &&
+          !isLoopRecoveryMode;
+
         createBikeRouteArrows(
           bikeRouteCoordsForRender,
           '#00E676',
@@ -957,18 +989,16 @@
 
       // 지나온 구간이 있으면 회색 라인으로 덮어그리기
       if (currentIntervalIndex > 0) {
-        // 지나온 마지막 interval의 끝 인덱스 찾기
         let passedEndIdx = 0;
+
         for (let i = 0; i < currentIntervalIndex; i++) {
           const [intervalStart, intervalEnd] = intervals[i];
-          // 자전거 구간 내에서만 계산
           if (intervalEnd >= bikeStartIdx && intervalStart <= bikeEndIdx) {
             const actualEnd = Math.min(intervalEnd, bikeEndIdx);
             passedEndIdx = actualEnd - bikeStartIdx;
           }
         }
 
-        // 지나온 구간 경로 추출
         const passedPath = fullBikeKakaoPath.slice(0, passedEndIdx + 1);
 
         if (passedPath.length > 1) {
@@ -991,27 +1021,23 @@
 
   // interval 변경 시 지나온 구간을 다시 회색 처리
   const updateNavigationCurrentInterval = currentIntervalIndex => {
-    // 기존 회색 구간 제거
     navigationBikeRouteGrayList.forEach(polyline => polyline.setMap(null));
     navigationBikeRouteGrayList = [];
 
-    if (currentIntervalIndex === 0) return; // 지나온 구간 없음
-    if (cachedFullBikeKakaoPath.length === 0) return; // 캐시된 데이터 없음
+    if (currentIntervalIndex === 0) return;
+    if (cachedFullBikeKakaoPath.length === 0) return;
 
-    // 지나온 마지막 interval의 끝 인덱스 찾기
     let passedEndIdx = 0;
     const bikeEndIdx = cachedBikeStartIdx + cachedFullBikeKakaoPath.length - 1;
 
     for (let i = 0; i < currentIntervalIndex; i++) {
       const [intervalStart, intervalEnd] = cachedIntervals[i];
-      // 자전거 구간 내에서만 계산
       if (intervalEnd >= cachedBikeStartIdx && intervalStart <= bikeEndIdx) {
         const actualEnd = Math.min(intervalEnd, bikeEndIdx);
         passedEndIdx = actualEnd - cachedBikeStartIdx;
       }
     }
 
-    // 지나온 구간 경로 추출
     const passedPath = cachedFullBikeKakaoPath.slice(0, passedEndIdx + 1);
 
     if (passedPath.length > 1) {
