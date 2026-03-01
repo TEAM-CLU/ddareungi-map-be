@@ -7,6 +7,7 @@ import {
   IsDateString,
   Length,
   IsBoolean,
+  Matches,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
@@ -36,9 +37,9 @@ export class CreateUserDto {
   @IsIn(['M', 'F'])
   gender: string;
 
-  @ApiProperty({ description: '생년월일', example: '1990-01-01' })
-  @IsDateString()
-  birthDate: string;
+  @ApiProperty({ description: '출생연도', example: '1990' })
+  @Matches(/^\d{4}$/, { message: '출생연도는 YYYY 형식이어야 합니다.' })
+  birthYear: string;
 
   @ApiProperty({
     description: '주소',

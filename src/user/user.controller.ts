@@ -212,12 +212,12 @@ export class UserController {
   @ApiResponse({
     status: 400,
     description:
-      '잘못된 요청 (유효성 검사 실패, 올바르지 않은 생년월일 형식 등)',
+      '잘못된 요청 (유효성 검사 실패, 올바르지 않은 출생연도 형식 등)',
     type: ErrorResponseDto,
     schema: {
       example: {
         statusCode: 400,
-        message: '올바르지 않은 생년월일 형식입니다.',
+        message: '올바르지 않은 출생연도 형식입니다.',
       },
     },
   })

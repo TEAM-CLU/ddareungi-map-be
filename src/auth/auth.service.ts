@@ -146,6 +146,21 @@ export class AuthService {
     return crypto.createHash('sha256').update(value).digest('hex').slice(0, 12);
   }
 
+  private normalizeBirthYear(raw?: string): string {
+    if (!raw) return '1970';
+    return /^\d{4}$/.test(raw) ? raw : '1970';
+  }
+
+  private parseBirthYearFromDateString(raw?: string): string {
+    if (!raw || raw === 'unknown') return '1970';
+    const match = raw.match(/^(\d{4})/);
+    if (match) return match[1];
+
+    const parsed = new Date(raw);
+    if (isNaN(parsed.getTime())) return '1970';
+    return String(parsed.getUTCFullYear());
+  }
+
   private logPkceError(params: {
     provider: 'google' | 'kakao' | 'naver';
     stage: string;
@@ -365,7 +380,6 @@ export class AuthService {
     const email = response ? getString(response.email) : undefined;
     const nickname = response ? getString(response.nickname) : undefined;
     const gender = response ? getString(response.gender) : undefined;
-    const birthday = response ? getString(response.birthday) : undefined;
     const birthyear = response ? getString(response.birthyear) : undefined;
 
     // Debugging: Check if socialUid is null
@@ -407,9 +421,7 @@ export class AuthService {
       const randomPassword = `naver${Math.random().toString(36).slice(-20)}`;
       const passwordHash = await bcrypt.hash(randomPassword, 10);
 
-      // Convert birthday from MM-DD format and birthyear YYYY to YYYY-MM-DD format
-      const formattedBirthDate =
-        birthyear && birthday ? `${birthyear}-${birthday}` : null;
+      const normalizedBirthYear = this.normalizeBirthYear(birthyear);
 
       // email이 없으면 기본값 제공 (소셜 로그인에서 email이 없을 수 있음)
       const userEmail = normalizedEmail ?? `naver_${socialUid}@social.local`;
@@ -420,9 +432,7 @@ export class AuthService {
         email: userEmail,
         name: nickname ?? 'Naver User',
         gender: gender ?? 'U',
-        birthDate: formattedBirthDate
-          ? new Date(formattedBirthDate)
-          : new Date('1970-01-01'),
+        birthYear: normalizedBirthYear,
         passwordHash,
         address: 'Unknown', // 네이버에서 주소를 제공하지 않을 수 있음
       });
@@ -457,9 +467,6 @@ export class AuthService {
         ? getString(getNested(kakaoAccount, 'profile')?.nickname)
         : undefined);
     const gender = kakaoAccount ? getString(kakaoAccount.gender) : undefined;
-    const birthday = kakaoAccount
-      ? getString(kakaoAccount.birthday)
-      : undefined;
     const birthyear = kakaoAccount
       ? getString(kakaoAccount.birthyear)
       : undefined;
@@ -503,14 +510,7 @@ export class AuthService {
       const randomPassword = `kakao${Math.random().toString(36).slice(-20)}`;
       const passwordHash = await bcrypt.hash(randomPassword, 10);
 
-      // Convert birthday from AAAA to AA-AA format
-      const formattedBirthday = birthday
-        ? `${birthday.slice(0, 2)}-${birthday.slice(2)}`
-        : null;
-      const formattedBirthDate =
-        birthyear && formattedBirthday
-          ? `${birthyear}-${formattedBirthday}`
-          : null;
+      const normalizedBirthYear = this.normalizeBirthYear(birthyear);
 
       // email이 없으면 기본값 제공 (소셜 로그인에서 email이 없을 수 있음)
       const userEmail = normalizedEmail ?? `kakao_${socialUid}@social.local`;
@@ -521,9 +521,7 @@ export class AuthService {
         email: userEmail,
         name: nickname ?? 'Kakao User',
         gender: gender === 'male' ? 'M' : gender === 'female' ? 'F' : 'U',
-        birthDate: formattedBirthDate
-          ? new Date(formattedBirthDate)
-          : new Date('1970-01-01'),
+        birthYear: normalizedBirthYear,
         passwordHash,
         address: 'Unknown',
       });
@@ -602,21 +600,7 @@ export class AuthService {
       const randomPassword = `google${Math.random().toString(36).slice(-20)}`;
       const passwordHash = await bcrypt.hash(randomPassword, 10);
 
-      // 생년월일 처리 개선
-      let parsedBirthDate: Date;
-      if (birthday && birthday !== 'unknown') {
-        try {
-          parsedBirthDate = new Date(birthday);
-          // 유효하지 않은 날짜인 경우 기본값 사용
-          if (isNaN(parsedBirthDate.getTime())) {
-            parsedBirthDate = new Date('1970-01-01');
-          }
-        } catch {
-          parsedBirthDate = new Date('1970-01-01');
-        }
-      } else {
-        parsedBirthDate = new Date('1970-01-01');
-      }
+      const birthYear = this.parseBirthYearFromDateString(birthday);
 
       // email이 없으면 기본값 제공 (소셜 로그인에서 email이 없을 수 있음)
       const userEmail = normalizedEmail ?? `google_${socialUid}@social.local`;
@@ -627,7 +611,7 @@ export class AuthService {
         email: userEmail,
         name: name ?? 'Google User',
         gender: gender || 'U', // Unknown으로 기본값 설정
-        birthDate: parsedBirthDate,
+        birthYear,
         passwordHash,
         address: 'Unknown',
       });

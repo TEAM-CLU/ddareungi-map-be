@@ -29,6 +29,28 @@ export class UserService {
     private readonly jwtService: JwtService, // JwtService 주입
   ) {}
 
+  private parseBirthYear(birthYear: string): string {
+    if (!/^\d{4}$/.test(birthYear)) {
+      throw new HttpException(
+        {
+          statusCode: 400,
+          message: '올바르지 않은 출생연도 형식입니다.',
+        },
+        400,
+      );
+    }
+
+    return birthYear;
+  }
+
+  private extractBirthYear(value: string | null | undefined): string | null {
+    if (!value) {
+      return null;
+    }
+
+    return /^\d{4}$/.test(value) ? value : null;
+  }
+
   /**
    * 회원 탈퇴 (자기 자신)
    */
@@ -109,7 +131,7 @@ export class UserService {
     newUser.passwordHash = hashedPassword;
     newUser.name = createUserDto.name;
     newUser.gender = createUserDto.gender;
-    newUser.birthDate = new Date(createUserDto.birthDate);
+    newUser.birthYear = this.parseBirthYear(createUserDto.birthYear);
     newUser.address = createUserDto.address ?? null;
     newUser.consentedAt = createUserDto.consentedAt
       ? new Date(createUserDto.consentedAt)
@@ -172,7 +194,7 @@ export class UserService {
       where: { userId },
       select: [
         'name',
-        'birthDate',
+        'birthYear',
         'gender',
         'address',
         'consentedAt',
@@ -188,35 +210,11 @@ export class UserService {
       });
     }
 
-    // birthDate를 안전하게 문자열로 변환
-    let formattedBirthDate: string;
-
-    if (!user.birthDate) {
-      formattedBirthDate = '1970-01-01';
-    } else if (user.birthDate instanceof Date) {
-      formattedBirthDate = user.birthDate.toISOString().split('T')[0];
-    } else if (typeof user.birthDate === 'string') {
-      // PostgreSQL date 타입은 문자열로 반환될 수 있음 (예: '1990-01-01')
-      const birthDateStr = user.birthDate as string;
-      if (birthDateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
-        // 이미 YYYY-MM-DD 형식인 경우
-        formattedBirthDate = birthDateStr;
-      } else {
-        // 다른 형식인 경우 Date로 변환 후 포맷팅
-        const date = new Date(birthDateStr);
-        if (isNaN(date.getTime())) {
-          formattedBirthDate = '1970-01-01';
-        } else {
-          formattedBirthDate = date.toISOString().split('T')[0];
-        }
-      }
-    } else {
-      formattedBirthDate = '1970-01-01'; // 기본값
-    }
+    const birthYear = this.extractBirthYear(user.birthYear) ?? '1970';
 
     return {
       name: user.name,
-      birthDate: formattedBirthDate,
+      birthYear,
       gender: user.gender,
       address: user.address,
       consentedAt: user.consentedAt,
@@ -244,22 +242,12 @@ export class UserService {
       });
     }
 
-    // 생년월일 문자열을 Date 객체로 변환
-    const birthDate = new Date(updateUserInfoDto.birthDate);
-    if (isNaN(birthDate.getTime())) {
-      throw new HttpException(
-        {
-          statusCode: 400,
-          message: '올바르지 않은 생년월일 형식입니다.',
-        },
-        400,
-      );
-    }
+    const birthYear = this.parseBirthYear(updateUserInfoDto.birthYear);
 
     // 사용자 정보 업데이트 (updatedAt은 @UpdateDateColumn으로 자동 업데이트됨)
     const updateData: Partial<User> = {
       name: updateUserInfoDto.name,
-      birthDate: birthDate,
+      birthYear,
       gender: updateUserInfoDto.gender,
     };
 
@@ -351,7 +339,7 @@ export class UserService {
       select: [
         'name',
         'email',
-        'birthDate',
+        'birthYear',
         'gender',
         'address',
         'consentedAt',
@@ -372,18 +360,12 @@ export class UserService {
       where: { userId },
     });
 
-    // birthDate를 문자열로 변환
-    let formattedBirthDate: string | null = null;
-    if (user.birthDate instanceof Date) {
-      formattedBirthDate = user.birthDate.toISOString().split('T')[0];
-    } else if (typeof user.birthDate === 'string') {
-      formattedBirthDate = user.birthDate;
-    }
+    const birthYear = this.extractBirthYear(user.birthYear);
 
     return {
       name: user.name,
       email: user.email,
-      birthDate: formattedBirthDate,
+      birthYear,
       gender: user.gender ?? null,
       address: user.address ?? null,
       totalDistance: userStats?.totalUsageDistance ?? null,
@@ -391,7 +373,7 @@ export class UserService {
       calories: userStats?.totalCaloriesBurned ?? null,
       plantingTree: userStats?.totalTreesPlanted ?? null,
       carbonReduction: userStats?.totalCarbonFootprint ?? null,
-      consentedAt: user.consentedAt,
+      consentedAt: user.consentedAt ?? null,
       requiredAgreed: user.requiredAgreed,
       optionalAgreed: user.optionalAgreed,
     };

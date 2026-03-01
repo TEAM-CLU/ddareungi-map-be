@@ -6,6 +6,7 @@ import {
   IsIn,
   IsBoolean,
   IsDateString,
+  Matches,
 } from 'class-validator';
 
 export class UpdateUserInfoDto {
@@ -18,12 +19,13 @@ export class UpdateUserInfoDto {
   name: string;
 
   @ApiProperty({
-    description: '생년월일 (YYYY-MM-DD 형식)',
-    example: '1990-01-01',
+    description: '출생연도 (YYYY 형식)',
+    example: '1990',
   })
-  @IsNotEmpty({ message: '생년월일은 필수입니다.' })
-  @IsString({ message: '생년월일은 문자열이어야 합니다.' })
-  birthDate: string;
+  @IsNotEmpty({ message: '출생연도는 필수입니다.' })
+  @IsString({ message: '출생연도는 문자열이어야 합니다.' })
+  @Matches(/^\d{4}$/, { message: '출생연도는 YYYY 형식이어야 합니다.' })
+  birthYear: string;
 
   @ApiProperty({
     description: '성별 (M: 남성, F: 여성)',

@@ -29,8 +29,8 @@ export class User {
   @Column({ type: 'varchar', length: 10 })
   gender: string;
 
-  @Column({ type: 'date', name: 'birth_date' })
-  birthDate: Date;
+  @Column({ type: 'varchar', length: 4, name: 'birth_year', default: '1970' })
+  birthYear: string;
 
   @Column({ type: 'varchar', length: 255, nullable: true, name: 'address' })
   address: string | null;
