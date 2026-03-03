@@ -5,6 +5,7 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { MailModule } from '../mail/mail.module';
 import { User } from '../user/entities/user.entity';
+import { UserStats } from '../user/entities/user-stats.entity';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtNaverStrategy } from './strategies/naver.strategy';
 import { JwtKakaoStrategy } from './strategies/kakao.strategy';
@@ -14,7 +15,7 @@ import { CryptoService } from '../common/crypto.service';
 @Module({
   imports: [
     MailModule,
-    TypeOrmModule.forFeature([User]),
+    TypeOrmModule.forFeature([User, UserStats]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

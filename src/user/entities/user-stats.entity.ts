@@ -19,6 +19,7 @@ export class UserStats {
   @Column({
     type: 'double precision',
     name: 'total_usage_distance',
+    default: 0.0,
   })
   totalUsageDistance: number;
 

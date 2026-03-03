@@ -23,6 +23,7 @@ import {
 } from './dto/find-account.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { User } from '../user/entities/user.entity';
+import { UserStats } from '../user/entities/user-stats.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
@@ -126,8 +127,35 @@ export class AuthService {
 
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(UserStats)
+    private readonly userStatsRepository: Repository<UserStats>,
   ) {
     this.redis = this.redisService.getOrThrow();
+  }
+
+  private async ensureUserStatsExists(
+    userId: number,
+    flow: 'naver' | 'kakao' | 'google',
+  ): Promise<void> {
+    try {
+      await this.userStatsRepository
+        .createQueryBuilder()
+        .insert()
+        .into(UserStats)
+        .values({ userId })
+        .orIgnore()
+        .execute();
+    } catch (error) {
+      this.logger.error({
+        message: '[UserStats] failed to ensure user_stats on signup',
+        flow,
+        userId,
+        error:
+          error instanceof Error
+            ? { name: error.name, message: error.message, stack: error.stack }
+            : { message: String(error) },
+      });
+    }
   }
 
   private pkceStateKey(state: string): string {
@@ -146,18 +174,46 @@ export class AuthService {
     return crypto.createHash('sha256').update(value).digest('hex').slice(0, 12);
   }
 
-  private normalizeBirthYear(raw?: string): string {
-    if (!raw) return '1970';
-    return /^\d{4}$/.test(raw) ? raw : '1970';
+  private normalizeGender(raw?: string): 'M' | 'F' | null {
+    if (!raw) return null;
+    const v = raw.toLowerCase();
+    if (v === 'm' || v === 'male') return 'M';
+    if (v === 'f' || v === 'female') return 'F';
+    if (v === 'u' || v === 'unknown') return null;
+    return null;
   }
 
-  private parseBirthYearFromDateString(raw?: string): string {
-    if (!raw || raw === 'unknown') return '1970';
+  private normalizeBirthYear(raw?: string | null): string | null {
+    if (!raw) return null;
+    return /^\d{4}$/.test(raw) ? raw : null;
+  }
+
+  private normalizeBirthDay(raw?: string | null): string | null {
+    if (!raw) return null;
+    const trimmed = raw.trim();
+
+    // YYYY-MM-DD -> MM-DD
+    const ymd = trimmed.match(/^\d{4}-(\d{2})-(\d{2})$/);
+    if (ymd) return `${ymd[1]}-${ymd[2]}`;
+
+    // MM-DD
+    const md = trimmed.match(/^(\d{2})-(\d{2})$/);
+    if (md) return `${md[1]}-${md[2]}`;
+
+    // MMDD -> MM-DD
+    const mmdd = trimmed.match(/^(\d{2})(\d{2})$/);
+    if (mmdd) return `${mmdd[1]}-${mmdd[2]}`;
+
+    return null;
+  }
+
+  private parseBirthYearFromDateString(raw?: string | null): string | null {
+    if (!raw || raw === 'unknown') return null;
     const match = raw.match(/^(\d{4})/);
     if (match) return match[1];
 
     const parsed = new Date(raw);
-    if (isNaN(parsed.getTime())) return '1970';
+    if (isNaN(parsed.getTime())) return null;
     return String(parsed.getUTCFullYear());
   }
 
@@ -422,6 +478,7 @@ export class AuthService {
       const passwordHash = await bcrypt.hash(randomPassword, 10);
 
       const normalizedBirthYear = this.normalizeBirthYear(birthyear);
+      const normalizedGender = this.normalizeGender(gender);
 
       // email이 없으면 기본값 제공 (소셜 로그인에서 email이 없을 수 있음)
       const userEmail = normalizedEmail ?? `naver_${socialUid}@social.local`;
@@ -431,14 +488,17 @@ export class AuthService {
         socialUid,
         email: userEmail,
         name: nickname ?? 'Naver User',
-        gender: gender ?? 'U',
+        gender: normalizedGender,
         birthYear: normalizedBirthYear,
+        birthDay: null,
         passwordHash,
-        address: 'Unknown', // 네이버에서 주소를 제공하지 않을 수 있음
+        // 선택 정보는 가능한 경우 null로 저장
+        address: null, // 네이버에서 주소를 제공하지 않을 수 있음
       });
 
       console.log('Creating new user:', user);
       await this.userRepository.save(user);
+      await this.ensureUserStatsExists(user.userId, 'naver');
     }
 
     // 3. 로그인 처리 (lastLogin 업데이트)
@@ -461,11 +521,7 @@ export class AuthService {
       : undefined;
     const kakaoAccount = getNested(kakaoProfile, 'kakao_account');
     const email = kakaoAccount ? getString(kakaoAccount.email) : undefined;
-    const nickname =
-      (kakaoAccount ? getString(kakaoAccount.nickname) : undefined) ??
-      (kakaoAccount
-        ? getString(getNested(kakaoAccount, 'profile')?.nickname)
-        : undefined);
+    const name = kakaoAccount ? getString(kakaoAccount.name) : undefined;
     const gender = kakaoAccount ? getString(kakaoAccount.gender) : undefined;
     const birthyear = kakaoAccount
       ? getString(kakaoAccount.birthyear)
@@ -511,6 +567,7 @@ export class AuthService {
       const passwordHash = await bcrypt.hash(randomPassword, 10);
 
       const normalizedBirthYear = this.normalizeBirthYear(birthyear);
+      const normalizedGender = this.normalizeGender(gender);
 
       // email이 없으면 기본값 제공 (소셜 로그인에서 email이 없을 수 있음)
       const userEmail = normalizedEmail ?? `kakao_${socialUid}@social.local`;
@@ -519,15 +576,46 @@ export class AuthService {
         socialName: 'Kakao',
         socialUid,
         email: userEmail,
-        name: nickname ?? 'Kakao User',
-        gender: gender === 'male' ? 'M' : gender === 'female' ? 'F' : 'U',
+        name: name ?? 'Kakao User',
+        gender: normalizedGender,
         birthYear: normalizedBirthYear,
+        birthDay: null,
         passwordHash,
-        address: 'Unknown',
+        // 선택 정보는 가능한 경우 null로 저장
+        address: null,
       });
 
       console.log('Creating new user:', user);
       await this.userRepository.save(user);
+      await this.ensureUserStatsExists(user.userId, 'kakao');
+    } else {
+      // 기존 유저는 유저가 직접 수정했을 수 있으므로 null인 경우에만 보강
+      const normalizedBirthYear = this.normalizeBirthYear(birthyear);
+      const normalizedGender = this.normalizeGender(gender);
+
+      let shouldUpdate = false;
+      const candidateName = name ?? null;
+      if (
+        candidateName &&
+        (user.name == null ||
+          user.name.trim().length === 0 ||
+          user.name === 'Kakao User')
+      ) {
+        user.name = candidateName;
+        shouldUpdate = true;
+      }
+      if (user.gender == null && normalizedGender != null) {
+        user.gender = normalizedGender;
+        shouldUpdate = true;
+      }
+      if (user.birthYear == null && normalizedBirthYear != null) {
+        user.birthYear = normalizedBirthYear;
+        shouldUpdate = true;
+      }
+
+      if (shouldUpdate) {
+        await this.userRepository.save(user);
+      }
     }
 
     // 3. 로그인 처리 (lastLogin 업데이트)
@@ -601,6 +689,8 @@ export class AuthService {
       const passwordHash = await bcrypt.hash(randomPassword, 10);
 
       const birthYear = this.parseBirthYearFromDateString(birthday);
+      const normalizedGender = this.normalizeGender(gender);
+      const birthDay = this.normalizeBirthDay(birthday);
 
       // email이 없으면 기본값 제공 (소셜 로그인에서 email이 없을 수 있음)
       const userEmail = normalizedEmail ?? `google_${socialUid}@social.local`;
@@ -610,14 +700,17 @@ export class AuthService {
         socialUid,
         email: userEmail,
         name: name ?? 'Google User',
-        gender: gender || 'U', // Unknown으로 기본값 설정
+        gender: normalizedGender,
         birthYear,
+        birthDay,
         passwordHash,
-        address: 'Unknown',
+        // 선택 정보는 가능한 경우 null로 저장
+        address: null,
       });
 
       console.log('Creating new user:', user);
       await this.userRepository.save(user);
+      await this.ensureUserStatsExists(user.userId, 'google');
     }
 
     // 3. 로그인 처리 (lastLogin 업데이트)
@@ -736,7 +829,19 @@ export class AuthService {
     params.append('client_id', clientId!);
     params.append('redirect_uri', redirectUri);
     params.append('response_type', 'code');
-    params.append('scope', 'openid email profile');
+    // People API(성별/생일)는 선택 정보지만, scope가 없으면 아예 조회가 불가능함
+    params.append(
+      'scope',
+      [
+        'openid',
+        'email',
+        'profile',
+        'https://www.googleapis.com/auth/user.gender.read',
+        'https://www.googleapis.com/auth/user.birthday.read',
+      ].join(' '),
+    );
+    // 기존 동의 범위 + 추가 scope(필요 시)까지 함께 처리
+    params.append('include_granted_scopes', 'true');
     params.append('code_challenge', pkce.codeChallenge);
     params.append('code_challenge_method', pkce.codeChallengeMethod);
     params.append('state', state);
@@ -794,6 +899,10 @@ export class AuthService {
     params.append('client_id', clientId!);
     params.append('redirect_uri', redirectUri);
     params.append('response_type', 'code');
+    params.append(
+      'scope',
+      ['account_email', 'name', 'gender', 'birthyear'].join(' '),
+    );
     params.append('code_challenge', pkce.codeChallenge);
     params.append('code_challenge_method', pkce.codeChallengeMethod);
     params.append('state', state);
@@ -923,28 +1032,31 @@ export class AuthService {
         },
       );
 
-      // 3. 추가 정보 가져오기 (생일, 성별)
-      const peopleResponse = await axios.get(
-        'https://people.googleapis.com/v1/people/me?personFields=birthdays,genders',
-        {
-          headers: {
-            Authorization: `Bearer ${access_token}`,
-          },
-        },
-      );
-
       const userData = userResponse.data as unknown as Record<string, unknown>;
-      const peopleData = peopleResponse.data as unknown as Record<
-        string,
-        unknown
-      >;
+      // 3. 추가 정보 가져오기 (생일, 성별) - 선택 정보이므로 실패해도 진행
+      let peopleData: Record<string, unknown> | null = null;
+      try {
+        const peopleResponse = await axios.get(
+          'https://people.googleapis.com/v1/people/me?personFields=birthdays,genders',
+          {
+            headers: {
+              Authorization: `Bearer ${access_token}`,
+            },
+          },
+        );
+        peopleData = peopleResponse.data as unknown as Record<string, unknown>;
+      } catch {
+        peopleData = null;
+      }
 
       const id = getStringOrNumber(userData['id']);
       const name = getString(userData['name']);
       const email = getString(userData['email']);
 
       // genders?.[0]?.value
-      const genders = peopleData['genders'] as Array<Record<string, unknown>>;
+      const genders = (peopleData?.['genders'] ?? []) as Array<
+        Record<string, unknown>
+      >;
       const genderValue = Array.isArray(genders)
         ? getString(genders[0]?.value)
         : undefined;
@@ -952,7 +1064,7 @@ export class AuthService {
         genderValue === 'male' ? 'M' : genderValue === 'female' ? 'F' : 'U';
 
       // birthdays?.[0]?.date { year, month, day }
-      const birthdays = peopleData['birthdays'] as Array<
+      const birthdays = (peopleData?.['birthdays'] ?? []) as Array<
         Record<string, unknown>
       >;
       const firstBirthday = Array.isArray(birthdays) ? birthdays[0] : undefined;
@@ -963,10 +1075,10 @@ export class AuthService {
       const month = dateObj ? dateObj['month'] : undefined;
       const day = dateObj ? dateObj['day'] : undefined;
       const birthday =
-        typeof year === 'number' &&
-        typeof month === 'number' &&
-        typeof day === 'number'
-          ? `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+        typeof month === 'number' && typeof day === 'number'
+          ? typeof year === 'number'
+            ? `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+            : `${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
           : null;
 
       const googleProfile = { id, name, email, gender, birthday };

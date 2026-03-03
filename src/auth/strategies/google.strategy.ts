@@ -35,12 +35,18 @@ export class JwtGoogleStrategy extends PassportStrategy(Strategy, 'google') {
   async validate(accessToken: string, _refreshToken: string, profile: Profile) {
     const peopleApiUrl =
       'https://people.googleapis.com/v1/people/me?personFields=birthdays,genders';
-    const response = await axios.get<GooglePeopleApiResponse>(peopleApiUrl, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    });
-    const additionalInfo = response.data;
+    // People API는 선택 정보(성별/생일)이므로 실패해도 로그인은 진행되어야 함
+    let additionalInfo: GooglePeopleApiResponse | undefined;
+    try {
+      const response = await axios.get<GooglePeopleApiResponse>(peopleApiUrl, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      additionalInfo = response.data;
+    } catch {
+      additionalInfo = undefined;
+    }
 
     // Extract required fields
     const displayName =
@@ -49,18 +55,17 @@ export class JwtGoogleStrategy extends PassportStrategy(Strategy, 'google') {
         .filter((v): v is string => typeof v === 'string' && v.length > 0)
         .join(' ');
 
-    const genderValue = additionalInfo.genders?.[0]?.value;
+    const genderValue = additionalInfo?.genders?.[0]?.value;
     const gender =
       genderValue === 'male' ? 'M' : genderValue === 'female' ? 'F' : 'U';
 
-    const date = additionalInfo.birthdays?.[0]?.date;
+    const date = additionalInfo?.birthdays?.[0]?.date;
     const birthday =
-      date &&
-      typeof date.year === 'number' &&
-      typeof date.month === 'number' &&
-      typeof date.day === 'number'
-        ? `${date.year}-${String(date.month).padStart(2, '0')}-${String(date.day).padStart(2, '0')}`
-        : 'unknown';
+      date && typeof date.month === 'number' && typeof date.day === 'number'
+        ? typeof date.year === 'number'
+          ? `${date.year}-${String(date.month).padStart(2, '0')}-${String(date.day).padStart(2, '0')}`
+          : `${String(date.month).padStart(2, '0')}-${String(date.day).padStart(2, '0')}`
+        : null;
 
     const googleProfile = {
       id: profile.id,
