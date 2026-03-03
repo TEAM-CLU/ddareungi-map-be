@@ -2,11 +2,11 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export class MyPageInfoResponseDto {
   @ApiProperty({
-    description: '출생연도',
-    example: '1990',
+    description: '생년월일 (YYYY-MM-DD 형식)',
+    example: '1990-03-21',
     nullable: true,
   })
-  birthYear: string | null;
+  birthDate: string | null;
 
   @ApiProperty({
     description: '성별',

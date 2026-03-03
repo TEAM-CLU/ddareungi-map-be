@@ -19,23 +19,29 @@ export class UpdateUserInfoDto {
   name: string;
 
   @ApiProperty({
-    description: '출생연도 (YYYY 형식)',
-    example: '1990',
+    description: '생년월일 (YYYY-MM-DD 형식)',
+    example: '1990-03-27',
+    required: false,
   })
-  @IsNotEmpty({ message: '출생연도는 필수입니다.' })
-  @IsString({ message: '출생연도는 문자열이어야 합니다.' })
-  @Matches(/^\d{4}$/, { message: '출생연도는 YYYY 형식이어야 합니다.' })
-  birthYear: string;
+  @IsOptional()
+  @IsString({ message: '생년월일은 문자열이어야 합니다.' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: '생년월일은 YYYY-MM-DD 형식이어야 합니다.',
+  })
+  birthDate?: string | null;
 
   @ApiProperty({
     description: '성별 (M: 남성, F: 여성)',
     example: 'M',
-    enum: ['M', 'F'],
+    enum: ['M', 'F', 'U'],
+    required: false,
   })
-  @IsNotEmpty({ message: '성별은 필수입니다.' })
+  @IsOptional()
   @IsString({ message: '성별은 문자열이어야 합니다.' })
-  @IsIn(['M', 'F'], { message: '성별은 M(남성) 또는 F(여성)이어야 합니다.' })
-  gender: string;
+  @IsIn(['M', 'F', 'U'], {
+    message: '성별은 M(남성) 또는 F(여성) 또는 U(미상)이어야 합니다.',
+  })
+  gender?: string | null;
 
   @ApiProperty({
     description: '주소',

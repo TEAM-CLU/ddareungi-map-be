@@ -26,11 +26,14 @@ export class User {
   @Column({ type: 'varchar', length: 100 })
   name: string;
 
-  @Column({ type: 'varchar', length: 10 })
-  gender: string;
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  gender: string | null;
 
-  @Column({ type: 'varchar', length: 4, name: 'birth_year', default: '1970' })
-  birthYear: string;
+  @Column({ type: 'varchar', length: 4, name: 'birth_year', nullable: true })
+  birthYear: string | null;
+
+  @Column({ type: 'varchar', length: 5, name: 'birth_day', nullable: true })
+  birthDay: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true, name: 'address' })
   address: string | null;
@@ -59,5 +62,5 @@ export class User {
   updatedAt: Date;
 
   @Column({ type: 'timestamptz', name: 'last_login', nullable: true })
-  lastLogin: Date;
+  lastLogin: Date | null;
 }

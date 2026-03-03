@@ -32,14 +32,22 @@ export class CreateUserDto {
   @IsNotEmpty()
   name: string;
 
-  @ApiProperty({ description: '성별', enum: ['M', 'F'] })
+  @ApiProperty({ description: '성별', enum: ['M', 'F', 'U'], required: false })
+  @IsOptional()
   @IsString()
-  @IsIn(['M', 'F'])
-  gender: string;
+  @IsIn(['M', 'F', 'U'])
+  gender?: string | null;
 
-  @ApiProperty({ description: '출생연도', example: '1990' })
-  @Matches(/^\d{4}$/, { message: '출생연도는 YYYY 형식이어야 합니다.' })
-  birthYear: string;
+  @ApiProperty({
+    description: '생년월일 (YYYY-MM-DD 형식)',
+    example: '1990-03-27',
+    required: false,
+  })
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: '생년월일은 YYYY-MM-DD 형식이어야 합니다.',
+  })
+  birthDate?: string | null;
 
   @ApiProperty({
     description: '주소',

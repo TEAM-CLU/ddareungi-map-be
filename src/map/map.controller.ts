@@ -53,7 +53,7 @@ export class MapController {
 
     // 기존 템플릿이 <script src="/...">를 포함하더라도 정적 서빙이 꺼져있으므로 제거
     html = html.replace(
-      /<script\s+src="\/(myLocation|routing|navigation|search|station|bookmark)\.js"[^>]*><\/script>\s*/g,
+      /<script\s+src="(?:\.\/|\/)?(myLocation|routing|navigation|search|station|bookmark)\.js"[^>]*><\/script>\s*/g,
       '',
     );
 
