@@ -1,20 +1,20 @@
 <!DOCTYPE html>
 <html>
-  bef084647eeb1fc50f7badb885708df7
+
   <head>
     <meta name="referrer" content="origin" />
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <script src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=68ef2791dbc8e895c56402c868837fc3&autoload=false&libraries=services,clusterer,drawing"></script>
-    <link
-      rel="stylesheet"
-      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/variable/pretendardvariable.css"
-    />
+    <script
+      src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=__KAKAO_MAP_API__&autoload=false&libraries=services,clusterer,drawing"></script>
+    <link rel="stylesheet"
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/variable/pretendardvariable.css" />
     <style>
       * {
         margin: 0;
         padding: 0;
       }
+
       body,
       html {
         width: 100%;
@@ -23,6 +23,7 @@
       }
     </style>
   </head>
+
   <body>
     <main id="map" style="height: 100vh; width: 100%"></main>
   </body>
@@ -245,8 +246,8 @@
 
         // 22. 네비게이션 현재 interval 업데이트
         if (data.type === 'updateNavigationCurrentInterval') {
-  Navigation.updateNavigationCurrentInterval(data.currentIntervalIndex);
-}
+          Navigation.updateNavigationCurrentInterval(data.currentIntervalIndex);
+        }
 
 
         // 23. 네비게이션 경로 지우기
@@ -259,7 +260,8 @@
           Navigation.focusOnNavigationPath();
         }
       } catch (error) {
-      console.error(error)}
+        console.error(error)
+      }
     };
 
     document.addEventListener('message', handleMessage);
@@ -271,4 +273,5 @@
   <script src="/search.js" defer></script>
   <script src="/station.js" defer></script>
   <script src="/bookmark.js" defer></script>
+
 </html>
