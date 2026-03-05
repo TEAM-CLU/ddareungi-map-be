@@ -39,15 +39,15 @@ export class CreateUserDto {
   gender?: string | null;
 
   @ApiProperty({
-    description: '생년월일 (YYYY-MM-DD 형식)',
-    example: '1990-03-27',
+    description: '출생연도 (YYYY 형식)',
+    example: '1990',
     required: false,
   })
   @IsOptional()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
-    message: '생년월일은 YYYY-MM-DD 형식이어야 합니다.',
+  @Matches(/^\d{4}$/, {
+    message: '출생연도는 YYYY 형식이어야 합니다.',
   })
-  birthDate?: string | null;
+  birthYear?: string | null;
 
   @ApiProperty({
     description: '주소',

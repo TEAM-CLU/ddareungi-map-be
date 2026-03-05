@@ -8,11 +8,11 @@ export class UserInfoResponseDto {
   name: string;
 
   @ApiProperty({
-    description: '생년월일 (YYYY-MM-DD)',
-    example: '1990-03-27',
+    description: '출생연도 (YYYY)',
+    example: '1990',
     nullable: true,
   })
-  birthDate: string | null;
+  birthYear: string | null;
 
   @ApiProperty({
     description: '성별 (M: 남성, F: 여성)',

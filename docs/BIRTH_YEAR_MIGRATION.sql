@@ -1,21 +1,20 @@
--- users.birth_date (date) -> users.birth_year (varchar(4)) migration
--- Run this once before deploying code that maps User.birthYear to birth_year.
---
--- NOTE:
--- - birth_year는 NULL 허용(기본값/NOT NULL 강제 없음) 정책을 권장합니다.
--- - birth_date에서 연도만 추출해 채우고, birth_date가 없던 row는 birth_year를 NULL로 유지합니다.
+-- users 테이블에서 birth_year만 유지하고 birth_day를 제거하는 마이그레이션
+-- Supabase(PostgreSQL) SQL Editor에서 실행 가능
 
 BEGIN;
 
+-- 1) birth_year 컬럼이 없을 수 있는 환경 대비
 ALTER TABLE users
   ADD COLUMN IF NOT EXISTS birth_year varchar(4);
 
+-- 2) birth_year 데이터 정규화 (YYYY 형식이 아니면 NULL 처리)
 UPDATE users
-SET birth_year = EXTRACT(YEAR FROM birth_date)::text
-WHERE birth_date IS NOT NULL
-  AND (birth_year IS NULL OR birth_year = '');
+SET birth_year = NULL
+WHERE birth_year IS NOT NULL
+  AND birth_year !~ '^\d{4}$';
 
+-- 3) 더 이상 사용하지 않는 birth_day 컬럼 제거
 ALTER TABLE users
-  DROP COLUMN IF EXISTS birth_date;
+  DROP COLUMN IF EXISTS birth_day;
 
 COMMIT;

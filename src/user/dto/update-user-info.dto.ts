@@ -19,16 +19,16 @@ export class UpdateUserInfoDto {
   name: string;
 
   @ApiProperty({
-    description: '생년월일 (YYYY-MM-DD 형식)',
-    example: '1990-03-27',
+    description: '출생연도 (YYYY 형식)',
+    example: '1990',
     required: false,
   })
   @IsOptional()
-  @IsString({ message: '생년월일은 문자열이어야 합니다.' })
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
-    message: '생년월일은 YYYY-MM-DD 형식이어야 합니다.',
+  @IsString({ message: '출생연도는 문자열이어야 합니다.' })
+  @Matches(/^\d{4}$/, {
+    message: '출생연도는 YYYY 형식이어야 합니다.',
   })
-  birthDate?: string | null;
+  birthYear?: string | null;
 
   @ApiProperty({
     description: '성별 (M: 남성, F: 여성)',

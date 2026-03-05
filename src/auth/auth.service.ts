@@ -188,35 +188,6 @@ export class AuthService {
     return /^\d{4}$/.test(raw) ? raw : null;
   }
 
-  private normalizeBirthDay(raw?: string | null): string | null {
-    if (!raw) return null;
-    const trimmed = raw.trim();
-
-    // YYYY-MM-DD -> MM-DD
-    const ymd = trimmed.match(/^\d{4}-(\d{2})-(\d{2})$/);
-    if (ymd) return `${ymd[1]}-${ymd[2]}`;
-
-    // MM-DD
-    const md = trimmed.match(/^(\d{2})-(\d{2})$/);
-    if (md) return `${md[1]}-${md[2]}`;
-
-    // MMDD -> MM-DD
-    const mmdd = trimmed.match(/^(\d{2})(\d{2})$/);
-    if (mmdd) return `${mmdd[1]}-${mmdd[2]}`;
-
-    return null;
-  }
-
-  private parseBirthYearFromDateString(raw?: string | null): string | null {
-    if (!raw || raw === 'unknown') return null;
-    const match = raw.match(/^(\d{4})/);
-    if (match) return match[1];
-
-    const parsed = new Date(raw);
-    if (isNaN(parsed.getTime())) return null;
-    return String(parsed.getUTCFullYear());
-  }
-
   private logPkceError(params: {
     provider: 'google' | 'kakao' | 'naver';
     stage: string;
@@ -490,7 +461,6 @@ export class AuthService {
         name: nickname ?? 'Naver User',
         gender: normalizedGender,
         birthYear: normalizedBirthYear,
-        birthDay: null,
         passwordHash,
         // 선택 정보는 가능한 경우 null로 저장
         address: null, // 네이버에서 주소를 제공하지 않을 수 있음
@@ -579,7 +549,6 @@ export class AuthService {
         name: name ?? 'Kakao User',
         gender: normalizedGender,
         birthYear: normalizedBirthYear,
-        birthDay: null,
         passwordHash,
         // 선택 정보는 가능한 경우 null로 저장
         address: null,
@@ -645,8 +614,8 @@ export class AuthService {
     const gender = isRecord(googleProfile)
       ? getString(googleProfile.gender)
       : undefined;
-    const birthday = isRecord(googleProfile)
-      ? getString(googleProfile.birthday)
+    const birthYear = isRecord(googleProfile)
+      ? getStringOrNumber(googleProfile.birthYear)
       : undefined;
 
     // Debugging: Check if socialUid is null
@@ -688,9 +657,8 @@ export class AuthService {
       const randomPassword = `google${Math.random().toString(36).slice(-20)}`;
       const passwordHash = await bcrypt.hash(randomPassword, 10);
 
-      const birthYear = this.parseBirthYearFromDateString(birthday);
+      const normalizedBirthYear = this.normalizeBirthYear(birthYear);
       const normalizedGender = this.normalizeGender(gender);
-      const birthDay = this.normalizeBirthDay(birthday);
 
       // email이 없으면 기본값 제공 (소셜 로그인에서 email이 없을 수 있음)
       const userEmail = normalizedEmail ?? `google_${socialUid}@social.local`;
@@ -701,8 +669,7 @@ export class AuthService {
         email: userEmail,
         name: name ?? 'Google User',
         gender: normalizedGender,
-        birthYear,
-        birthDay,
+        birthYear: normalizedBirthYear,
         passwordHash,
         // 선택 정보는 가능한 경우 null로 저장
         address: null,
@@ -1072,16 +1039,10 @@ export class AuthService {
         ? getNested(firstBirthday, 'date')
         : undefined;
       const year = dateObj ? dateObj['year'] : undefined;
-      const month = dateObj ? dateObj['month'] : undefined;
-      const day = dateObj ? dateObj['day'] : undefined;
-      const birthday =
-        typeof month === 'number' && typeof day === 'number'
-          ? typeof year === 'number'
-            ? `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-            : `${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-          : null;
+      const birthYear =
+        typeof year === 'number' ? String(year) : getStringOrNumber(year);
 
-      const googleProfile = { id, name, email, gender, birthday };
+      const googleProfile = { id, name, email, gender, birthYear };
 
       // 4. 회원가입/로그인 처리
       const authResult = await this.handleGoogleLogin(googleProfile);

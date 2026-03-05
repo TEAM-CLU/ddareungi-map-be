@@ -81,105 +81,6 @@ export class UserService {
     return birthYear;
   }
 
-  private parseBirthDate(birthDate: string): {
-    birthYear: string;
-    birthDay: string;
-  } {
-    const raw = birthDate.trim();
-    const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (!match) {
-      throw new HttpException(
-        {
-          statusCode: 400,
-          message: '올바르지 않은 생년월일 형식입니다. (YYYY-MM-DD)',
-        },
-        400,
-      );
-    }
-
-    const year = Number(match[1]);
-    const month = Number(match[2]);
-    const day = Number(match[3]);
-    if (
-      !Number.isInteger(year) ||
-      !Number.isInteger(month) ||
-      !Number.isInteger(day) ||
-      month < 1 ||
-      month > 12 ||
-      day < 1 ||
-      day > 31
-    ) {
-      throw new HttpException(
-        {
-          statusCode: 400,
-          message: '올바르지 않은 생년월일 값입니다. (YYYY-MM-DD)',
-        },
-        400,
-      );
-    }
-
-    const isLeapYear = (y: number) =>
-      (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
-    const daysInMonth = (y: number, m: number) => {
-      const base = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1];
-      return m === 2 && isLeapYear(y) ? 29 : base;
-    };
-    if (day > daysInMonth(year, month)) {
-      throw new HttpException(
-        {
-          statusCode: 400,
-          message: '올바르지 않은 생년월일 값입니다. (YYYY-MM-DD)',
-        },
-        400,
-      );
-    }
-
-    return {
-      birthYear: match[1],
-      birthDay: `${match[2]}-${match[3]}`,
-    };
-  }
-
-  private formatBirthDate(
-    birthYear: string | null | undefined,
-    birthDay: string | null | undefined,
-  ): string | null {
-    const yearValid =
-      typeof birthYear === 'string' && /^\d{4}$/.test(birthYear);
-    const dayValid =
-      typeof birthDay === 'string' && /^\d{2}-\d{2}$/.test(birthDay);
-
-    // 둘 다 없으면 정보 없음
-    if (!yearValid && !dayValid) {
-      return null;
-    }
-
-    // 둘 다 유효하면 YYYY-MM-DD 형식으로 반환
-    if (yearValid && dayValid) {
-      return `${birthYear}-${birthDay}`;
-    }
-
-    // 연도만 있는 경우: 연도만이라도 반환
-    if (yearValid && !dayValid) {
-      return birthYear;
-    }
-
-    // 월-일만 있는 경우: MM-DD만이라도 반환
-    if (!yearValid && dayValid) {
-      return birthDay;
-    }
-
-    return null;
-  }
-
-  private extractBirthYear(value: string | null | undefined): string | null {
-    if (!value) {
-      return null;
-    }
-
-    return /^\d{4}$/.test(value) ? value : null;
-  }
-
   /**
    * 회원 탈퇴 (자기 자신)
    */
@@ -260,15 +161,9 @@ export class UserService {
     newUser.passwordHash = hashedPassword;
     newUser.name = createUserDto.name;
     newUser.gender = this.normalizeGender(createUserDto.gender);
-    const birthDate = createUserDto.birthDate;
-    if (typeof birthDate === 'string') {
-      const { birthYear, birthDay } = this.parseBirthDate(birthDate);
-      newUser.birthYear = birthYear;
-      newUser.birthDay = birthDay;
-    } else {
-      newUser.birthYear = null;
-      newUser.birthDay = null;
-    }
+    newUser.birthYear = this.parseBirthYear(
+      createUserDto.birthYear as string | null | undefined,
+    );
     newUser.address = createUserDto.address ?? null;
     newUser.consentedAt = createUserDto.consentedAt
       ? new Date(createUserDto.consentedAt)
@@ -333,7 +228,6 @@ export class UserService {
       select: [
         'name',
         'birthYear',
-        'birthDay',
         'gender',
         'address',
         'consentedAt',
@@ -350,14 +244,11 @@ export class UserService {
     }
 
     const gender = user.gender ?? 'U';
-    const birthYear: string | null = user.birthYear ?? null;
-    const birthDay: string | null = user.birthDay ?? null;
-    const birthDate = this.formatBirthDate(birthYear, birthDay);
 
     return {
       name: user.name,
       gender,
-      birthDate,
+      birthYear: user.birthYear ?? null,
       address: user.address,
       consentedAt: user.consentedAt,
       requiredAgreed: user.requiredAgreed,
@@ -389,19 +280,10 @@ export class UserService {
       name: updateUserInfoDto.name,
     };
 
-    if (updateUserInfoDto.birthDate !== undefined) {
-      const birthDate = updateUserInfoDto.birthDate;
-      if (birthDate === null) {
-        updateData.birthYear = null;
-        updateData.birthDay = null;
-      } else if (typeof birthDate === 'string') {
-        const { birthYear, birthDay } = this.parseBirthDate(birthDate);
-        updateData.birthYear = birthYear;
-        updateData.birthDay = birthDay;
-      } else {
-        updateData.birthYear = null;
-        updateData.birthDay = null;
-      }
+    if (updateUserInfoDto.birthYear !== undefined) {
+      updateData.birthYear = this.parseBirthYear(
+        updateUserInfoDto.birthYear as string | null | undefined,
+      );
     }
 
     if (updateUserInfoDto.gender !== undefined) {
@@ -497,7 +379,6 @@ export class UserService {
         'name',
         'email',
         'birthYear',
-        'birthDay',
         'gender',
         'address',
         'consentedAt',
@@ -518,14 +399,10 @@ export class UserService {
       where: { userId },
     });
 
-    const birthYear: string | null = user.birthYear ?? null;
-    const birthDay: string | null = user.birthDay ?? null;
-    const birthDate = this.formatBirthDate(birthYear, birthDay);
-
     return {
       name: user.name,
       email: user.email,
-      birthDate,
+      birthYear: user.birthYear ?? null,
       gender: user.gender ?? null,
       address: user.address ?? null,
       totalDistance: userStats?.totalUsageDistance ?? null,

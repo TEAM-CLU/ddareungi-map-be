@@ -32,9 +32,6 @@ export class User {
   @Column({ type: 'varchar', length: 4, name: 'birth_year', nullable: true })
   birthYear: string | null;
 
-  @Column({ type: 'varchar', length: 5, name: 'birth_day', nullable: true })
-  birthDay: string | null;
-
   @Column({ type: 'varchar', length: 255, nullable: true, name: 'address' })
   address: string | null;
 

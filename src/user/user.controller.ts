@@ -368,7 +368,7 @@ export class UserController {
   @ApiOperation({
     summary: '마이페이지 정보 조회',
     description:
-      'JWT 토큰을 통해 현재 로그인한 사용자의 마이페이지 정보를 조회합니다. 생년월일은 birthDate(YYYY-MM-DD) 형식으로 반환되며, 값이 없으면 null입니다.',
+      'JWT 토큰을 통해 현재 로그인한 사용자의 마이페이지 정보를 조회합니다. 출생연도는 birthYear(YYYY) 형식으로 반환되며, 값이 없으면 null입니다.',
   })
   @ApiResponse({
     status: 200,
