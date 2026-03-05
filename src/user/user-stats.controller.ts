@@ -29,7 +29,7 @@ import {
   ErrorResponseDto,
 } from '../common/api-response.dto';
 
-@ApiTags('User Stats')
+@ApiTags('유저 통계 (User Stats)')
 @Controller('user/stats')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth('JWT-auth')

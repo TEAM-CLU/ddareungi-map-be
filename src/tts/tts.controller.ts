@@ -74,7 +74,7 @@ class S3LookupResponseDto {
   ttsUrl?: string;
 }
 
-@ApiTags('TTS 테스트')
+@ApiTags('TTS (tts)')
 @Controller('tts')
 export class TtsController {
   constructor(private readonly ttsService: TtsService) {}

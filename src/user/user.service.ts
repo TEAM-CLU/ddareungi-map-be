@@ -161,9 +161,7 @@ export class UserService {
     newUser.passwordHash = hashedPassword;
     newUser.name = createUserDto.name;
     newUser.gender = this.normalizeGender(createUserDto.gender);
-    newUser.birthYear = this.parseBirthYear(
-      createUserDto.birthYear as string | null | undefined,
-    );
+    newUser.birthYear = this.parseBirthYear(createUserDto.birthYear);
     newUser.address = createUserDto.address ?? null;
     newUser.consentedAt = createUserDto.consentedAt
       ? new Date(createUserDto.consentedAt)

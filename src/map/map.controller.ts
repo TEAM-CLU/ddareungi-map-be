@@ -5,10 +5,12 @@ import {
   Res,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
 
+@ApiTags('정적파일 라우팅 (map)')
 @Controller()
 export class MapController {
   constructor(private readonly configService: ConfigService) {}
