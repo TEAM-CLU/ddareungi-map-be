@@ -444,10 +444,7 @@ export class AuthService {
         }
       }
 
-      // 3. 회원가입 처리
-      const randomPassword = `naver${Math.random().toString(36).slice(-20)}`;
-      const passwordHash = await bcrypt.hash(randomPassword, 10);
-
+      // 3. 회원가입 처리 (소셜 로그인은 패스워드 저장 안함)
       const normalizedBirthYear = this.normalizeBirthYear(birthyear);
       const normalizedGender = this.normalizeGender(gender);
 
@@ -461,7 +458,7 @@ export class AuthService {
         name: nickname ?? 'Naver User',
         gender: normalizedGender,
         birthYear: normalizedBirthYear,
-        passwordHash,
+        passwordHash: null,
         // 선택 정보는 가능한 경우 null로 저장
         address: null, // 네이버에서 주소를 제공하지 않을 수 있음
       });
@@ -491,7 +488,9 @@ export class AuthService {
       : undefined;
     const kakaoAccount = getNested(kakaoProfile, 'kakao_account');
     const email = kakaoAccount ? getString(kakaoAccount.email) : undefined;
-    const name = kakaoAccount ? getString(kakaoAccount.name) : undefined;
+    const nickname = kakaoAccount
+      ? getString(kakaoAccount.nickname)
+      : undefined;
     const gender = kakaoAccount ? getString(kakaoAccount.gender) : undefined;
     const birthyear = kakaoAccount
       ? getString(kakaoAccount.birthyear)
@@ -532,10 +531,7 @@ export class AuthService {
         }
       }
 
-      // 3. 회원가입 처리
-      const randomPassword = `kakao${Math.random().toString(36).slice(-20)}`;
-      const passwordHash = await bcrypt.hash(randomPassword, 10);
-
+      // 3. 회원가입 처리 (소셜 로그인은 패스워드 저장 안함)
       const normalizedBirthYear = this.normalizeBirthYear(birthyear);
       const normalizedGender = this.normalizeGender(gender);
 
@@ -546,10 +542,10 @@ export class AuthService {
         socialName: 'Kakao',
         socialUid,
         email: userEmail,
-        name: name ?? 'Kakao User',
+        name: nickname ?? 'Kakao User',
         gender: normalizedGender,
         birthYear: normalizedBirthYear,
-        passwordHash,
+        passwordHash: null,
         // 선택 정보는 가능한 경우 null로 저장
         address: null,
       });
@@ -563,14 +559,14 @@ export class AuthService {
       const normalizedGender = this.normalizeGender(gender);
 
       let shouldUpdate = false;
-      const candidateName = name ?? null;
+      const candidateNickname = nickname ?? null;
       if (
-        candidateName &&
+        candidateNickname &&
         (user.name == null ||
           user.name.trim().length === 0 ||
           user.name === 'Kakao User')
       ) {
-        user.name = candidateName;
+        user.name = candidateNickname;
         shouldUpdate = true;
       }
       if (user.gender == null && normalizedGender != null) {
@@ -607,9 +603,6 @@ export class AuthService {
       : undefined;
     const email = isRecord(googleProfile)
       ? getString(googleProfile.email)
-      : undefined;
-    const name = isRecord(googleProfile)
-      ? getString(googleProfile.name)
       : undefined;
     const gender = isRecord(googleProfile)
       ? getString(googleProfile.gender)
@@ -653,24 +646,26 @@ export class AuthService {
         }
       }
 
-      // 3. 회원가입 처리
-      const randomPassword = `google${Math.random().toString(36).slice(-20)}`;
-      const passwordHash = await bcrypt.hash(randomPassword, 10);
-
+      // 3. 회원가입 처리 (소셜 로그인은 패스워드 저장 안함)
       const normalizedBirthYear = this.normalizeBirthYear(birthYear);
       const normalizedGender = this.normalizeGender(gender);
 
       // email이 없으면 기본값 제공 (소셜 로그인에서 email이 없을 수 있음)
       const userEmail = normalizedEmail ?? `google_${socialUid}@social.local`;
 
+      // 이메일의 @ 앞부분을 닉네임으로 사용
+      const nickname = normalizedEmail
+        ? normalizedEmail.split('@')[0]
+        : 'Google User';
+
       user = this.userRepository.create({
         socialName: 'Google',
         socialUid,
         email: userEmail,
-        name: name ?? 'Google User',
+        name: nickname,
         gender: normalizedGender,
         birthYear: normalizedBirthYear,
-        passwordHash,
+        passwordHash: null,
         // 선택 정보는 가능한 경우 null로 저장
         address: null,
       });
@@ -709,6 +704,14 @@ export class AuthService {
       throw new NotFoundException({
         statusCode: 404,
         message: '해당 이메일로 등록된 사용자를 찾을 수 없습니다.',
+      });
+    }
+
+    // 소셜 로그인 사용자는 비밀번호 재설정 불가
+    if (!user.passwordHash) {
+      throw new BadRequestException({
+        statusCode: 400,
+        message: '소셜 로그인 계정은 비밀번호 재설정이 불가능합니다.',
       });
     }
 

@@ -199,6 +199,14 @@ export class UserService {
       });
     }
 
+    // 소셜 로그인 계정은 비밀번호 로그인 불가
+    if (!user.passwordHash) {
+      throw new UnauthorizedException({
+        statusCode: 401,
+        message: '소셜 로그인 계정은 이메일/비밀번호로 로그인할 수 없습니다.',
+      });
+    }
+
     // 비밀번호 확인
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
     if (!isPasswordValid) {
@@ -331,6 +339,14 @@ export class UserService {
       throw new NotFoundException({
         statusCode: 404,
         message: '사용자를 찾을 수 없습니다.',
+      });
+    }
+
+    // 소셜 로그인 계정은 비밀번호 변경 불가
+    if (!user.passwordHash) {
+      throw new UnauthorizedException({
+        statusCode: 401,
+        message: '소셜 로그인 계정은 비밀번호 변경이 불가능합니다.',
       });
     }
 
