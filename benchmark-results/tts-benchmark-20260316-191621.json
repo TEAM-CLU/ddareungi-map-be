@@ -1,0 +1,513 @@
+{
+  "generatedAt": "2026-03-16T09:51:34.970Z",
+  "routes": [
+    {
+      "name": "R1",
+      "description": "Nowon Station -> Seoul National University of Science and Technology",
+      "payload": {
+        "start": {
+          "lat": 37.655349,
+          "lng": 127.060187
+        },
+        "end": {
+          "lat": 37.631668,
+          "lng": 127.077481
+        }
+      }
+    },
+    {
+      "name": "R2",
+      "description": "Nowon Station -> Seoul Women's University",
+      "payload": {
+        "start": {
+          "lat": 37.655349,
+          "lng": 127.060187
+        },
+        "end": {
+          "lat": 37.628114,
+          "lng": 127.090549
+        }
+      }
+    },
+    {
+      "name": "R3",
+      "description": "Nowon Station -> Sahmyook University",
+      "payload": {
+        "start": {
+          "lat": 37.655349,
+          "lng": 127.060187
+        },
+        "end": {
+          "lat": 37.642561,
+          "lng": 127.105918
+        }
+      }
+    }
+  ],
+  "ttsResults": {
+    "tts_fulltext_supabase": {
+      "cold": {
+        "routes": [
+          {
+            "name": "R1",
+            "description": "Nowon Station -> Seoul National University of Science and Technology",
+            "routeId": "b7c2aabc-e15a-4238-987a-a9c1f5e549b7",
+            "latencyMs": 69374.153542,
+            "instructionCount": 30,
+            "instructionTextLength": 331,
+            "uniqueInstructionCount": 22,
+            "uniqueInstructionTextLength": 278,
+            "metricsDelta": {
+              "station_sync_requested_total": 6,
+              "station_lock_acquired_total": 6,
+              "station_lock_skipped_total": 0,
+              "seoul_realtime_fetch_started_total": 6,
+              "seoul_realtime_fetch_completed_total": 6,
+              "google_tts_synthesize_total": 22,
+              "google_tts_synthesize_chars_total": 278,
+              "tts_cache_hit_total": 0,
+              "tts_cache_miss_total": 22,
+              "tts_fulltext_synthesized_total": 22,
+              "tts_fulltext_synthesized_chars_total": 278,
+              "tts_chunk_cache_hit_total": 0,
+              "tts_chunk_synthesized_total": 0,
+              "tts_chunk_synthesized_chars_total": 0,
+              "tts_merged_cache_hit_total": 0,
+              "tts_merged_created_total": 0
+            }
+          },
+          {
+            "name": "R2",
+            "description": "Nowon Station -> Seoul Women's University",
+            "routeId": "3aec37e9-df6d-45d9-a7aa-cf7f752dc9fa",
+            "latencyMs": 2422.350458000001,
+            "instructionCount": 40,
+            "instructionTextLength": 473,
+            "uniqueInstructionCount": 28,
+            "uniqueInstructionTextLength": 371,
+            "metricsDelta": {
+              "station_sync_requested_total": 6,
+              "station_lock_acquired_total": 6,
+              "station_lock_skipped_total": 0,
+              "seoul_realtime_fetch_started_total": 6,
+              "seoul_realtime_fetch_completed_total": 6,
+              "google_tts_synthesize_total": 16,
+              "google_tts_synthesize_chars_total": 229,
+              "tts_cache_hit_total": 14,
+              "tts_cache_miss_total": 16,
+              "tts_fulltext_synthesized_total": 16,
+              "tts_fulltext_synthesized_chars_total": 229,
+              "tts_chunk_cache_hit_total": 0,
+              "tts_chunk_synthesized_total": 0,
+              "tts_chunk_synthesized_chars_total": 0,
+              "tts_merged_cache_hit_total": 0,
+              "tts_merged_created_total": 0
+            }
+          },
+          {
+            "name": "R3",
+            "description": "Nowon Station -> Sahmyook University",
+            "routeId": "857448f7-83e3-4b35-912f-0dfa514952fd",
+            "latencyMs": 1457.4942499999888,
+            "instructionCount": 33,
+            "instructionTextLength": 330,
+            "uniqueInstructionCount": 17,
+            "uniqueInstructionTextLength": 207,
+            "metricsDelta": {
+              "station_sync_requested_total": 6,
+              "station_lock_acquired_total": 6,
+              "station_lock_skipped_total": 0,
+              "seoul_realtime_fetch_started_total": 6,
+              "seoul_realtime_fetch_completed_total": 6,
+              "google_tts_synthesize_total": 4,
+              "google_tts_synthesize_chars_total": 57,
+              "tts_cache_hit_total": 15,
+              "tts_cache_miss_total": 4,
+              "tts_fulltext_synthesized_total": 4,
+              "tts_fulltext_synthesized_chars_total": 57,
+              "tts_chunk_cache_hit_total": 0,
+              "tts_chunk_synthesized_total": 0,
+              "tts_chunk_synthesized_chars_total": 0,
+              "tts_merged_cache_hit_total": 0,
+              "tts_merged_created_total": 0
+            }
+          }
+        ],
+        "metrics": {
+          "station_sync_requested_total": 18,
+          "station_lock_acquired_total": 18,
+          "station_lock_skipped_total": 0,
+          "seoul_realtime_fetch_started_total": 18,
+          "seoul_realtime_fetch_completed_total": 18,
+          "google_tts_synthesize_total": 42,
+          "google_tts_synthesize_chars_total": 564,
+          "tts_cache_hit_total": 29,
+          "tts_cache_miss_total": 42,
+          "tts_fulltext_synthesized_total": 42,
+          "tts_fulltext_synthesized_chars_total": 564,
+          "tts_chunk_cache_hit_total": 0,
+          "tts_chunk_synthesized_total": 0,
+          "tts_chunk_synthesized_chars_total": 0,
+          "tts_merged_cache_hit_total": 0,
+          "tts_merged_created_total": 0
+        }
+      },
+      "warm": {
+        "routes": [
+          {
+            "name": "R1",
+            "description": "Nowon Station -> Seoul National University of Science and Technology",
+            "routeId": "e21cedc1-3465-45e8-b102-8251882bed43",
+            "latencyMs": 1516.2718749999913,
+            "instructionCount": 30,
+            "instructionTextLength": 331,
+            "uniqueInstructionCount": 22,
+            "uniqueInstructionTextLength": 278,
+            "metricsDelta": {
+              "station_sync_requested_total": 6,
+              "station_lock_acquired_total": 6,
+              "station_lock_skipped_total": 0,
+              "seoul_realtime_fetch_started_total": 6,
+              "seoul_realtime_fetch_completed_total": 6,
+              "google_tts_synthesize_total": 1,
+              "google_tts_synthesize_chars_total": 15,
+              "tts_cache_hit_total": 21,
+              "tts_cache_miss_total": 1,
+              "tts_fulltext_synthesized_total": 1,
+              "tts_fulltext_synthesized_chars_total": 15,
+              "tts_chunk_cache_hit_total": 0,
+              "tts_chunk_synthesized_total": 0,
+              "tts_chunk_synthesized_chars_total": 0,
+              "tts_merged_cache_hit_total": 0,
+              "tts_merged_created_total": 0
+            }
+          },
+          {
+            "name": "R2",
+            "description": "Nowon Station -> Seoul Women's University",
+            "routeId": "14129971-3a57-4378-b263-436119f2f7ad",
+            "latencyMs": 450.7385840000061,
+            "instructionCount": 40,
+            "instructionTextLength": 473,
+            "uniqueInstructionCount": 28,
+            "uniqueInstructionTextLength": 371,
+            "metricsDelta": {
+              "station_sync_requested_total": 6,
+              "station_lock_acquired_total": 6,
+              "station_lock_skipped_total": 0,
+              "seoul_realtime_fetch_started_total": 6,
+              "seoul_realtime_fetch_completed_total": 6,
+              "google_tts_synthesize_total": 0,
+              "google_tts_synthesize_chars_total": 0,
+              "tts_cache_hit_total": 30,
+              "tts_cache_miss_total": 0,
+              "tts_fulltext_synthesized_total": 0,
+              "tts_fulltext_synthesized_chars_total": 0,
+              "tts_chunk_cache_hit_total": 0,
+              "tts_chunk_synthesized_total": 0,
+              "tts_chunk_synthesized_chars_total": 0,
+              "tts_merged_cache_hit_total": 0,
+              "tts_merged_created_total": 0
+            }
+          },
+          {
+            "name": "R3",
+            "description": "Nowon Station -> Sahmyook University",
+            "routeId": "7d0d641d-40f1-47ae-9382-848f6bed8837",
+            "latencyMs": 466.4521250000107,
+            "instructionCount": 33,
+            "instructionTextLength": 330,
+            "uniqueInstructionCount": 17,
+            "uniqueInstructionTextLength": 207,
+            "metricsDelta": {
+              "station_sync_requested_total": 6,
+              "station_lock_acquired_total": 6,
+              "station_lock_skipped_total": 0,
+              "seoul_realtime_fetch_started_total": 6,
+              "seoul_realtime_fetch_completed_total": 6,
+              "google_tts_synthesize_total": 0,
+              "google_tts_synthesize_chars_total": 0,
+              "tts_cache_hit_total": 19,
+              "tts_cache_miss_total": 0,
+              "tts_fulltext_synthesized_total": 0,
+              "tts_fulltext_synthesized_chars_total": 0,
+              "tts_chunk_cache_hit_total": 0,
+              "tts_chunk_synthesized_total": 0,
+              "tts_chunk_synthesized_chars_total": 0,
+              "tts_merged_cache_hit_total": 0,
+              "tts_merged_created_total": 0
+            }
+          }
+        ],
+        "metrics": {
+          "station_sync_requested_total": 18,
+          "station_lock_acquired_total": 18,
+          "station_lock_skipped_total": 0,
+          "seoul_realtime_fetch_started_total": 18,
+          "seoul_realtime_fetch_completed_total": 18,
+          "google_tts_synthesize_total": 1,
+          "google_tts_synthesize_chars_total": 15,
+          "tts_cache_hit_total": 70,
+          "tts_cache_miss_total": 1,
+          "tts_fulltext_synthesized_total": 1,
+          "tts_fulltext_synthesized_chars_total": 15,
+          "tts_chunk_cache_hit_total": 0,
+          "tts_chunk_synthesized_total": 0,
+          "tts_chunk_synthesized_chars_total": 0,
+          "tts_merged_cache_hit_total": 0,
+          "tts_merged_created_total": 0
+        }
+      },
+      "metrics": {
+        "station_sync_requested_total": 36,
+        "station_lock_acquired_total": 36,
+        "station_lock_skipped_total": 0,
+        "seoul_realtime_fetch_started_total": 36,
+        "seoul_realtime_fetch_completed_total": 36,
+        "google_tts_synthesize_total": 43,
+        "google_tts_synthesize_chars_total": 579,
+        "tts_cache_hit_total": 99,
+        "tts_cache_miss_total": 43,
+        "tts_fulltext_synthesized_total": 43,
+        "tts_fulltext_synthesized_chars_total": 579,
+        "tts_chunk_cache_hit_total": 0,
+        "tts_chunk_synthesized_total": 0,
+        "tts_chunk_synthesized_chars_total": 0,
+        "tts_merged_cache_hit_total": 0,
+        "tts_merged_created_total": 0
+      }
+    },
+    "tts_chunked_supabase": {
+      "cold": {
+        "routes": [
+          {
+            "name": "R1",
+            "description": "Nowon Station -> Seoul National University of Science and Technology",
+            "routeId": "0ca71a18-cbba-4f70-bccd-6b3271cf7457",
+            "latencyMs": 40448.88970799999,
+            "instructionCount": 30,
+            "instructionTextLength": 331,
+            "uniqueInstructionCount": 22,
+            "uniqueInstructionTextLength": 278,
+            "metricsDelta": {
+              "station_sync_requested_total": 6,
+              "station_lock_acquired_total": 6,
+              "station_lock_skipped_total": 0,
+              "seoul_realtime_fetch_started_total": 6,
+              "seoul_realtime_fetch_completed_total": 6,
+              "google_tts_synthesize_total": 37,
+              "google_tts_synthesize_chars_total": 249,
+              "tts_cache_hit_total": 0,
+              "tts_cache_miss_total": 22,
+              "tts_fulltext_synthesized_total": 0,
+              "tts_fulltext_synthesized_chars_total": 0,
+              "tts_chunk_cache_hit_total": 2,
+              "tts_chunk_synthesized_total": 37,
+              "tts_chunk_synthesized_chars_total": 249,
+              "tts_merged_cache_hit_total": 0,
+              "tts_merged_created_total": 22
+            }
+          },
+          {
+            "name": "R2",
+            "description": "Nowon Station -> Seoul Women's University",
+            "routeId": "e7cf9a11-8271-4b9f-bda7-e5ec9ac3dc0e",
+            "latencyMs": 3010.7357499999925,
+            "instructionCount": 40,
+            "instructionTextLength": 473,
+            "uniqueInstructionCount": 28,
+            "uniqueInstructionTextLength": 371,
+            "metricsDelta": {
+              "station_sync_requested_total": 6,
+              "station_lock_acquired_total": 6,
+              "station_lock_skipped_total": 0,
+              "seoul_realtime_fetch_started_total": 6,
+              "seoul_realtime_fetch_completed_total": 6,
+              "google_tts_synthesize_total": 16,
+              "google_tts_synthesize_chars_total": 118,
+              "tts_cache_hit_total": 14,
+              "tts_cache_miss_total": 16,
+              "tts_fulltext_synthesized_total": 0,
+              "tts_fulltext_synthesized_chars_total": 0,
+              "tts_chunk_cache_hit_total": 16,
+              "tts_chunk_synthesized_total": 16,
+              "tts_chunk_synthesized_chars_total": 118,
+              "tts_merged_cache_hit_total": 0,
+              "tts_merged_created_total": 16
+            }
+          },
+          {
+            "name": "R3",
+            "description": "Nowon Station -> Sahmyook University",
+            "routeId": "dfed03eb-c798-4fa4-a17b-fa1e81a06f50",
+            "latencyMs": 2087.995332999999,
+            "instructionCount": 33,
+            "instructionTextLength": 330,
+            "uniqueInstructionCount": 17,
+            "uniqueInstructionTextLength": 207,
+            "metricsDelta": {
+              "station_sync_requested_total": 6,
+              "station_lock_acquired_total": 6,
+              "station_lock_skipped_total": 0,
+              "seoul_realtime_fetch_started_total": 6,
+              "seoul_realtime_fetch_completed_total": 6,
+              "google_tts_synthesize_total": 4,
+              "google_tts_synthesize_chars_total": 37,
+              "tts_cache_hit_total": 15,
+              "tts_cache_miss_total": 4,
+              "tts_fulltext_synthesized_total": 0,
+              "tts_fulltext_synthesized_chars_total": 0,
+              "tts_chunk_cache_hit_total": 3,
+              "tts_chunk_synthesized_total": 4,
+              "tts_chunk_synthesized_chars_total": 37,
+              "tts_merged_cache_hit_total": 0,
+              "tts_merged_created_total": 4
+            }
+          }
+        ],
+        "metrics": {
+          "station_sync_requested_total": 18,
+          "station_lock_acquired_total": 18,
+          "station_lock_skipped_total": 0,
+          "seoul_realtime_fetch_started_total": 18,
+          "seoul_realtime_fetch_completed_total": 18,
+          "google_tts_synthesize_total": 57,
+          "google_tts_synthesize_chars_total": 404,
+          "tts_cache_hit_total": 29,
+          "tts_cache_miss_total": 42,
+          "tts_fulltext_synthesized_total": 0,
+          "tts_fulltext_synthesized_chars_total": 0,
+          "tts_chunk_cache_hit_total": 21,
+          "tts_chunk_synthesized_total": 57,
+          "tts_chunk_synthesized_chars_total": 404,
+          "tts_merged_cache_hit_total": 0,
+          "tts_merged_created_total": 42
+        }
+      },
+      "warm": {
+        "routes": [
+          {
+            "name": "R1",
+            "description": "Nowon Station -> Seoul National University of Science and Technology",
+            "routeId": "8084c1ff-7d41-41f6-8f89-834395e8a68f",
+            "latencyMs": 497.9822920000006,
+            "instructionCount": 30,
+            "instructionTextLength": 331,
+            "uniqueInstructionCount": 22,
+            "uniqueInstructionTextLength": 278,
+            "metricsDelta": {
+              "station_sync_requested_total": 6,
+              "station_lock_acquired_total": 6,
+              "station_lock_skipped_total": 0,
+              "seoul_realtime_fetch_started_total": 6,
+              "seoul_realtime_fetch_completed_total": 6,
+              "google_tts_synthesize_total": 0,
+              "google_tts_synthesize_chars_total": 0,
+              "tts_cache_hit_total": 22,
+              "tts_cache_miss_total": 0,
+              "tts_fulltext_synthesized_total": 0,
+              "tts_fulltext_synthesized_chars_total": 0,
+              "tts_chunk_cache_hit_total": 0,
+              "tts_chunk_synthesized_total": 0,
+              "tts_chunk_synthesized_chars_total": 0,
+              "tts_merged_cache_hit_total": 0,
+              "tts_merged_created_total": 0
+            }
+          },
+          {
+            "name": "R2",
+            "description": "Nowon Station -> Seoul Women's University",
+            "routeId": "1a297a2b-44e4-45e2-bad3-fdb1bf56a593",
+            "latencyMs": 479.10383400000865,
+            "instructionCount": 40,
+            "instructionTextLength": 473,
+            "uniqueInstructionCount": 28,
+            "uniqueInstructionTextLength": 371,
+            "metricsDelta": {
+              "station_sync_requested_total": 6,
+              "station_lock_acquired_total": 6,
+              "station_lock_skipped_total": 0,
+              "seoul_realtime_fetch_started_total": 6,
+              "seoul_realtime_fetch_completed_total": 6,
+              "google_tts_synthesize_total": 0,
+              "google_tts_synthesize_chars_total": 0,
+              "tts_cache_hit_total": 30,
+              "tts_cache_miss_total": 0,
+              "tts_fulltext_synthesized_total": 0,
+              "tts_fulltext_synthesized_chars_total": 0,
+              "tts_chunk_cache_hit_total": 0,
+              "tts_chunk_synthesized_total": 0,
+              "tts_chunk_synthesized_chars_total": 0,
+              "tts_merged_cache_hit_total": 0,
+              "tts_merged_created_total": 0
+            }
+          },
+          {
+            "name": "R3",
+            "description": "Nowon Station -> Sahmyook University",
+            "routeId": "ec5656ce-364b-40e7-aeba-48a00d47714e",
+            "latencyMs": 513.0255419999885,
+            "instructionCount": 33,
+            "instructionTextLength": 330,
+            "uniqueInstructionCount": 17,
+            "uniqueInstructionTextLength": 207,
+            "metricsDelta": {
+              "station_sync_requested_total": 6,
+              "station_lock_acquired_total": 6,
+              "station_lock_skipped_total": 0,
+              "seoul_realtime_fetch_started_total": 6,
+              "seoul_realtime_fetch_completed_total": 6,
+              "google_tts_synthesize_total": 0,
+              "google_tts_synthesize_chars_total": 0,
+              "tts_cache_hit_total": 19,
+              "tts_cache_miss_total": 0,
+              "tts_fulltext_synthesized_total": 0,
+              "tts_fulltext_synthesized_chars_total": 0,
+              "tts_chunk_cache_hit_total": 0,
+              "tts_chunk_synthesized_total": 0,
+              "tts_chunk_synthesized_chars_total": 0,
+              "tts_merged_cache_hit_total": 0,
+              "tts_merged_created_total": 0
+            }
+          }
+        ],
+        "metrics": {
+          "station_sync_requested_total": 18,
+          "station_lock_acquired_total": 18,
+          "station_lock_skipped_total": 0,
+          "seoul_realtime_fetch_started_total": 18,
+          "seoul_realtime_fetch_completed_total": 18,
+          "google_tts_synthesize_total": 0,
+          "google_tts_synthesize_chars_total": 0,
+          "tts_cache_hit_total": 71,
+          "tts_cache_miss_total": 0,
+          "tts_fulltext_synthesized_total": 0,
+          "tts_fulltext_synthesized_chars_total": 0,
+          "tts_chunk_cache_hit_total": 0,
+          "tts_chunk_synthesized_total": 0,
+          "tts_chunk_synthesized_chars_total": 0,
+          "tts_merged_cache_hit_total": 0,
+          "tts_merged_created_total": 0
+        }
+      },
+      "metrics": {
+        "station_sync_requested_total": 36,
+        "station_lock_acquired_total": 36,
+        "station_lock_skipped_total": 0,
+        "seoul_realtime_fetch_started_total": 36,
+        "seoul_realtime_fetch_completed_total": 36,
+        "google_tts_synthesize_total": 57,
+        "google_tts_synthesize_chars_total": 404,
+        "tts_cache_hit_total": 100,
+        "tts_cache_miss_total": 42,
+        "tts_fulltext_synthesized_total": 0,
+        "tts_fulltext_synthesized_chars_total": 0,
+        "tts_chunk_cache_hit_total": 21,
+        "tts_chunk_synthesized_total": 57,
+        "tts_chunk_synthesized_chars_total": 404,
+        "tts_merged_cache_hit_total": 0,
+        "tts_merged_created_total": 42
+      }
+    }
+  }
+}
