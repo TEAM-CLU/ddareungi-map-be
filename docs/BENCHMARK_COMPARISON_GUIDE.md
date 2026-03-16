@@ -67,40 +67,69 @@
 
 ## 실행 방법
 
-루트에서 아래 명령을 실행합니다.
+### 전체 실행
+
+루트에서 아래 명령을 실행하면 대여소 벤치마크와 TTS 벤치마크를 순차 실행합니다.
 
 ```bash
 pnpm benchmark
 ```
 
-TTS만 별도로 보고 싶다면:
+또는 아래 명령도 동일합니다.
+
+```bash
+pnpm benchmark:all
+```
+
+### 대여소 조회 / Redis 락만 실행
+
+```bash
+pnpm benchmark:stations
+```
+
+### TTS만 실행
 
 ```bash
 pnpm benchmark:tts
 ```
 
+## 실행 흐름
+
+### `pnpm benchmark:stations`
+
 기본 동작은 다음과 같습니다.
 
-1. 서버를 benchmark 모드로 순차 기동
-   - 실행 전 `pnpm run build`를 자동 수행
-2. 내부 `/internal/benchmark/reset` 호출로 카운터 초기화
-3. 내부 benchmark scenario 엔드포인트로 지도 조회 비교 실행
-4. 내부 benchmark scenario 엔드포인트로 Redis 락 비교 실행
-5. 내부 benchmark scenario 엔드포인트로 TTS 비교 실행
-6. 결과를 파일로 저장
+1. `pnpm run build`를 자동 실행합니다.
+2. 서버를 `map_legacy`, `map_split_no_lock`, `map_split_with_lock` 모드로 순차 기동합니다.
+3. 내부 `/internal/benchmark/reset` 호출로 카운터를 초기화합니다.
+4. 지도 조회 비교를 수행합니다.
+5. Redis 락 비교를 수행합니다.
+6. 결과를 timestamp가 포함된 파일로 저장합니다.
 
-`pnpm benchmark:tts` 의 기본 동작은 아래와 같습니다.
+### `pnpm benchmark:tts`
 
-1. 서버를 `tts_fulltext_supabase`, `tts_chunked_supabase` 모드로 순차 기동
-2. suite 시작 시 Redis/Supabase 캐시를 초기화
-3. 같은 3개 경로를 `cold` phase로 1회 실행
-4. reset 없이 같은 3개 경로를 `warm` phase로 다시 실행
-5. 결과를 `benchmark-tts-results.json`, `benchmark-tts-summary.md`로 저장
+기본 동작은 다음과 같습니다.
+
+1. `pnpm run build`를 자동 실행합니다.
+2. 서버를 `tts_fulltext_supabase`, `tts_chunked_supabase` 모드로 순차 기동합니다.
+3. suite 시작 시 Redis/Supabase 캐시를 초기화합니다.
+4. 같은 3개 경로를 `cold` phase로 1회 실행합니다.
+5. reset 없이 같은 3개 경로를 `warm` phase로 다시 실행합니다.
+6. 결과를 timestamp가 포함된 파일로 저장합니다.
+
+### `pnpm benchmark` / `pnpm benchmark:all`
+
+기본 동작은 다음과 같습니다.
+
+1. 공통 timestamp를 하나 생성합니다.
+2. `run-stations.mjs`를 실행합니다.
+3. `run-tts.mjs`를 실행합니다.
+4. 두 결과 파일 경로를 가리키는 통합 인덱스 파일을 추가로 저장합니다.
 
 포트를 바꿔 실행하려면:
 
 ```bash
-BENCHMARK_PORT=3100 pnpm benchmark
+BENCHMARK_PORT=3100 pnpm benchmark:stations
 ```
 
 로그를 더 간결하게 보려면:
@@ -118,20 +147,40 @@ BENCHMARK_PROGRESS_INTERVAL_MS=5000 pnpm benchmark
 빠르게 테스트만 해보려면 반복 수를 줄일 수 있습니다.
 
 ```bash
-BENCHMARK_MAP_ITERATIONS=2 BENCHMARK_LOCK_CONCURRENCY=2 pnpm benchmark
+BENCHMARK_MAP_ITERATIONS=2 BENCHMARK_LOCK_CONCURRENCY=2 pnpm benchmark:stations
 ```
 
 ## 산출물
 
-실행이 완료되면 루트에 아래 두 파일이 생성됩니다.
+모든 결과 파일은 루트가 아니라 `benchmark-results/` 아래에 저장됩니다.
 
-- `benchmark-results.json`
-- `benchmark-summary.md`
+### 대여소 조회 / Redis 락
 
-TTS 전용 스크립트는 아래 두 파일을 생성합니다.
+- `benchmark-results/stations-benchmark-YYYYMMDD-HHmmss.json`
+- `benchmark-results/stations-benchmark-YYYYMMDD-HHmmss.md`
 
-- `benchmark-tts-results.json`
-- `benchmark-tts-summary.md`
+### TTS
+
+- `benchmark-results/tts-benchmark-YYYYMMDD-HHmmss.json`
+- `benchmark-results/tts-benchmark-YYYYMMDD-HHmmss.md`
+
+### 통합 실행 인덱스
+
+- `benchmark-results/benchmark-all-YYYYMMDD-HHmmss.json`
+- `benchmark-results/benchmark-all-YYYYMMDD-HHmmss.md`
+
+`pnpm benchmark` 또는 `pnpm benchmark:all`로 실행하면 stations, tts, 통합 인덱스 파일이 같은 timestamp로 함께 생성됩니다.
+
+## 스크립트 구조
+
+- `scripts/benchmark/run-stations.mjs`
+  - 지도 조회 비교 + Redis 락 비교만 수행
+- `scripts/benchmark/run-tts.mjs`
+  - TTS 전용 cold/warm 벤치마크만 수행
+- `scripts/benchmark/run-all.mjs`
+  - stations → tts 순서로 실행하고 결과 파일 경로를 인덱싱
+- `scripts/benchmark/_shared.mjs`
+  - timestamp, output path, 공통 로거, 공통 benchmark 환경 값 관리
 
 ## 구현 메모
 
@@ -146,6 +195,8 @@ TTS 전용 스크립트는 아래 두 파일을 생성합니다.
   - `STATION_REALTIME_LOCK_ENABLED=true|false`
 - TTS 전략 전환
   - `TTS_SYNTHESIS_MODE=fulltext|chunked`
+- timestamp 공유
+  - `BENCHMARK_TIMESTAMP`
 
 ## TTS 벤치마크 해석 메모
 
@@ -163,6 +214,7 @@ TTS 전용 스크립트는 아래 두 파일을 생성합니다.
 - 벤치마크용 오케스트레이션은 `common/benchmark` 아래로 분리했습니다.
 - 원래 도메인 서비스는 그대로 두고, benchmark 전용 서비스가 이를 조합해 legacy/split 시나리오를 재현합니다.
 - 따라서 벤치마크 스크립트는 일반 사용자 API 대신 내부 benchmark 엔드포인트만 호출합니다.
+- 통합 실행 스크립트는 하위 결과를 재계산하지 않고 결과 파일 경로만 인덱싱합니다.
 
 ## 결과 해석 포인트
 
