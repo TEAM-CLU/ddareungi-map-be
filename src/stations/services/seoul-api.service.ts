@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
+import { BenchmarkMetricsService } from '../../common/benchmark/benchmark-metrics.service';
 import {
   SeoulBikeStationApiResponse,
   SeoulBikeStationInfo,
@@ -35,6 +36,7 @@ export class SeoulApiService {
   constructor(
     private readonly httpService: HttpService,
     private readonly configService: ConfigService,
+    private readonly benchmarkMetricsService: BenchmarkMetricsService,
   ) {}
 
   /**
@@ -87,6 +89,10 @@ export class SeoulApiService {
    */
   private delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  async waitRealtimeApiDelay(): Promise<void> {
+    await this.delay(this.realtimeApiDelay);
   }
 
   /**
@@ -270,6 +276,9 @@ export class SeoulApiService {
   async fetchRealtimeStationInfo(
     stationId: string,
   ): Promise<SeoulBikeRealtimeInfo | null> {
+    this.benchmarkMetricsService.increment(
+      'seoul_realtime_fetch_started_total',
+    );
     try {
       const url = this.buildRealtimeApiUrl(stationId);
 
@@ -287,6 +296,10 @@ export class SeoulApiService {
         stack: error instanceof Error ? error.stack : undefined,
       });
       return null; // 실시간 정보 조회 실패는 치명적이지 않음
+    } finally {
+      this.benchmarkMetricsService.increment(
+        'seoul_realtime_fetch_completed_total',
+      );
     }
   }
 

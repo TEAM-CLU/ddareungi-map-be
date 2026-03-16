@@ -1,546 +1,389 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { RedisService } from '@liaoliaots/nestjs-redis';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'crypto';
-import { normalizeText } from './utils/normalize-text';
 import { TtsRecord, TtsResponseDto } from './dto/tts.dto';
-import { GoogleTtsProvider } from './tts.provider';
-import { TranslationService } from './translation.service';
-import { S3 } from 'aws-sdk';
+import {
+  REDIS_TTL,
+  REDIS_TTL_PERMANENT,
+  STORAGE_PATH_MERGED,
+  STORAGE_PATH_PERMANENT,
+  STORAGE_PATH_TEMP,
+} from './tts.constants';
+import { BenchmarkMetricsService } from '../common/benchmark/benchmark-metrics.service';
+import { normalizeText } from './utils/normalize-text';
+import { TtsCacheService } from './services/tts-cache.service';
+import { TtsStorageService } from './services/tts-storage.service';
+import { TtsSynthesisService } from './services/tts-synthesis.service';
+import { TtsTextChunkService } from './services/tts-text-chunk.service';
 
-/**
- * 상수 정의
- */
-const REDIS_PREFIX = 'tts:phrase:';
-const REDIS_TTL = 86400 * 3; // 3일 (일반 TTS)
-const REDIS_TTL_PERMANENT = 86400 * 365 * 10; // 10년 (고정 메시지용, 사실상 영구)
-const S3_KEY_PREFIX_TEMP = 'tts/temp/';
-const S3_KEY_PREFIX_PERMANENT = 'tts/permanent/';
-
-type CacheType = 'temporary' | 'permanent';
+type TtsSynthesisMode = 'fulltext' | 'chunked';
+type ListCacheType = 'temporary' | 'permanent';
 
 @Injectable()
 export class TtsService {
   private readonly logger = new Logger(TtsService.name);
-  private redis: ReturnType<RedisService['getOrThrow']>;
-  private s3: S3;
+  private readonly synthesisMode: TtsSynthesisMode;
 
   constructor(
-    private readonly redisService: RedisService,
     private readonly configService: ConfigService,
-    private readonly ttsProvider: GoogleTtsProvider,
-    private readonly translationService: TranslationService,
+    private readonly ttsStorageService: TtsStorageService,
+    private readonly ttsTextChunkService: TtsTextChunkService,
+    private readonly ttsSynthesisService: TtsSynthesisService,
+    private readonly ttsCacheService: TtsCacheService,
+    private readonly benchmarkMetricsService: BenchmarkMetricsService,
   ) {
-    this.redis = this.redisService.getOrThrow();
-
-    // AWS S3 클라이언트 초기화
-    const nodeEnv = this.configService.get<string>('NODE_ENV', 'local');
-    const isProduction = nodeEnv === 'production';
-    const awsRegion =
-      this.configService.get<string>('AWS_REGION') || 'ap-northeast-2';
-    const awsAccessKeyId = this.configService.get<string>('AWS_ACCESS_KEY_ID');
-    const awsSecretAccessKey = this.configService.get<string>(
-      'AWS_SECRET_ACCESS_KEY',
-    );
-
-    if (isProduction) {
-      // production: IAM Role(인스턴스 프로파일)만 사용
-      this.s3 = new S3({ region: awsRegion });
-      this.logger.log('AWS S3 initialized with IAM Role (Production)');
-    } else {
-      // local/dev: 환경 변수 기반 자격 증명 사용
-      if (!awsAccessKeyId || !awsSecretAccessKey) {
-        throw new Error(
-          'AWS credentials not configured. Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY for S3.',
-        );
-      }
-
-      this.s3 = new S3({
-        region: awsRegion,
-        credentials: {
-          accessKeyId: awsAccessKeyId,
-          secretAccessKey: awsSecretAccessKey,
-        },
-      });
-      this.logger.log(
-        'AWS S3 initialized with credentials from environment variables (Local)',
-      );
-    }
+    this.synthesisMode =
+      this.configService.get<string>('TTS_SYNTHESIS_MODE') === 'chunked'
+        ? 'chunked'
+        : 'fulltext';
   }
 
   private hashText(text: string): string {
     return createHash('sha256').update(text).digest('hex');
   }
 
-  private redisKey(hash: string): string {
-    return `${REDIS_PREFIX}${hash}`;
+  private toReadyResponse(record: TtsRecord, hash: string): TtsResponseDto {
+    return {
+      status: 'ready',
+      url: record.ttsUrl ?? record.s3Url,
+      textKo: record.textKo,
+      hash,
+      cached: true,
+    };
   }
 
-  private bucketOrThrow(): string {
-    const bucket = this.configService.get<string>('TTS_S3_BUCKET');
-    if (!bucket) throw new Error('TTS_S3_BUCKET not configured');
-    return bucket;
+  private createRecord(params: {
+    text: string;
+    textKo: string;
+    lang: string;
+    voice?: string;
+    hash: string;
+    storageKey: string;
+    ttsUrl: string;
+  }): TtsRecord {
+    return {
+      text: params.text,
+      textKo: params.textKo,
+      lang: params.lang,
+      voice: params.voice,
+      status: 'ready',
+      storageKey: params.storageKey,
+      ttsUrl: params.ttsUrl,
+      hash: params.hash,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
   }
 
-  private s3Key(type: CacheType, lang: string, hash: string): string {
-    const prefix =
-      type === 'permanent' ? S3_KEY_PREFIX_PERMANENT : S3_KEY_PREFIX_TEMP;
-    return `${prefix}${lang}/${hash}.mp3`;
-  }
-
-  private s3Url(bucket: string, key: string): string {
-    return `https://${bucket}.s3.amazonaws.com/${key}`;
-  }
-
-  private async s3Exists(bucket: string, key: string): Promise<boolean> {
-    try {
-      await this.s3
-        .headObject({
-          Bucket: bucket,
-          Key: key,
-        })
-        .promise();
-      return true;
-    } catch (error) {
-      const err = error as { code?: string; statusCode?: number };
-      if (err.code === 'NotFound' || err.statusCode === 404) return false;
-      throw error;
+  private resolveTemporaryLookupTarget(
+    textKo: string,
+    lang: string,
+    voice?: string,
+  ): { hash: string; storageKey: string } {
+    if (this.synthesisMode === 'chunked') {
+      const hash = this.hashText(`merged:${lang}:${voice || ''}:${textKo}`);
+      return {
+        hash,
+        storageKey: this.ttsStorageService.mergedStorageKey(lang, hash),
+      };
     }
+
+    const hash = this.hashText(`${lang}:${voice || ''}:${textKo}`);
+    return {
+      hash,
+      storageKey: this.ttsStorageService.temporaryStorageKey(lang, hash),
+    };
   }
 
-  /**
-   * 텍스트를 한글로 번역하고 TTS 합성 후 S3에 업로드
-   */
+  private incrementTemporaryCacheHit(): void {
+    this.benchmarkMetricsService.increment('tts_cache_hit_total');
+  }
+
+  private incrementTemporaryCacheMiss(): void {
+    this.benchmarkMetricsService.increment('tts_cache_miss_total');
+  }
+
+  private async synthesizeTemporaryFulltext(
+    text: string,
+    lang: string,
+    voice?: string,
+  ): Promise<TtsResponseDto> {
+    const normalized = normalizeText(text);
+    const textKo = this.ttsTextChunkService.normalizeTemporaryText(normalized);
+    const hash = this.hashText(`${lang}:${voice || ''}:${textKo}`);
+    const storageKey = this.ttsStorageService.temporaryStorageKey(lang, hash);
+
+    const cachedRecord = await this.ttsCacheService.getRecord(hash);
+    if (
+      cachedRecord?.status === 'ready' &&
+      (cachedRecord.ttsUrl || cachedRecord.s3Url)
+    ) {
+      this.incrementTemporaryCacheHit();
+      await this.ttsCacheService.expire(hash, REDIS_TTL);
+      return this.toReadyResponse(cachedRecord, hash);
+    }
+
+    this.incrementTemporaryCacheMiss();
+    let ttsUrl: string;
+    let cached = false;
+
+    if (await this.ttsStorageService.storageExists(storageKey)) {
+      ttsUrl = this.ttsStorageService.storagePublicUrl(storageKey);
+      cached = true;
+    } else {
+      this.benchmarkMetricsService.increment('tts_fulltext_synthesized_total');
+      this.benchmarkMetricsService.increment(
+        'tts_fulltext_synthesized_chars_total',
+        textKo.length,
+      );
+      ttsUrl = await this.ttsSynthesisService.synthesizeSingleToStorage(
+        textKo,
+        lang,
+        storageKey,
+        voice,
+      );
+    }
+
+    const record = this.createRecord({
+      text: normalized,
+      textKo,
+      lang,
+      voice,
+      hash,
+      storageKey,
+      ttsUrl,
+    });
+    await this.ttsCacheService.setRecord(hash, record, REDIS_TTL);
+
+    return {
+      status: 'ready',
+      url: ttsUrl,
+      textKo,
+      hash,
+      cached,
+    };
+  }
+
+  private async synthesizeTemporaryChunked(
+    text: string,
+    lang: string,
+    voice?: string,
+  ): Promise<TtsResponseDto> {
+    const normalized = normalizeText(text);
+    const textKo = this.ttsTextChunkService.normalizeTemporaryText(normalized);
+    const phraseHash = this.hashText(`${lang}:${voice || ''}:${textKo}`);
+    const cachedRecord = await this.ttsCacheService.getRecord(phraseHash);
+
+    if (
+      cachedRecord?.status === 'ready' &&
+      (cachedRecord.ttsUrl || cachedRecord.s3Url)
+    ) {
+      this.incrementTemporaryCacheHit();
+      await this.ttsCacheService.expire(phraseHash, REDIS_TTL);
+      return this.toReadyResponse(cachedRecord, phraseHash);
+    }
+
+    this.incrementTemporaryCacheMiss();
+    const merged = await this.ttsSynthesisService.synthesizeMerged(
+      textKo,
+      lang,
+      voice,
+    );
+
+    const record = this.createRecord({
+      text: normalized,
+      textKo,
+      lang,
+      voice,
+      hash: phraseHash,
+      storageKey: merged.mergedKey,
+      ttsUrl: merged.mergedUrl,
+    });
+    await this.ttsCacheService.setRecord(phraseHash, record, REDIS_TTL);
+
+    return {
+      status: 'ready',
+      url: merged.mergedUrl,
+      textKo,
+      hash: phraseHash,
+      cached: false,
+    };
+  }
+
   async synthesizeAndCache(
     text: string,
     lang = 'ko-KR',
     voice?: string,
   ): Promise<TtsResponseDto> {
     try {
-      // 1. 텍스트 정규화
-      const normalized = normalizeText(text);
-
-      // 2. 한글로 번역
-      const textKo = this.translationService.translateToKorean(normalized);
-
-      // 3. 해시 생성 (한글 텍스트 기준)
-      const hash = this.hashText(`${lang}:${voice || ''}:${textKo}`);
-      const key = this.redisKey(hash);
-      const bucket = this.bucketOrThrow();
-      const s3Key = this.s3Key('temporary', lang, hash);
-      const s3Url = this.s3Url(bucket, s3Key);
-
-      // 4. Redis 캐시 확인 → S3 존재 확인 → 없으면 생성
-      const existing = await this.redis.get(key);
-      if (existing) {
-        try {
-          const record = JSON.parse(existing) as TtsRecord;
-          if (record.status === 'ready' && record.s3Url) {
-            // Redis hit이더라도 S3 객체가 실제로 존재하는지 확인 (stale cache 방지)
-            const existsInS3 = await this.s3Exists(
-              bucket,
-              record.s3Key ?? s3Key,
-            );
-            if (existsInS3) {
-              this.logger.debug(`Cache hit for hash=${hash}`);
-              // 네비게이션 세션/재검색에서 재사용 시 TTL을 다시 3일로 연장
-              await this.redis.expire(key, REDIS_TTL);
-              return {
-                status: 'ready',
-                url: record.s3Url,
-                textKo: record.textKo ?? textKo,
-                hash,
-                cached: true,
-              };
-            }
-          }
-        } catch {
-          this.logger.warn(`Failed to parse cached record for hash=${hash}`);
-        }
-      }
-
-      // 5. Redis miss: S3 존재 여부 확인 후 재사용 (있으면 Google TTS 호출 방지)
-      const existsInS3 = await this.s3Exists(bucket, s3Key);
-      if (existsInS3) {
-        const record: TtsRecord = {
-          text: normalized,
-          textKo,
-          lang,
-          voice,
-          status: 'ready',
-          s3Key,
-          s3Url,
-          hash,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        };
-        await this.redis.set(key, JSON.stringify(record), 'EX', REDIS_TTL);
-        return { status: 'ready', url: s3Url, textKo, hash, cached: true };
-      }
-
-      // 6. TTS 합성
-      this.logger.debug(`Synthesizing TTS for text: ${textKo}`);
-      const audioBuffer = await this.ttsProvider.synthesize(
-        textKo,
-        lang,
-        voice,
-      );
-
-      // 7. S3 업로드
-      await this.s3
-        .putObject({
-          Bucket: bucket,
-          Key: s3Key,
-          Body: audioBuffer,
-          ContentType: 'audio/mpeg',
-          // ACL 제거: 버킷 정책으로 공개 액세스 설정
-        })
-        .promise();
-
-      // 8. Redis에 저장
-      const record: TtsRecord = {
-        text: normalized,
-        textKo,
-        lang,
-        voice,
-        status: 'ready',
-        s3Key,
-        s3Url,
-        hash,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-
-      await this.redis.set(key, JSON.stringify(record), 'EX', REDIS_TTL);
-
-      // Redis 저장은 debug 레벨로만 로깅 (개별 저장은 너무 많음)
-      this.logger.debug(`TTS cached successfully: ${hash} -> ${s3Url}`);
-
-      return { status: 'ready', url: s3Url, textKo, hash, cached: false };
+      return this.synthesisMode === 'chunked'
+        ? await this.synthesizeTemporaryChunked(text, lang, voice)
+        : await this.synthesizeTemporaryFulltext(text, lang, voice);
     } catch (error) {
-      this.logger.error(
-        `TTS synthesis failed: ${(error as Error).message}`,
-        (error as Error).stack,
-      );
+      const message = error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(`TTS synthesis failed: ${message}`, stack);
       return {
         status: 'error',
         hash: this.hashText(text),
-        error: (error as Error).message,
+        error: message,
         cached: false,
       };
     }
   }
 
-  /**
-   * 인스트럭션 배열을 일괄 처리 (최적화 버전)
-   * - 중복 제거: 동일한 텍스트는 한 번만 처리
-   * - 병렬 처리: 독립적인 인스트럭션들을 동시에 처리
-   */
   async batchSynthesize(
     instructions: Array<{ text: string }>,
     lang = 'ko-KR',
     voice?: string,
   ): Promise<Map<string, TtsResponseDto>> {
     const results = new Map<string, TtsResponseDto>();
-    type SynthesisResult =
-      | { text: string; result: TtsResponseDto; success: boolean }
-      | {
-          text: string;
-          result: { status: 'error'; hash: string; error: string };
-          success: false;
-          error: unknown;
-        };
-
-    // 1. 중복 제거: 고유한 텍스트만 추출
     const uniqueTexts = Array.from(
-      new Set(instructions.map((i) => i.text)),
+      new Set(instructions.map((item) => item.text)),
     ).filter((text) => text && text.trim());
 
     if (uniqueTexts.length === 0) {
       return results;
     }
 
-    // 2. 병렬 처리: 모든 고유 텍스트 동시 처리
-    const synthesisPromises: Array<Promise<SynthesisResult>> = uniqueTexts.map(
-      (text) =>
-        this.synthesizeAndCache(text, lang, voice)
-          .then((result) => ({
-            text,
-            result,
-            success: result.status === 'ready',
-          }))
-          .catch((error: unknown) => ({
-            text,
-            result: {
-              status: 'error' as const,
-              hash: '',
-              error: error instanceof Error ? error.message : String(error),
-            },
-            success: false,
-            error,
-          })),
+    const synthesisResults = await Promise.all(
+      uniqueTexts.map(async (sourceText) => ({
+        sourceText,
+        result: await this.synthesizeAndCache(sourceText, lang, voice),
+      })),
     );
 
-    const synthesisResults = await Promise.all(synthesisPromises);
-
-    // 3. 결과 매핑
-    for (const { text, result } of synthesisResults) {
-      results.set(text, result);
-    }
-
-    // 배치 로깅: 성공/실패 집계
-    const successCount = synthesisResults.filter((r) => r.success).length;
-    const failureCount = synthesisResults.length - successCount;
-    const failures = synthesisResults.filter((r) => !r.success);
-
-    // Redis 저장 결과 집계 (status === 'ready'이고 url이 있으면 Redis 저장 성공으로 간주)
-    const redisSaveSuccess = synthesisResults.filter(
-      (r) => r.result.status === 'ready' && r.result.url,
-    ).length;
-    const redisSaveFail = synthesisResults.length - redisSaveSuccess;
-    const redisFailures = synthesisResults.filter(
-      (r) => r.result.status !== 'ready' || !r.result.url,
-    );
-
-    if (failureCount === 0) {
-      this.logger.debug(
-        `[TTS] 배치 합성 완료: ${successCount}/${uniqueTexts.length}개 성공 (Redis 저장: ${redisSaveSuccess}/${uniqueTexts.length}개 성공)`,
-      );
-    } else {
-      this.logger.error(
-        `[TTS] 배치 합성 완료: ${successCount}/${uniqueTexts.length}개 성공, ${failureCount}개 실패 (Redis 저장: ${redisSaveSuccess}/${uniqueTexts.length}개 성공, ${redisSaveFail}개 실패)`,
-      );
-      // 실패한 항목만 상세 로깅
-      for (const failure of failures) {
-        const errorInfo: string =
-          'error' in failure
-            ? failure.error instanceof Error
-              ? (failure.error.stack ?? failure.error.message)
-              : String(failure.error)
-            : failure.result.error || 'Unknown error';
-        this.logger.error(`[TTS] 합성 실패 - Text: ${failure.text}`, errorInfo);
-      }
-      // Redis 저장 실패만 상세 로깅 (합성은 성공했지만 Redis 저장 실패한 경우)
-      const redisOnlyFailures = redisFailures.filter(
-        (r) => r.success && (r.result.status !== 'ready' || !r.result.url),
-      );
-      if (redisOnlyFailures.length > 0) {
-        for (const redisFailure of redisOnlyFailures) {
-          this.logger.error(
-            `[TTS] Redis 저장 실패 - Text: ${redisFailure.text}, Hash: ${redisFailure.result.hash || 'N/A'}`,
-          );
-        }
-      }
+    for (const { sourceText, result } of synthesisResults) {
+      results.set(sourceText, result);
     }
 
     return results;
   }
 
-  /**
-   * 고정 메시지용 TTS 생성 (만료되지 않음)
-   * - 사용 예: "음성 안내를 시작합니다", "음성 안내를 종료합니다"
-   * - Redis TTL: 10년 (사실상 영구)
-   */
+  async batchSynthesizeForNavigation(
+    instructions: Array<{ text: string }>,
+    lang = 'ko-KR',
+    voice?: string,
+  ): Promise<Map<string, TtsResponseDto>> {
+    return this.batchSynthesize(instructions, lang, voice);
+  }
+
   async synthesizePermanent(
     text: string,
     lang = 'ko-KR',
     voice?: string,
   ): Promise<TtsResponseDto> {
     try {
-      // 1. 텍스트 정규화 (번역 없이 그대로 사용)
       const normalized = normalizeText(text);
-
-      // 2. 해시 생성
       const hash = this.hashText(`${lang}:${voice || ''}:${normalized}`);
-      const key = this.redisKey(hash);
-      const bucket = this.bucketOrThrow();
-      const s3Key = this.s3Key('permanent', lang, hash);
-      const s3Url = this.s3Url(bucket, s3Key);
+      const storageKey = this.ttsStorageService.permanentStorageKey(lang, hash);
 
-      // 3. Redis 캐시 확인 → S3 존재 확인 → 없으면 생성
-      const existing = await this.redis.get(key);
-      if (existing) {
-        try {
-          const record = JSON.parse(existing) as TtsRecord;
-          if (record.status === 'ready' && record.s3Url) {
-            // Redis hit이더라도 S3 객체가 실제로 존재하는지 확인 (stale cache 방지)
-            const existsInS3 = await this.s3Exists(
-              bucket,
-              record.s3Key ?? s3Key,
-            );
-            if (existsInS3) {
-              this.logger.debug(`Cache hit for permanent message: ${text}`);
-              return {
-                status: 'ready',
-                url: record.s3Url,
-                textKo: record.textKo ?? normalized,
-                hash,
-                cached: true,
-              };
-            }
-          }
-        } catch {
-          this.logger.warn(`Failed to parse cached permanent message: ${text}`);
-        }
+      const cachedRecord = await this.ttsCacheService.getRecord(hash);
+      if (
+        cachedRecord?.status === 'ready' &&
+        (cachedRecord.ttsUrl || cachedRecord.s3Url)
+      ) {
+        await this.ttsCacheService.expire(hash, REDIS_TTL_PERMANENT);
+        return this.toReadyResponse(cachedRecord, hash);
       }
 
-      // 4. Redis miss: S3 존재 여부 확인 후 재사용
-      const existsInS3 = await this.s3Exists(bucket, s3Key);
-      if (existsInS3) {
-        const record: TtsRecord = {
-          text: normalized,
-          textKo: normalized,
+      let ttsUrl: string;
+      let cached = false;
+
+      if (await this.ttsStorageService.storageExists(storageKey)) {
+        ttsUrl = this.ttsStorageService.storagePublicUrl(storageKey);
+        cached = true;
+      } else {
+        ttsUrl = await this.ttsSynthesisService.synthesizeSingleToStorage(
+          normalized,
           lang,
+          storageKey,
           voice,
-          status: 'ready',
-          s3Key,
-          s3Url,
-          hash,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        };
-        await this.redis.set(
-          key,
-          JSON.stringify(record),
-          'EX',
-          REDIS_TTL_PERMANENT,
         );
-        return {
-          status: 'ready',
-          url: s3Url,
-          textKo: normalized,
-          hash,
-          cached: true,
-        };
       }
 
-      // 5. TTS 합성
-      this.logger.debug(`Synthesizing permanent TTS for: ${text}`);
-      const audioBuffer = await this.ttsProvider.synthesize(
-        normalized,
-        lang,
-        voice,
-      );
-
-      // 6. S3 업로드
-      await this.s3
-        .putObject({
-          Bucket: bucket,
-          Key: s3Key,
-          Body: audioBuffer,
-          ContentType: 'audio/mpeg',
-        })
-        .promise();
-
-      // 7. Redis에 영구 저장 (10년 TTL)
-      const record: TtsRecord = {
+      const record = this.createRecord({
         text: normalized,
         textKo: normalized,
         lang,
         voice,
-        status: 'ready',
-        s3Key,
-        s3Url,
         hash,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-
-      await this.redis.set(
-        key,
-        JSON.stringify(record),
-        'EX',
-        REDIS_TTL_PERMANENT,
-      );
-
-      // Redis 저장은 debug 레벨로만 로깅
-      this.logger.debug(
-        `Permanent TTS cached successfully: ${text} -> ${s3Url}`,
-      );
+        storageKey,
+        ttsUrl,
+      });
+      await this.ttsCacheService.setRecord(hash, record, REDIS_TTL_PERMANENT);
 
       return {
         status: 'ready',
-        url: s3Url,
+        url: ttsUrl,
         textKo: normalized,
         hash,
-        cached: false,
+        cached,
       };
     } catch (error) {
-      this.logger.error(
-        `Permanent TTS synthesis failed: ${(error as Error).message}`,
-        (error as Error).stack,
-      );
+      const message = error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(`Permanent TTS synthesis failed: ${message}`, stack);
       return {
         status: 'error',
         hash: this.hashText(text),
-        error: (error as Error).message,
+        error: message,
         cached: false,
       };
     }
   }
 
-  /**
-   * 캐시된 TTS 조회
-   */
   async lookup(
     text: string,
     lang = 'ko-KR',
     voice?: string,
   ): Promise<TtsResponseDto | null> {
     const normalized = normalizeText(text);
-    const textKo = this.translationService.translateToKorean(normalized);
-    const hash = this.hashText(`${lang}:${voice || ''}:${textKo}`);
-    const key = this.redisKey(hash);
-    const bucket = this.bucketOrThrow();
-    const s3Key = this.s3Key('temporary', lang, hash);
-    const s3Url = this.s3Url(bucket, s3Key);
+    const textKo = this.ttsTextChunkService.normalizeTemporaryText(normalized);
+    const phraseHash = this.hashText(`${lang}:${voice || ''}:${textKo}`);
+    const record = await this.ttsCacheService.getRecord(phraseHash);
 
-    const existing = await this.redis.get(key);
-    if (!existing) {
-      // Redis miss: S3에서 먼저 확인 후 재캐시
-      const existsInS3 = await this.s3Exists(bucket, s3Key);
-      if (!existsInS3) return null;
-
-      const record: TtsRecord = {
-        text: normalized,
-        textKo,
-        lang,
-        voice,
-        status: 'ready',
-        s3Key,
-        s3Url,
-        hash,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-      await this.redis.set(key, JSON.stringify(record), 'EX', REDIS_TTL);
-      return { status: 'ready', url: s3Url, textKo, hash };
+    if (record?.status === 'ready' && (record.ttsUrl || record.s3Url)) {
+      return this.toReadyResponse(record, phraseHash);
     }
 
-    try {
-      const record = JSON.parse(existing) as TtsRecord;
-      if (record.status === 'ready' && record.s3Url) {
-        // Redis hit이더라도 S3 객체가 실제로 존재하는지 확인 (stale cache 방지)
-        const existsInS3 = await this.s3Exists(bucket, record.s3Key ?? s3Key);
-        if (existsInS3) {
-          return {
-            status: 'ready',
-            url: record.s3Url,
-            textKo: record.textKo,
-            hash,
-          };
-        }
-        return null;
-      }
-      return { status: record.status, hash, error: record.error };
-    } catch {
+    if (record) {
+      return {
+        status: record.status,
+        hash: phraseHash,
+        error: record.error,
+      };
+    }
+
+    const { storageKey } = this.resolveTemporaryLookupTarget(
+      textKo,
+      lang,
+      voice,
+    );
+    if (!(await this.ttsStorageService.storageExists(storageKey))) {
       return null;
     }
+
+    const ttsUrl = this.ttsStorageService.storagePublicUrl(storageKey);
+    const restoredRecord = this.createRecord({
+      text: normalized,
+      textKo,
+      lang,
+      voice,
+      hash: phraseHash,
+      storageKey,
+      ttsUrl,
+    });
+    await this.ttsCacheService.setRecord(phraseHash, restoredRecord, REDIS_TTL);
+
+    return {
+      status: 'ready',
+      url: ttsUrl,
+      textKo,
+      hash: phraseHash,
+    };
   }
 
-  /**
-   * 고정 메시지 캐시 조회 (번역 없이)
-   */
   async lookupPermanent(
     text: string,
     lang = 'ko-KR',
@@ -548,61 +391,49 @@ export class TtsService {
   ): Promise<TtsResponseDto | null> {
     const normalized = normalizeText(text);
     const hash = this.hashText(`${lang}:${voice || ''}:${normalized}`);
-    const key = this.redisKey(hash);
-    const bucket = this.bucketOrThrow();
-    const s3Key = this.s3Key('permanent', lang, hash);
-    const s3Url = this.s3Url(bucket, s3Key);
+    const record = await this.ttsCacheService.getRecord(hash);
 
-    const existing = await this.redis.get(key);
-    if (!existing) {
-      const existsInS3 = await this.s3Exists(bucket, s3Key);
-      if (!existsInS3) return null;
-
-      const record: TtsRecord = {
-        text: normalized,
-        textKo: normalized,
-        lang,
-        voice,
-        status: 'ready',
-        s3Key,
-        s3Url,
-        hash,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-      await this.redis.set(
-        key,
-        JSON.stringify(record),
-        'EX',
-        REDIS_TTL_PERMANENT,
-      );
-      return { status: 'ready', url: s3Url, textKo: text, hash };
+    if (record?.status === 'ready' && (record.ttsUrl || record.s3Url)) {
+      return this.toReadyResponse(record, hash);
     }
 
-    try {
-      const record = JSON.parse(existing) as TtsRecord;
-      if (record.status === 'ready' && record.s3Url) {
-        const existsInS3 = await this.s3Exists(bucket, record.s3Key ?? s3Key);
-        if (existsInS3) {
-          return {
-            status: 'ready',
-            url: record.s3Url,
-            textKo: record.textKo ?? normalized,
-            hash,
-          };
-        }
-        return null;
-      }
-      return { status: record.status, hash, error: record.error };
-    } catch {
+    if (record) {
+      return {
+        status: record.status,
+        hash,
+        error: record.error,
+      };
+    }
+
+    const storageKey = this.ttsStorageService.permanentStorageKey(lang, hash);
+    if (!(await this.ttsStorageService.storageExists(storageKey))) {
       return null;
     }
+
+    const ttsUrl = this.ttsStorageService.storagePublicUrl(storageKey);
+    const restoredRecord = this.createRecord({
+      text: normalized,
+      textKo: normalized,
+      lang,
+      voice,
+      hash,
+      storageKey,
+      ttsUrl,
+    });
+    await this.ttsCacheService.setRecord(
+      hash,
+      restoredRecord,
+      REDIS_TTL_PERMANENT,
+    );
+
+    return {
+      status: 'ready',
+      url: ttsUrl,
+      textKo: normalized,
+      hash,
+    };
   }
 
-  /**
-   * S3 객체 존재 여부 조회 (임시 TTS)
-   * - Redis 캐시 여부(ready + s3Url)와 S3 존재 여부를 함께 반환
-   */
   async lookupS3(
     text: string,
     lang = 'ko-KR',
@@ -614,37 +445,28 @@ export class TtsService {
     url?: string;
   }> {
     const normalized = normalizeText(text);
-    const textKo = this.translationService.translateToKorean(normalized);
-    const hash = this.hashText(`${lang}:${voice || ''}:${textKo}`);
-    const bucket = this.bucketOrThrow();
-    const key = this.redisKey(hash);
-    const s3Key = this.s3Key('temporary', lang, hash);
+    const textKo = this.ttsTextChunkService.normalizeTemporaryText(normalized);
+    const phraseHash = this.hashText(`${lang}:${voice || ''}:${textKo}`);
+    const record = await this.ttsCacheService.getRecord(phraseHash);
+    const { storageKey } = this.resolveTemporaryLookupTarget(
+      textKo,
+      lang,
+      voice,
+    );
+    const exists = await this.ttsStorageService.storageExists(storageKey);
 
-    // Redis ready-cache 여부 확인 (record.status=ready && s3Url 존재)
-    let redisCached = false;
-    const cached = await this.redis.get(key);
-    if (cached) {
-      try {
-        const record = JSON.parse(cached) as TtsRecord;
-        redisCached = record.status === 'ready' && !!record.s3Url;
-      } catch {
-        redisCached = false;
-      }
-    }
-
-    const s3Exists = await this.s3Exists(bucket, s3Key);
     return {
-      redisCached,
-      s3Exists,
-      s3Key,
-      url: s3Exists ? this.s3Url(bucket, s3Key) : undefined,
+      redisCached: Boolean(
+        record?.status === 'ready' && (record.ttsUrl || record.s3Url),
+      ),
+      s3Exists: exists,
+      s3Key: storageKey,
+      url: exists
+        ? this.ttsStorageService.storagePublicUrl(storageKey)
+        : undefined,
     };
   }
 
-  /**
-   * S3 객체 존재 여부 조회 (고정 메시지 TTS)
-   * - Redis 캐시 여부(ready + s3Url)와 S3 존재 여부를 함께 반환
-   */
   async lookupS3Permanent(
     text: string,
     lang = 'ko-KR',
@@ -657,81 +479,65 @@ export class TtsService {
   }> {
     const normalized = normalizeText(text);
     const hash = this.hashText(`${lang}:${voice || ''}:${normalized}`);
-    const bucket = this.bucketOrThrow();
-    const key = this.redisKey(hash);
-    const s3Key = this.s3Key('permanent', lang, hash);
+    const record = await this.ttsCacheService.getRecord(hash);
+    const storageKey = this.ttsStorageService.permanentStorageKey(lang, hash);
+    const exists = await this.ttsStorageService.storageExists(storageKey);
 
-    let redisCached = false;
-    const cached = await this.redis.get(key);
-    if (cached) {
-      try {
-        const record = JSON.parse(cached) as TtsRecord;
-        redisCached = record.status === 'ready' && !!record.s3Url;
-      } catch {
-        redisCached = false;
-      }
-    }
-
-    const s3Exists = await this.s3Exists(bucket, s3Key);
     return {
-      redisCached,
-      s3Exists,
-      s3Key,
-      url: s3Exists ? this.s3Url(bucket, s3Key) : undefined,
+      redisCached: Boolean(
+        record?.status === 'ready' && (record.ttsUrl || record.s3Url),
+      ),
+      s3Exists: exists,
+      s3Key: storageKey,
+      url: exists
+        ? this.ttsStorageService.storagePublicUrl(storageKey)
+        : undefined,
     };
   }
 
-  /**
-   * 캐시된 TTS 목록 조회 (Redis)
-   * - prefix 기반으로 scan
-   * - cacheType으로 임시/고정 분리 (legacy는 TTL로 추론)
-   */
   async listCached(
-    type: CacheType,
+    type: ListCacheType,
     cursor = '0',
     limit = 200,
   ): Promise<{ items: TtsRecord[]; nextCursor: string }> {
     const count = Math.min(Math.max(limit, 1), 1000);
-    const [nextCursor, keys] = (await this.redis.scan(
+    const [nextCursor, keys] = await this.ttsCacheService.scanRedisKeys(
       cursor,
-      'MATCH',
-      `${REDIS_PREFIX}*`,
-      'COUNT',
       count,
-    )) as unknown as [string, string[]];
+    );
 
-    if (!keys || keys.length === 0) {
+    if (keys.length === 0) {
       return { items: [], nextCursor };
     }
 
-    const pipeline = this.redis.pipeline();
-    for (const key of keys) {
-      pipeline.get(key);
-      pipeline.ttl(key);
+    const items = (await this.ttsCacheService.getPipelineRecords(keys)).filter(
+      (record): record is TtsRecord => Boolean(record),
+    );
+
+    const expectedPrefix = this.expectedStoragePrefix(type);
+    const filtered = items
+      .filter((record) => {
+        const storageKey = record.storageKey ?? record.s3Key;
+        return (
+          typeof storageKey === 'string' &&
+          storageKey.startsWith(expectedPrefix)
+        );
+      })
+      .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+
+    return {
+      items: filtered,
+      nextCursor,
+    };
+  }
+
+  private expectedStoragePrefix(type: ListCacheType): string {
+    if (type === 'permanent') {
+      return `${STORAGE_PATH_PERMANENT}/`;
     }
-    const results = await pipeline.exec();
 
-    const items: TtsRecord[] = [];
-    const expectedPrefix =
-      type === 'permanent' ? S3_KEY_PREFIX_PERMANENT : S3_KEY_PREFIX_TEMP;
-    for (let i = 0; i < keys.length; i++) {
-      const getRes = results?.[i * 2];
-      const ttlRes = results?.[i * 2 + 1];
-      const value = (getRes?.[1] as string | null) ?? null;
-      const _ttlSeconds = (ttlRes?.[1] as number | null) ?? null;
-      if (!value) continue;
-      try {
-        const record = JSON.parse(value) as TtsRecord;
-        if (!record.s3Key || !record.s3Key.startsWith(expectedPrefix)) continue;
-        items.push(record);
-      } catch {
-        continue;
-      }
-    }
-
-    // 최신순 정렬: createdAt 기준 내림차순 (요청사항)
-    items.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
-
-    return { items, nextCursor };
+    return this.synthesisMode === 'chunked'
+      ? `${STORAGE_PATH_MERGED}/`
+      : `${STORAGE_PATH_TEMP}/`;
   }
 }

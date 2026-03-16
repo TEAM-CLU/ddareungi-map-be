@@ -10,6 +10,7 @@ import { StationQueryService } from './services/station-query.service';
 import { StationManagementService } from './services/station-management.service';
 import { StationDomainService } from './services/station-domain.service';
 import { StationMapperService } from './services/station-mapper.service';
+import { StationRealtimeLockService } from './services/station-realtime-lock.service';
 import { Station } from './entities/station.entity';
 import { SyncLog } from './entities/sync-log.entity';
 
@@ -25,6 +26,7 @@ import { SyncLog } from './entities/sync-log.entity';
     StationManagementService,
     StationDomainService,
     StationMapperService,
+    StationRealtimeLockService,
   ],
   exports: [
     StationsService,
@@ -33,6 +35,7 @@ import { SyncLog } from './entities/sync-log.entity';
     StationManagementService,
     StationRealtimeService,
     StationDomainService,
+    StationRealtimeLockService,
   ],
 })
 export class StationsModule {}

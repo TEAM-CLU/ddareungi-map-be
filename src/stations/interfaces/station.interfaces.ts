@@ -112,6 +112,23 @@ export interface RealtimeUpdateData {
   };
 }
 
+export type StationRealtimeSyncOutcome =
+  | 'updated'
+  | 'inactive_no_data'
+  | 'skipped_locked'
+  | 'not_found';
+
+export interface StationRealtimeSyncResult {
+  stationId: string;
+  outcome: StationRealtimeSyncOutcome;
+  current_bikes: number;
+  total_racks: number;
+  status: StationStatus;
+  last_updated_at: Date | null;
+  usedLiveApi: boolean;
+  error?: string;
+}
+
 // 전체 삭제 결과 인터페이스
 export interface DeleteAllResult {
   deleted: number;

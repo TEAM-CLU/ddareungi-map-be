@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TextToSpeechClient } from '@google-cloud/text-to-speech';
 import * as fs from 'fs';
+import { BenchmarkMetricsService } from '../common/benchmark/benchmark-metrics.service';
 
 export interface TtsProvider {
   synthesize(text: string, lang?: string, voice?: string): Promise<Buffer>;
@@ -12,7 +13,10 @@ export class GoogleTtsProvider implements TtsProvider, OnModuleInit {
   private readonly logger = new Logger(GoogleTtsProvider.name);
   private client!: TextToSpeechClient;
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly benchmarkMetricsService: BenchmarkMetricsService,
+  ) {}
 
   onModuleInit(): void {
     this.initializeClient();
@@ -47,6 +51,11 @@ export class GoogleTtsProvider implements TtsProvider, OnModuleInit {
   ): Promise<Buffer> {
     try {
       const voiceName = voice || this.getDefaultVoice(lang);
+      this.benchmarkMetricsService.increment('google_tts_synthesize_total');
+      this.benchmarkMetricsService.increment(
+        'google_tts_synthesize_chars_total',
+        text.length,
+      );
 
       const [response] = await this.client.synthesizeSpeech({
         input: { text },

@@ -42,7 +42,7 @@ class PermanentTtsDto {
 class S3LookupResponseDto {
   @ApiProperty({
     description:
-      'Redis 캐시 여부 (record 파싱 성공 + status=ready + s3Url 존재)',
+      'Redis 캐시 여부 (record 파싱 성공 + status=ready + ttsUrl 존재)',
     example: true,
   })
   redisCached: boolean;
@@ -54,21 +54,22 @@ class S3LookupResponseDto {
   text: string;
 
   @ApiProperty({
-    description: 'S3 객체 존재 여부',
+    description: '스토리지 객체 존재 여부',
     example: true,
   })
   s3Exists: boolean;
 
   @ApiProperty({
-    description: 'S3 객체 Key',
-    example: 'tts/temp/ko-KR/abc123.mp3',
+    description: '스토리지 객체 Key',
+    example: 'temporary/ko-KR/abc123.mp3',
     required: false,
   })
   s3Key?: string;
 
   @ApiProperty({
     description: 'TTS public URL (s3Exists=true일 때)',
-    example: 'https://bucket.s3.amazonaws.com/tts/temp/ko-KR/abc123.mp3',
+    example:
+      'https://example.supabase.co/storage/v1/object/public/tts/temporary/ko-KR/abc123.mp3',
     required: false,
   })
   ttsUrl?: string;
@@ -330,7 +331,7 @@ export class TtsController {
   @ApiOperation({
     summary: 'TTS S3 객체 조회 (임시)',
     description:
-      'Redis를 조회하지 않고 S3에 해당 TTS 객체가 존재하는지 확인합니다. (tts/temp/*)',
+      'Redis를 조회하지 않고 스토리지에 해당 TTS 객체가 존재하는지 확인합니다. (temporary/* 또는 merged/*)',
   })
   @ApiQuery({
     name: 'text',
@@ -351,7 +352,7 @@ export class TtsController {
     }
 
     const result = await this.ttsService.lookupS3(text);
-    return SuccessResponseDto.create('TTS S3 조회 성공', {
+    return SuccessResponseDto.create('TTS 스토리지 조회 성공', {
       redisCached: result.redisCached,
       text,
       s3Exists: result.s3Exists,
@@ -364,7 +365,7 @@ export class TtsController {
   @ApiOperation({
     summary: 'TTS S3 객체 조회 (고정 메시지)',
     description:
-      'Redis를 조회하지 않고 S3에 해당 TTS 객체가 존재하는지 확인합니다. (tts/permanent/*)',
+      'Redis를 조회하지 않고 스토리지에 해당 TTS 객체가 존재하는지 확인합니다. (permanent/*)',
   })
   @ApiQuery({
     name: 'text',
@@ -385,7 +386,7 @@ export class TtsController {
     }
 
     const result = await this.ttsService.lookupS3Permanent(text);
-    return SuccessResponseDto.create('고정 메시지 TTS S3 조회 성공', {
+    return SuccessResponseDto.create('고정 메시지 TTS 스토리지 조회 성공', {
       redisCached: result.redisCached,
       text,
       s3Exists: result.s3Exists,

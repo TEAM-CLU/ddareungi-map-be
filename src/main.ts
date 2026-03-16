@@ -14,6 +14,7 @@ async function bootstrap() {
   // ConfigService를 먼저 가져와서 환경 변수 확인
   const tempApp = await NestFactory.createApplicationContext(AppModule, {
     logger: false, // 임시로 로거 비활성화 (Winston 설정 전)
+    abortOnError: false,
   });
   const configService = tempApp.get(ConfigService);
   await tempApp.close();
@@ -41,6 +42,7 @@ async function bootstrap() {
   // NestJS 앱 생성 (Winston Logger 사용)
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger: winstonLogger,
+    abortOnError: false,
   });
 
   // Global Interceptor 등록 (요청/응답 로깅)
@@ -147,6 +149,11 @@ async function bootstrap() {
     customCss: '.swagger-ui .topbar { display: none }', // 상단바 제거 (선택사항)
   });
 
-  await app.listen(3000);
+  const port = Number(configService.get<string>('PORT', '3000'));
+  await app.listen(port);
 }
-void bootstrap();
+void bootstrap().catch((error: unknown) => {
+  const message = error instanceof Error ? error.stack ?? error.message : String(error);
+  process.stderr.write(`[bootstrap] ${message}\n`);
+  process.exit(1);
+});

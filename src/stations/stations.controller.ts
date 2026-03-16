@@ -8,6 +8,7 @@ import {
   Query,
   HttpStatus,
   HttpException,
+  Logger,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -33,7 +34,6 @@ import {
   DeleteAllResult,
   GeoJsonResponse,
 } from './interfaces/station.interfaces';
-import { Logger } from '@nestjs/common';
 import {
   SuccessResponseDto,
   ErrorResponseDto,
@@ -70,23 +70,12 @@ export class StationsController {
     type: ErrorResponseDto,
   })
   async syncStations(): Promise<SuccessResponseDto<null>> {
-    try {
-      this.logger.log('수동 대여소 동기화 요청');
-      await this.stationSyncService.handleWeeklySync();
-      return SuccessResponseDto.create(
-        '대여소 동기화가 성공적으로 완료되었습니다.',
-        null,
-      );
-    } catch (error) {
-      this.logger.error('수동 대여소 동기화 실패:', error);
-      throw new HttpException(
-        ErrorResponseDto.create(
-          HttpStatus.INTERNAL_SERVER_ERROR,
-          '대여소 동기화에 실패했습니다.',
-        ),
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+    this.logger.log('수동 대여소 동기화 요청');
+    await this.stationSyncService.handleWeeklySync();
+    return SuccessResponseDto.create(
+      '대여소 동기화가 성공적으로 완료되었습니다.',
+      null,
+    );
   }
 
   @Post('realtime-sync')
@@ -106,29 +95,19 @@ export class StationsController {
     type: ErrorResponseDto,
   })
   async syncAllStationsRealtimeInfo(): Promise<SuccessResponseDto<object>> {
-    try {
-      this.logger.log('전체 대여소 실시간 대여정보 동기화 요청');
-      const result =
-        await this.stationRealtimeService.syncAllStationsRealtimeInfo();
-      return SuccessResponseDto.create(
-        `전체 대여소 실시간 대여정보 동기화가 완료되었습니다. (성공: ${result.successCount}개, 실패: ${result.failureCount}개)`,
-        {
-          successCount: result.successCount,
-          failureCount: result.failureCount,
-          details: result.details,
-        },
-      );
-    } catch (error) {
-      this.logger.error('전체 대여소 실시간 대여정보 동기화 실패:', error);
-      throw new HttpException(
-        ErrorResponseDto.create(
-          HttpStatus.INTERNAL_SERVER_ERROR,
-          '전체 대여소 실시간 대여정보 동기화에 실패했습니다.',
-        ),
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+    this.logger.log('전체 대여소 실시간 대여정보 동기화 요청');
+    const result =
+      await this.stationRealtimeService.syncAllStationsRealtimeInfo();
+    return SuccessResponseDto.create(
+      `전체 대여소 실시간 대여정보 동기화가 완료되었습니다. (성공: ${result.successCount}개, 실패: ${result.failureCount}개)`,
+      {
+        successCount: result.successCount,
+        failureCount: result.failureCount,
+        details: result.details,
+      },
+    );
   }
+
   @Post('realtime-sync/batch')
   @ApiOperation({
     summary: '특정 대여소(들) 실시간 대여정보 동기화',
@@ -186,33 +165,31 @@ export class StationsController {
   async syncBatchStationsRealtimeInfo(
     @Body() body: StationNumbersDto,
   ): Promise<SuccessResponseDto<object>> {
-    try {
-      const stationNumbers = body.stationNumbers;
-      // 대여소 번호를 id로 변환
-      const stationIds: string[] = [];
-      for (const number of stationNumbers) {
-        const station = await this.stationQueryService.findByNumber(number);
-        if (station) stationIds.push(String(station.id));
+    const stationNumbers = body.stationNumbers;
+    const stationIds: string[] = [];
+
+    for (const number of stationNumbers) {
+      const station = await this.stationQueryService.findByNumber(number);
+      if (station) {
+        stationIds.push(String(station.id));
       }
-      const result =
-        await this.stationRealtimeService.syncRealtimeInfoByIds(stationIds);
-      return SuccessResponseDto.create(
-        `부분 대여소 실시간 대여정보 동기화가 완료되었습니다. (성공: ${result.size}개, 실패: ${stationIds.length - result.size}개)`,
-        {
-          successCount: result.size,
-          failureCount: stationIds.length - result.size,
-        },
-      );
-    } catch (error) {
-      this.logger.error('부분 대여소 실시간 대여정보 동기화 실패:', error);
-      throw new HttpException(
-        ErrorResponseDto.create(
-          HttpStatus.INTERNAL_SERVER_ERROR,
-          '부분 대여소 실시간 대여정보 동기화에 실패했습니다.',
-        ),
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
     }
+
+    const resultMap =
+      await this.stationRealtimeService.syncRealtimeInfoByIds(stationIds);
+    const results = Array.from(resultMap.values());
+    const successCount = results.filter(
+      (result) => result.outcome !== 'not_found' && !result.error,
+    ).length;
+    const failureCount = results.length - successCount;
+
+    return SuccessResponseDto.create(
+      `부분 대여소 실시간 대여정보 동기화가 완료되었습니다. (성공: ${successCount}개, 실패: ${failureCount}개)`,
+      {
+        successCount,
+        failureCount,
+      },
+    );
   }
 
   @Get('nearby')

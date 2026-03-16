@@ -17,6 +17,8 @@ import { ClsModule } from 'nestjs-cls';
 import { RedisModule } from '@liaoliaots/nestjs-redis';
 import { HttpLoggingModule } from './common/http/http-logging.module';
 import { TypeormWinstonLogger } from './common/logger/typeorm-logger';
+import { SupabaseModule } from './common/supabase/supabase.module';
+import { BenchmarkModule } from './common/benchmark/benchmark.module';
 import type { Request } from 'express';
 
 type ClsLike = {
@@ -94,9 +96,6 @@ type ClsLike = {
       },
     }),
 
-    // HttpService(axios) outgoing logging (global)
-    HttpLoggingModule,
-
     // Redis 모듈 글로벌 등록
     RedisModule.forRoot({
       config: {
@@ -106,6 +105,12 @@ type ClsLike = {
         db: process.env.REDIS_DB ? Number(process.env.REDIS_DB) : 0,
       },
     }),
+
+    // HttpService(axios) outgoing logging (global)
+    HttpLoggingModule,
+
+    SupabaseModule,
+    BenchmarkModule,
 
     MailModule,
     AuthModule,

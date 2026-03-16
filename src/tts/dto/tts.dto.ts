@@ -28,8 +28,9 @@ export class TtsResponseDto {
   status: 'ready' | 'pending' | 'error';
 
   @ApiProperty({
-    description: 'S3에 저장된 오디오 파일 URL',
-    example: 'https://bucket.s3.amazonaws.com/tts/ko-KR/abc123...def.mp3',
+    description: '스토리지에 저장된 오디오 파일 URL',
+    example:
+      'https://supabase.example/storage/v1/object/public/tts/temporary/ko-KR/abc123.mp3',
     required: false,
   })
   url?: string;
@@ -69,6 +70,8 @@ export interface TtsRecord {
   lang: string;
   voice?: string;
   status: 'pending' | 'ready' | 'error';
+  storageKey?: string;
+  ttsUrl?: string;
   s3Key?: string;
   s3Url?: string;
   hash: string;
