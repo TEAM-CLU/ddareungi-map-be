@@ -104,6 +104,32 @@ SENTRY_TRACES_SAMPLE_RATE=0.1
 - `GET /test/sentry-error` 호출 시 의도적으로 에러를 발생시킵니다.
 - production 환경에서 호출하면 Sentry 대시보드에 에러가 유입되는지 확인할 수 있습니다.
 
+## 📘 Swagger 관리자 접근 설정
+
+Swagger 문서는 기본 공개가 아니라, 전용 관리자 계정이 설정된 경우에만 활성화됩니다.
+
+### 보호 대상 경로
+
+- `/api-docs`
+- `/api-docs-json`
+
+### 필수 환경변수
+
+```env
+SWAGGER_ADMIN_USERNAME=admin
+SWAGGER_ADMIN_PASSWORD=change-this-password
+```
+
+### 동작 방식
+
+- 두 값이 모두 설정되어 있으면 Swagger UI와 OpenAPI JSON에 Basic Auth가 적용됩니다.
+- 인증에 성공한 경우에만 Swagger UI와 JSON 스펙을 볼 수 있습니다.
+- 둘 중 하나라도 빠져 있으면 Swagger는 아예 비활성화됩니다.
+
+### 접근 예시
+
+브라우저로 `/api-docs`에 접근하면 Basic Auth 로그인 창이 표시됩니다.
+
 ## �️ TTS (Text-to-Speech) 설정
 
 네비게이션 인스트럭션을 음성으로 변환하여 S3에 캐싱하는 기능입니다.

@@ -1,6 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { createWinstonLogger } from './common/logger/winston.config';
@@ -9,8 +9,14 @@ import { SentryInterceptor } from './common/interceptors/sentry.interceptor';
 import { ClsService } from 'nestjs-cls';
 import * as Sentry from '@sentry/nestjs';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import {
+  buildSwaggerBasicAuthMiddleware,
+  isSwaggerEnabled,
+} from './common/swagger/swagger-basic-auth.util';
 
 async function bootstrap() {
+  const bootstrapLogger = new Logger('Bootstrap');
+
   // ConfigService를 먼저 가져와서 환경 변수 확인
   const tempApp = await NestFactory.createApplicationContext(AppModule, {
     logger: false, // 임시로 로거 비활성화 (Winston 설정 전)
@@ -136,18 +142,30 @@ async function bootstrap() {
       },
     })
     .build();
-  const document = SwaggerModule.createDocument(app, config);
 
-  // Swagger 설정 옵션 추가 - HTTP를 사용하도록 강제
-  SwaggerModule.setup('api-docs', app, document, {
-    swaggerOptions: {
-      persistAuthorization: true,
-      // 상대 경로를 사용하여 현재 프로토콜/호스트를 따르도록 설정
-      url: '/api-docs-json',
-    },
-    customSiteTitle: 'Ddareungi Map API',
-    customCss: '.swagger-ui .topbar { display: none }', // 상단바 제거 (선택사항)
-  });
+  if (isSwaggerEnabled(configService)) {
+    const swaggerBasicAuthMiddleware =
+      buildSwaggerBasicAuthMiddleware(configService);
+    app.use('/api-docs', swaggerBasicAuthMiddleware);
+    app.use('/api-docs-json', swaggerBasicAuthMiddleware);
+
+    const document = SwaggerModule.createDocument(app, config);
+
+    // Swagger 설정 옵션 추가 - HTTP를 사용하도록 강제
+    SwaggerModule.setup('api-docs', app, document, {
+      swaggerOptions: {
+        persistAuthorization: true,
+        // 상대 경로를 사용하여 현재 프로토콜/호스트를 따르도록 설정
+        url: '/api-docs-json',
+      },
+      customSiteTitle: 'Ddareungi Map API',
+      customCss: '.swagger-ui .topbar { display: none }', // 상단바 제거 (선택사항)
+    });
+  } else {
+    bootstrapLogger.warn(
+      'Swagger is disabled because SWAGGER_ADMIN_USERNAME or SWAGGER_ADMIN_PASSWORD is not configured.',
+    );
+  }
 
   const port = Number(configService.get<string>('PORT', '3000'));
   await app.listen(port);
