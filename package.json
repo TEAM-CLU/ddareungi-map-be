@@ -9,6 +9,7 @@
     "build": "nest build",
     "benchmark": "node scripts/benchmark/run-all.mjs",
     "benchmark:stations": "node scripts/benchmark/run-stations.mjs",
+    "benchmark:stations:clustered": "node scripts/benchmark/run-stations-clustered.mjs",
     "benchmark:tts": "node scripts/benchmark/run-tts.mjs",
     "benchmark:all": "node scripts/benchmark/run-all.mjs",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
