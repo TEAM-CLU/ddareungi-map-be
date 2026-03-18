@@ -1,185 +1,237 @@
 # 외부 서비스 통합 개요
 
-DDareungiMap Backend는 다양한 외부 서비스와 통합되어 있습니다. 이 문서는 각 서비스의 역할과 설정 방법을 안내합니다.
+이 문서는 현재 코드가 실제로 의존하는 외부 서비스만 정리한다.
 
-## 📋 외부 서비스 목록
+## 1. Supabase
 
-### 1. **Seoul Open API** (서울시 공공 데이터)
+### 역할
 
-- **역할**: 따릉이 대여소 정보 및 실시간 자전거 현황 조회
-- **사용 모듈**: `stations` 모듈
-- **상세 문서**: [SEOUL_OPEN_API.md](./SEOUL_OPEN_API.md)
+- PostgreSQL / PostGIS 데이터베이스
+- TTS 오디오 파일 저장용 Supabase Storage
 
-### 2. **GraphHopper** (경로 최적화)
+### 연결 도메인
 
-- **역할**: 자전거 경로 계산 및 최적화
-- **사용 모듈**: `routes` 모듈
-- **상세 문서**: [GRAPHHOPPER_SETUP.md](./GRAPHHOPPER_SETUP.md)
+- `common`
+- `tts`
+- `stations` (DB)
+- 기타 TypeORM 기반 전 도메인
 
-### 3. **Redis** (캐싱 및 세션 관리)
+### 관련 코드
 
-- **역할**: 네비게이션 세션, TTS 캐시, 경로 데이터 저장
-- **사용 모듈**: `navigation`, `tts`, `routes` 모듈
-- **상세 문서**: [REDIS_SETUP.md](./REDIS_SETUP.md)
+- [`../src/common/supabase/supabase.module.ts`](../src/common/supabase/supabase.module.ts)
+- [`../src/tts/services/tts-storage.service.ts`](../src/tts/services/tts-storage.service.ts)
+- [`../src/app.module.ts`](../src/app.module.ts)
 
-### 4. **Google Cloud TTS** (음성 합성)
+### 현재 사용 방식
 
-- **역할**: 네비게이션 인스트럭션을 음성으로 변환
-- **사용 모듈**: `tts` 모듈
-- **상세 문서**: [TTS_SERVICE_SETUP.md](./TTS_SERVICE_SETUP.md)
+- 서버는 `SUPABASE_URL` 과 서버 키를 사용해 Supabase client 를 생성한다.
+- TTS 는 `tts` 버킷의 `temporary`, `permanent`, `merged` 경로를 사용한다.
+- 위치 기반 대여소 조회는 PostgreSQL + PostGIS 위에서 TypeORM / raw spatial query 를 함께 사용한다.
 
-### 5. **AWS S3** (TTS 오디오 파일 저장)
+## 2. Redis
 
-- **역할**: 합성된 TTS 오디오 파일 저장 및 배포
-- **사용 모듈**: `tts` 모듈
-- **상세 문서**: [AWS_S3_SETUP.md](./AWS_S3_SETUP.md)
+### 역할
 
-### 6. **AWS Secrets Manager** (자격 증명 관리)
+- 네비게이션 세션 저장
+- route cache 저장
+- TTS phrase cache 저장
+- 일부 운영/벤치마크 계측 보조
 
-- **역할**: Google Cloud 서비스 계정 키 안전 보관
-- **사용 모듈**: `tts` 모듈
-- **상세 문서**: [AWS_SECRETS_MANAGER.md](./AWS_SECRETS_MANAGER.md)
+### 연결 도메인
 
-## 🔧 환경별 설정
+- `navigation`
+- `routes`
+- `tts`
+- `auth` 일부 검증 흐름
 
-### 공통 설정 (`.env`)
+### 관련 코드
 
-```env
-# 데이터베이스 (Supabase PostgreSQL)
-DB_HOST=your-supabase-host.pooler.supabase.com
-DB_PORT=6543
-DB_USERNAME=postgres.xxxxxxxxx
-DB_PASSWORD=your_secure_password
-DB_DATABASE=postgres
+- [`../src/app.module.ts`](../src/app.module.ts)
+- [`../src/navigation/services/navigation-session.service.ts`](../src/navigation/services/navigation-session.service.ts)
+- [`../src/navigation/services/navigation-helper.service.ts`](../src/navigation/services/navigation-helper.service.ts)
+- [`../src/routes/services/route-optimizer.service.ts`](../src/routes/services/route-optimizer.service.ts)
+- [`../src/tts/services/tts-cache.service.ts`](../src/tts/services/tts-cache.service.ts)
 
-# Seoul Open API
-SEOUL_OPEN_API_KEY=your_seoul_api_key_here
+### 현재 사용 방식
 
-# GraphHopper (EC2 서버)
-GRAPHHOPPER_URL=http://your-server-ip:8989
+- 네비게이션 세션 키와 route 키를 분리해 TTL 기반으로 관리한다.
+- TTS 는 `tts:phrase:` prefix 를 사용해 phrase cache 를 저장한다.
+- 운영 환경 기준 로컬 Redis 와 연결되는 구조를 전제로 한다.
 
-# Redis (EC2 서버)
-REDIS_HOST=your-redis-host
-REDIS_PORT=6379
-```
+## 3. Seoul Open API
 
-### 로컬 개발 환경 (`.env.local`)
+### 역할
 
-```env
-# Google Cloud TTS (로컬: 파일 경로)
-GOOGLE_APPLICATION_CREDENTIALS=./your-service-account-key.json
+- 따릉이 대여소 목록 조회
+- 대여소 실시간 자전거 현황 조회
 
-# AWS S3 (로컬: IAM User Access Key 사용)
-AWS_REGION=ap-northeast-2
-AWS_ACCESS_KEY_ID=AKIA******************
-AWS_SECRET_ACCESS_KEY=********************************
-TTS_S3_BUCKET=ddareungimap-tts-cache
-```
+### 연결 도메인
 
-### EC2 프로덕션 환경 (`.env.production`)
+- `stations`
 
-```env
-# Google Cloud TTS (EC2: AWS Secrets Manager에서 자동 로드)
-GOOGLE_CREDENTIALS_SECRET_NAME=ddareungimap/googleCloud
-AWS_REGION=ap-northeast-2
+### 관련 코드
 
-# AWS S3 (EC2: IAM Role로 자동 인증, Access Key 불필요)
-TTS_S3_BUCKET=ddareungimap-tts-cache
+- [`../src/stations/services/seoul-api.service.ts`](../src/stations/services/seoul-api.service.ts)
+- [`../src/stations/services/station-sync.service.ts`](../src/stations/services/station-sync.service.ts)
+- [`../src/stations/services/station-realtime.service.ts`](../src/stations/services/station-realtime.service.ts)
 
-# 참고: DB, Seoul API, GraphHopper, Redis는 .env 파일 사용
-```
+### 현재 사용 방식
 
-## 📊 서비스 의존성 다이어그램
+- `SeoulApiService` 가 대여소 기본 정보 API 와 실시간 정보 API 를 모두 호출한다.
+- station sync / realtime sync / benchmark 시나리오에서 이 서비스를 재사용한다.
 
-```
-┌─────────────────────────────────────────────────────┐
-│                  Backend API Server                 │
-│                   (NestJS on EC2)                   │
-└─────────────────────────────────────────────────────┘
-            │         │         │         │
-            ▼         ▼         ▼         ▼
-    ┌──────────┐ ┌────────┐ ┌───────┐ ┌──────────────┐
-    │  Seoul   │ │GraphH. │ │ Redis │ │ Google Cloud │
-    │ Open API │ │ Server │ │Server │ │     TTS      │
-    └──────────┘ └────────┘ └───────┘ └──────────────┘
-                                              │
-                                              ▼
-                                    ┌──────────────────┐
-                                    │  AWS S3 Bucket   │
-                                    │ (TTS MP3 Files)  │
-                                    └──────────────────┘
-                │                           │
-                ▼                           ▼
-    ┌───────────────────┐       ┌────────────────────┐
-    │ AWS IAM Role      │       │ AWS Secrets Mgr    │
-    │ (EC2 Permissions) │       │ (Google Creds)     │
-    └───────────────────┘       └────────────────────┘
-```
+## 4. GraphHopper
 
-## 🚀 빠른 시작 가이드
+### 역할
 
-### 1. 로컬 개발 환경 설정 (5-10분)
+- 자전거/도보 경로 계산
+- 대안 경로, 원형 경로, 다중 프로필 경로 계산
 
-1. **Seoul Open API 키 발급**: [SEOUL_OPEN_API.md](./SEOUL_OPEN_API.md) 참고
-2. **Redis 설치 및 실행**: `docker-compose up -d` 또는 로컬 설치
-3. **GraphHopper 서버 실행**: [GRAPHHOPPER_SETUP.md](./GRAPHHOPPER_SETUP.md) 참고
-4. **Google Cloud TTS 설정**: 서비스 계정 키 다운로드
-5. **AWS 자격 증명 설정**: IAM 사용자 생성 및 Access Key 발급
-6. `.env.local` 파일 생성 및 환경변수 설정
+### 연결 도메인
 
-### 2. EC2 프로덕션 배포 (30-60분)
+- `routes`
+- `navigation`
 
-1. **EC2 인스턴스 설정**: [EC2_DEPLOYMENT.md](./EC2_DEPLOYMENT.md) 참고
-2. **AWS IAM Role 설정**: S3 및 Secrets Manager 권한 추가
-3. **AWS Secrets Manager**: Google 서비스 계정 키 업로드
-4. **Redis 서버 설정**: EC2 또는 별도 서버에 설치
-5. **GraphHopper 서버 설정**: EC2 또는 별도 서버에 설치
-6. `.env.production` 파일 생성 및 환경변수 설정
-7. GitHub Actions CI/CD 설정
+### 관련 코드
 
-## ⚠️ 주의사항
+- [`../src/routes/services/graphhopper.service.ts`](../src/routes/services/graphhopper.service.ts)
+- [`../src/routes/services/route-optimizer.service.ts`](../src/routes/services/route-optimizer.service.ts)
 
-### 보안
+### 현재 사용 방식
 
-- ✅ **로컬**: 서비스 계정 키 파일을 `.gitignore`에 추가
-- ✅ **EC2**: AWS Secrets Manager 사용, Access Key 환경변수 사용 금지
-- ✅ **S3 버킷**: 공개 읽기만 허용, 쓰기는 IAM Role로 제한
+- Nest 서버는 외부 GraphHopper 서버의 `/route` endpoint 를 호출한다.
+- `safe_bike`, `fast_bike` 중심으로 경로를 계산하고, instruction 포함 여부를 옵션으로 제어한다.
 
-### 비용 관리
+## 5. Google Cloud TTS
 
-- **Google Cloud TTS**: $4 per 1 million characters (무료 티어: 월 100만 문자)
-- **AWS S3**: 스토리지 $0.023 per GB, 요청 $0.005 per 1,000 GET
-- **AWS Secrets Manager**: $0.40 per secret per month
-- **EC2 인스턴스**: t2.micro (프리 티어) 또는 t3.small 권장
+### 역할
 
-### 성능 최적화
+- 네비게이션 instruction 텍스트를 MP3 오디오로 합성
 
-- **Redis TTL**: TTS 캐시 30일, 네비게이션 세션 10분
-- **S3 CDN**: CloudFront 연동 고려 (옵션)
-- **GraphHopper**: 메모리 3GB 이상 권장
+### 연결 도메인
 
-## 📚 추가 문서
+- `tts`
+- `navigation`
 
-- [TTS 기능 구현 가이드](../TTS_IMPLEMENTATION.md)
-- [환경 설정 가이드](../ENVIRONMENT_GUIDE.md)
-- [이메일 인증 기능 가이드](../FEATURE_GUIDE_EMAIL_VERIFICATION.md)
+### 관련 코드
 
-## 🆘 트러블슈팅
+- [`../src/tts/tts.provider.ts`](../src/tts/tts.provider.ts)
+- [`../src/tts/services/tts-synthesis.service.ts`](../src/tts/services/tts-synthesis.service.ts)
+- [`../src/navigation/services/navigation-helper.service.ts`](../src/navigation/services/navigation-helper.service.ts)
 
-각 서비스별 상세 문서의 트러블슈팅 섹션을 참고하세요:
+### 현재 사용 방식
 
-- Seoul Open API: 429 Too Many Requests
-- GraphHopper: 메모리 부족, 경로 계산 실패
-- Redis: 연결 거부, 메모리 초과
-- Google TTS: 인증 실패, API 할당량 초과
-- AWS S3: Access Denied, 버킷 정책 오류
-- AWS Secrets Manager: ResourceNotFoundException
+- `GoogleTtsProvider` 가 서비스 계정 키 파일을 사용해 `TextToSpeechClient` 를 초기화한다.
+- `fulltext` 와 `chunked` 모드 모두 실제 음성 합성은 이 provider 를 통해 수행한다.
 
-## 📞 지원
+## 6. Google OAuth / Google People API
 
-문제가 발생하면 다음을 확인하세요:
+### 역할
 
-1. 환경변수가 올바르게 설정되었는지 확인
-2. 각 서비스가 정상적으로 실행 중인지 확인
-3. PM2 로그 확인: `pm2 logs ddareungimap-api`
-4. 각 서비스별 상세 문서의 트러블슈팅 섹션 참고
+- Google 소셜 로그인
+- Google People API 를 통한 추가 사용자 정보 조회
+
+### 연결 도메인
+
+- `auth`
+
+### 관련 코드
+
+- [`../src/auth/strategies/google.strategy.ts`](../src/auth/strategies/google.strategy.ts)
+- [`../src/auth/auth.service.ts`](../src/auth/auth.service.ts)
+
+### 현재 사용 방식
+
+- 기본 로그인은 Google OAuth strategy 로 처리한다.
+- strategy 내부에서 People API 를 추가 호출해 성별/생년 정보 같은 선택 데이터를 보강한다.
+- PKCE 기반 Google 로그인 흐름도 `AuthService` 에 구현되어 있다.
+
+## 7. Kakao OAuth
+
+### 역할
+
+- Kakao 소셜 로그인
+
+### 연결 도메인
+
+- `auth`
+
+### 관련 코드
+
+- [`../src/auth/strategies/kakao.strategy.ts`](../src/auth/strategies/kakao.strategy.ts)
+- [`../src/auth/auth.service.ts`](../src/auth/auth.service.ts)
+
+### 현재 사용 방식
+
+- Passport Kakao strategy 를 사용한다.
+- strategy 단계에서 Kakao 사용자 정보 API 를 다시 호출해 프로필을 읽고, 최종 계정 처리는 `AuthService` 로 넘긴다.
+- PKCE 기반 Kakao 로그인도 별도로 지원한다.
+
+## 8. Naver OAuth
+
+### 역할
+
+- Naver 소셜 로그인
+
+### 연결 도메인
+
+- `auth`
+
+### 관련 코드
+
+- [`../src/auth/strategies/naver.strategy.ts`](../src/auth/strategies/naver.strategy.ts)
+- [`../src/auth/auth.service.ts`](../src/auth/auth.service.ts)
+
+### 현재 사용 방식
+
+- Passport Naver strategy 를 사용한다.
+- strategy 에서 Naver 사용자 정보 API 를 호출하고, 결과를 `AuthService` 로 넘긴다.
+- PKCE 기반 Naver 로그인도 별도로 구현되어 있다.
+
+## 9. Kakao Map JavaScript API
+
+### 역할
+
+- `/map` 페이지에 지도 렌더링용 Kakao Map SDK 제공
+
+### 연결 도메인
+
+- `map`
+
+### 관련 코드
+
+- [`../src/map/map.controller.ts`](../src/map/map.controller.ts)
+
+### 현재 사용 방식
+
+- `MapController` 가 `public/map.html` 템플릿을 읽고, `KAKAO_MAP_API` 값을 주입해 최종 HTML 을 반환한다.
+- 프런트엔드 스크립트도 정적으로 링크하지 않고 인라인으로 주입한다.
+
+## 10. Gmail SMTP (Nodemailer)
+
+### 역할
+
+- 이메일 인증 코드 발송
+- 일반 알림 이메일 발송
+
+### 연결 도메인
+
+- `mail`
+- `auth`
+
+### 관련 코드
+
+- [`../src/mail/mail.service.ts`](../src/mail/mail.service.ts)
+- [`../src/auth/auth.service.ts`](../src/auth/auth.service.ts)
+
+### 현재 사용 방식
+
+- `MailService` 가 Nodemailer transport 를 만들고 Gmail SMTP 로 메일을 발송한다.
+- 이메일 인증 코드는 `AuthService` 에서 생성하고, 실제 발송은 `MailService` 가 담당한다.
+
+## 참고 문서
+
+- [GRAPHHOPPER_SETUP.md](./GRAPHHOPPER_SETUP.md)
+- [REDIS_SETUP.md](./REDIS_SETUP.md)
+- [TTS_IMPLEMENTATION.md](./TTS_IMPLEMENTATION.md)
+- [ENVIRONMENT_GUIDE.md](./ENVIRONMENT_GUIDE.md)

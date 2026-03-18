@@ -125,10 +125,93 @@ SWAGGER_ADMIN_PASSWORD=change-this-password
 - 두 값이 모두 설정되어 있으면 Swagger UI와 OpenAPI JSON에 Basic Auth가 적용됩니다.
 - 인증에 성공한 경우에만 Swagger UI와 JSON 스펙을 볼 수 있습니다.
 - 둘 중 하나라도 빠져 있으면 Swagger는 아예 비활성화됩니다.
+- 같은 계정은 관리자 전용 운영 API 보호에도 재사용됩니다.
+
+### 관리자 전용 API 보호 범위
+
+아래 endpoint는 Swagger와 동일한 Basic Auth 계정으로 보호됩니다.
+
+- `/internal/benchmark/*`
+- `/auth/debug/states`
+- `/auth/debug/states/:state`
+- `POST /stations/sync`
+- `POST /stations/realtime-sync`
+- `POST /stations/realtime-sync/batch`
+- `POST /stations`
+- `DELETE /stations/confirm`
+- `DELETE /stations/:number`
+
+일반 사용자 조회 API, OAuth 로그인/콜백, `/stations/sync/status` 는 관리자 Basic Auth 없이 계속 접근 가능합니다.
 
 ### 접근 예시
 
 브라우저로 `/api-docs`에 접근하면 Basic Auth 로그인 창이 표시됩니다.
+
+## 🚦 Rate Limit 설정
+
+앱 서비스 특성에 맞춰 IP 기반 rate limit 이 전역 적용됩니다. 운영 환경은 `Nginx -> NestJS -> PM2` 구조를 기준으로 `trust proxy` 가 활성화되어 있습니다.
+
+### 기본 정책
+
+- 일반 API: `120 requests / 60 seconds / IP`
+- `/auth/check-status`: `30 requests / 60 seconds / IP`
+- 관리자 API: `20 requests / 60 seconds / IP`
+- benchmark scenario API (`/internal/benchmark/scenarios/*`): `5 requests / 60 seconds / IP`
+
+### 제외 대상
+
+- `/health`, `/health/*`
+- `/api-docs`, `/api-docs/*`
+- `/api-docs-json`
+
+### 환경변수 override
+
+```env
+APP_RATE_LIMIT_LIMIT=120
+APP_RATE_LIMIT_TTL_SECONDS=60
+
+AUTH_POLL_RATE_LIMIT_LIMIT=30
+AUTH_POLL_RATE_LIMIT_TTL_SECONDS=60
+
+ADMIN_RATE_LIMIT_LIMIT=20
+ADMIN_RATE_LIMIT_TTL_SECONDS=60
+
+BENCHMARK_RATE_LIMIT_LIMIT=5
+BENCHMARK_RATE_LIMIT_TTL_SECONDS=60
+```
+
+## 🪵 로그 정책
+
+Winston 기반 구조화 로그를 사용하며, `development/local` 과 `production` 에서 정책이 다르게 동작합니다.
+
+### 개발 환경
+
+- colored nest-like console 로그
+- 기본 로그 레벨: `debug`
+- HTTP 성공 로그 유지
+- DB query 로그는 `DB_QUERY_LOG=1` 일 때만 활성화
+- 별도 파일 로그 없음
+
+### 프로덕션 환경
+
+- JSON structured log
+- console + rotate file 로그 유지
+- 기본 로그 레벨: `info`
+- `4xx` 요청은 `warn`
+- `5xx` 요청은 `error`
+- 느린 HTTP 요청은 `warn`
+- `/health`, Swagger 경로는 HTTP request log에서 제외
+
+### 추가 환경변수
+
+```env
+LOG_LEVEL=info
+HTTP_SLOW_REQUEST_THRESHOLD_MS=1000
+```
+
+- `LOG_LEVEL` 을 지정하면 기본 로그 레벨을 덮어씁니다.
+- `HTTP_SLOW_REQUEST_THRESHOLD_MS` 는 느린 요청 경고 기준값입니다.
+  - 기본값: `production=1000ms`, `local/development=3000ms`
 
 ## �️ TTS (Text-to-Speech) 설정
 
