@@ -14,33 +14,46 @@ const KOREAN_ROAD_REGEX = /onto\s+([가-힣0-9][^()]*)/i;
 const WAYPOINT_REGEX = /Waypoint\s+(\d+)/i;
 const ARRIVAL_KO_REGEX = /도착했습니다$/;
 
+type DirectionKey =
+  | 'u-turn'
+  | 'left-turn'
+  | 'right-turn'
+  | 'keep-left'
+  | 'keep-right'
+  | 'continue'
+  | 'arrival-start-station'
+  | 'arrival-end-station'
+  | 'arrival-destination'
+  | 'arrival-waypoint'
+  | 'roundabout';
+
 /**
  * 방향 인스트럭션 매핑 (GraphHopper instruction → 한글 안내)
  * 순서 중요: 긴 패턴부터 매칭
  */
-const DIRECTION_PATTERNS: ReadonlyArray<[RegExp, string]> = [
+const DIRECTION_PATTERNS: ReadonlyArray<[RegExp, DirectionKey]> = [
   // U-turn
-  [/Make a U-turn/i, '유턴'],
+  [/Make a U-turn/i, 'u-turn'],
   // Sharp/Slight turns -> 단순화
-  [/Turn sharp left/i, '좌회전'],
-  [/Turn sharp right/i, '우회전'],
-  [/Turn slight left/i, '좌측으로 계속 진행'],
-  [/Turn slight right/i, '우측으로 계속 진행'],
+  [/Turn sharp left/i, 'left-turn'],
+  [/Turn sharp right/i, 'right-turn'],
+  [/Turn slight left/i, 'keep-left'],
+  [/Turn slight right/i, 'keep-right'],
   // Regular turns
-  [/Turn left/i, '좌회전'],
-  [/Turn right/i, '우회전'],
+  [/Turn left/i, 'left-turn'],
+  [/Turn right/i, 'right-turn'],
   // Keep direction
-  [/Keep left/i, '좌측으로 계속 진행'],
-  [/Keep right/i, '우측으로 계속 진행'],
+  [/Keep left/i, 'keep-left'],
+  [/Keep right/i, 'keep-right'],
   // Continue
-  [/Continue/i, '직진'],
+  [/Continue/i, 'continue'],
   // Arrival
-  [/Arrive at start station/i, '출발 대여소에 도착했습니다'],
-  [/Arrive at end station/i, '도착 대여소에 도착했습니다'],
-  [/Arrive at destination/i, '목적지에 도착했습니다'],
-  [/Arrive at waypoint/i, '경유지에 도착했습니다'],
+  [/Arrive at start station/i, 'arrival-start-station'],
+  [/Arrive at end station/i, 'arrival-end-station'],
+  [/Arrive at destination/i, 'arrival-destination'],
+  [/Arrive at waypoint/i, 'arrival-waypoint'],
   // Roundabout
-  [/Roundabout/i, '로터리 진입'],
+  [/Roundabout/i, 'roundabout'],
 ] as const;
 
 @Injectable()
@@ -75,6 +88,44 @@ export class TranslationService {
    * 간단한 패턴 매칭 번역
    */
   private simpleTranslate(text: string): string {
+    const resolveDirectionText = (
+      direction: DirectionKey,
+      roadName?: string | null,
+    ): string => {
+      switch (direction) {
+        case 'u-turn':
+          return roadName ? `${roadName}에서 유턴입니다` : '유턴입니다';
+        case 'left-turn':
+          return roadName
+            ? `${roadName} 방향으로 좌회전입니다`
+            : '좌회전입니다';
+        case 'right-turn':
+          return roadName
+            ? `${roadName} 방향으로 우회전입니다`
+            : '우회전입니다';
+        case 'keep-left':
+          return roadName
+            ? `${roadName} 방향으로 진행입니다`
+            : '좌측으로 계속 진행입니다';
+        case 'keep-right':
+          return roadName
+            ? `${roadName} 방향으로 진행입니다`
+            : '우측으로 계속 진행입니다';
+        case 'continue':
+          return roadName ? `${roadName} 방향으로 직진입니다` : '직진입니다';
+        case 'arrival-start-station':
+          return '출발 대여소에 도착했습니다';
+        case 'arrival-end-station':
+          return '도착 대여소에 도착했습니다';
+        case 'arrival-destination':
+          return '목적지에 도착했습니다';
+        case 'arrival-waypoint':
+          return '경유지에 도착했습니다';
+        case 'roundabout':
+          return roadName ? `${roadName} 방향으로 진입입니다` : '로터리 진입입니다';
+      }
+    };
+
     // 1. Waypoint 특수 처리
     const waypointMatch = text.match(WAYPOINT_REGEX);
     if (waypointMatch) {
@@ -91,7 +142,7 @@ export class TranslationService {
         .replace(/\s+/g, ' ') || null;
 
     // 3. 방향 매칭
-    let direction = '';
+    let direction: DirectionKey | null = null;
     for (const [pattern, koreanDirection] of DIRECTION_PATTERNS) {
       if (pattern.test(text)) {
         direction = koreanDirection;
@@ -99,35 +150,14 @@ export class TranslationService {
       }
     }
 
-    const isArrivalKorean = (value: string): boolean =>
-      ARRIVAL_KO_REGEX.test(value);
-
     // 4. 도로명과 방향 결합
     if (roadName && direction) {
-      if (direction === '직진') {
-        return `${roadName}로 직진입니다`;
-      } else if (direction === '유턴') {
-        return `${roadName}에서 유턴입니다`;
-      } else if (direction === '좌회전' || direction === '우회전') {
-        return `${roadName}로 ${direction}입니다`;
-      } else if (
-        direction === '좌측으로 계속' ||
-        direction === '우측으로 계속'
-      ) {
-        return `${roadName} ${direction}입니다`;
-      } else if (isArrivalKorean(direction)) {
-        return direction;
-      } else {
-        return `${roadName}로 진입입니다`;
-      }
+      return resolveDirectionText(direction, roadName);
     }
 
     // 5. 도로명 없이 방향만
     if (direction) {
-      if (isArrivalKorean(direction)) {
-        return direction;
-      }
-      return `${direction}입니다`;
+      return resolveDirectionText(direction);
     }
 
     // 6. 매칭 실패 시 원본 반환

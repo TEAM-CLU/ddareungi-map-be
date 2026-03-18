@@ -1,3 +1,4 @@
+import { InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { BenchmarkMetricsService } from '../common/benchmark/benchmark-metrics.service';
 import { TtsCacheService } from './services/tts-cache.service';
@@ -122,5 +123,37 @@ describe('TtsService', () => {
     expect(result.status).toBe('ready');
     expect(result.url).toBe('https://storage/merged.mp3');
     expect(incrementMock).toHaveBeenCalledWith('tts_cache_miss_total');
+  });
+
+  it('returns a safe error message when synthesis throws an internal server exception', async () => {
+    const configService = {
+      get: jest.fn((key: string) =>
+        key === 'TTS_SYNTHESIS_MODE' ? 'fulltext' : undefined,
+      ),
+    } as unknown as ConfigService;
+
+    getRecordMock.mockResolvedValue(null);
+    storageExistsMock.mockResolvedValue(false);
+    synthesizeSingleToStorageMock.mockRejectedValue(
+      new InternalServerErrorException('TTS 오디오 업로드에 실패했습니다.'),
+    );
+
+    const service = new TtsService(
+      configService,
+      ttsStorageService,
+      ttsTextChunkService,
+      ttsSynthesisService,
+      ttsCacheService,
+      benchmarkMetricsService,
+    );
+
+    const result = await service.synthesizeAndCache('우회전입니다');
+
+    expect(result).toEqual({
+      status: 'error',
+      hash: expect.any(String),
+      error: 'TTS 오디오 업로드에 실패했습니다.',
+      cached: false,
+    });
   });
 });
