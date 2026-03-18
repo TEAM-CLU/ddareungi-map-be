@@ -1,4 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { RedisService } from '@liaoliaots/nestjs-redis';
 import type { Redis } from 'ioredis';
 import { randomUUID } from 'crypto';
@@ -89,10 +94,21 @@ export class NavigationSessionService {
 
     if (!data) {
       this.logger.warn(`세션을 찾을 수 없음: ${sessionId}`);
-      throw new Error('세션을 찾을 수 없습니다.');
+      throw new NotFoundException({
+        statusCode: 404,
+        message: '세션을 찾을 수 없습니다.',
+      });
     }
 
-    return JSON.parse(data) as NavigationSessionData;
+    try {
+      return JSON.parse(data) as NavigationSessionData;
+    } catch (error) {
+      this.logger.error(`세션 데이터 파싱 실패: ${sessionId}`, error);
+      throw new InternalServerErrorException({
+        statusCode: 500,
+        message: '세션 데이터가 유효하지 않습니다.',
+      });
+    }
   }
 
   /**
@@ -167,10 +183,21 @@ export class NavigationSessionService {
 
     if (!data) {
       this.logger.warn(`경로를 찾을 수 없음: ${routeId}`);
-      throw new Error('경로를 찾을 수 없습니다. 경로를 다시 검색해주세요.');
+      throw new NotFoundException({
+        statusCode: 404,
+        message: '경로를 찾을 수 없습니다. 경로를 다시 검색해주세요.',
+      });
     }
 
-    return JSON.parse(data) as NavigationRouteRedis;
+    try {
+      return JSON.parse(data) as NavigationRouteRedis;
+    } catch (error) {
+      this.logger.error(`경로 데이터 파싱 실패: ${routeId}`, error);
+      throw new InternalServerErrorException({
+        statusCode: 500,
+        message: '경로 데이터가 유효하지 않습니다.',
+      });
+    }
   }
 
   /**

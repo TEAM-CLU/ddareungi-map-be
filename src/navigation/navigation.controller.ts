@@ -2,8 +2,6 @@ import {
   Controller,
   Post,
   Body,
-  HttpException,
-  HttpStatus,
   Param,
   Delete,
   Get,
@@ -50,20 +48,13 @@ export class NavigationController {
   async startNavigation(
     @Body() dto: StartNavigationDto,
   ): Promise<SuccessResponseDto<NavigationSessionDto>> {
-    try {
-      const result = await this.navigationService.startNavigationSession(
-        dto.routeId,
-      );
-      return SuccessResponseDto.create(
-        '네비게이션 세션이 성공적으로 시작되었습니다.',
-        result,
-      );
-    } catch (err) {
-      throw new HttpException(
-        err instanceof Error ? err.message : '알 수 없는 오류',
-        HttpStatus.NOT_FOUND,
-      );
-    }
+    const result = await this.navigationService.startNavigationSession(
+      dto.routeId,
+    );
+    return SuccessResponseDto.create(
+      '네비게이션 세션이 성공적으로 시작되었습니다.',
+      result,
+    );
   }
 
   @Post(':sessionId/heartbeat')
@@ -84,18 +75,11 @@ export class NavigationController {
   async heartbeat(
     @Param('sessionId') sessionId: string,
   ): Promise<SuccessResponseDto<void>> {
-    try {
-      await this.navigationService.refreshSessionTTL(sessionId);
-      return SuccessResponseDto.create(
-        '네비게이션 세션이 갱신되었습니다.',
-        undefined,
-      );
-    } catch (err) {
-      throw new HttpException(
-        err instanceof Error ? err.message : '알 수 없는 오류',
-        HttpStatus.NOT_FOUND,
-      );
-    }
+    await this.navigationService.refreshSessionTTL(sessionId);
+    return SuccessResponseDto.create(
+      '네비게이션 세션이 갱신되었습니다.',
+      undefined,
+    );
   }
 
   @Post(':sessionId/return')
@@ -123,24 +107,12 @@ export class NavigationController {
     @Param('sessionId') sessionId: string,
     @Body() dto: RerouteNavigationDto,
   ): Promise<SuccessResponseDto<ReturnToRouteResponseDto>> {
-    try {
-      const result: ReturnToRouteResponseDto =
-        await this.returnService.returnToRoute(sessionId, dto.currentLocation);
-      return SuccessResponseDto.create(
-        '기존 경로로 복귀하는 안내가 생성되었습니다.',
-        result,
-      );
-    } catch (err) {
-      const statusCode =
-        err instanceof Error && err.message.includes('찾을 수 없')
-          ? HttpStatus.NOT_FOUND
-          : HttpStatus.BAD_REQUEST;
-
-      throw new HttpException(
-        err instanceof Error ? err.message : '알 수 없는 오류',
-        statusCode,
-      );
-    }
+    const result: ReturnToRouteResponseDto =
+      await this.returnService.returnToRoute(sessionId, dto.currentLocation);
+    return SuccessResponseDto.create(
+      '기존 경로로 복귀하는 안내가 생성되었습니다.',
+      result,
+    );
   }
 
   @Post(':sessionId/reroute')
@@ -170,26 +142,14 @@ export class NavigationController {
     @Param('sessionId') sessionId: string,
     @Body() dto: RerouteNavigationDto,
   ): Promise<SuccessResponseDto<FullRerouteResponseDto>> {
-    try {
-      const result: FullRerouteResponseDto =
-        await this.rerouteService.fullReroute(
-          sessionId,
-          dto.currentLocation,
-          dto.remainingWaypoints,
-          dto.travelMode ?? 'biking',
-        );
-      return SuccessResponseDto.create('새로운 경로가 검색되었습니다.', result);
-    } catch (err) {
-      const statusCode =
-        err instanceof Error && err.message.includes('찾을 수 없')
-          ? HttpStatus.NOT_FOUND
-          : HttpStatus.BAD_REQUEST;
-
-      throw new HttpException(
-        err instanceof Error ? err.message : '알 수 없는 오류',
-        statusCode,
+    const result: FullRerouteResponseDto =
+      await this.rerouteService.fullReroute(
+        sessionId,
+        dto.currentLocation,
+        dto.remainingWaypoints,
+        dto.travelMode ?? 'biking',
       );
-    }
+    return SuccessResponseDto.create('새로운 경로가 검색되었습니다.', result);
   }
 
   @Delete(':sessionId')
@@ -209,18 +169,11 @@ export class NavigationController {
   async endNavigation(
     @Param('sessionId') sessionId: string,
   ): Promise<SuccessResponseDto<void>> {
-    try {
-      await this.endService.endNavigationSession(sessionId);
-      return SuccessResponseDto.create(
-        '네비게이션 세션이 종료되었습니다.',
-        undefined,
-      );
-    } catch (err) {
-      throw new HttpException(
-        err instanceof Error ? err.message : '알 수 없는 오류',
-        HttpStatus.NOT_FOUND,
-      );
-    }
+    await this.endService.endNavigationSession(sessionId);
+    return SuccessResponseDto.create(
+      '네비게이션 세션이 종료되었습니다.',
+      undefined,
+    );
   }
 
   // ============================================================================
@@ -245,18 +198,11 @@ export class NavigationController {
   async getSessionTest(
     @Param('sessionId') sessionId: string,
   ): Promise<SuccessResponseDto<any>> {
-    try {
-      const sessionData = await this.sessionService.getSession(sessionId);
-      return SuccessResponseDto.create('세션 데이터 조회 성공', {
-        sessionId,
-        ...sessionData,
-      });
-    } catch (err) {
-      throw new HttpException(
-        err instanceof Error ? err.message : '알 수 없는 오류',
-        HttpStatus.NOT_FOUND,
-      );
-    }
+    const sessionData = await this.sessionService.getSession(sessionId);
+    return SuccessResponseDto.create('세션 데이터 조회 성공', {
+      sessionId,
+      ...sessionData,
+    });
   }
 
   @Get('test/route/:routeId')
@@ -277,18 +223,11 @@ export class NavigationController {
   async getRouteTest(
     @Param('routeId') routeId: string,
   ): Promise<SuccessResponseDto<any>> {
-    try {
-      const routeData = await this.sessionService.getRoute(routeId);
-      return SuccessResponseDto.create('경로 데이터 조회 성공', {
-        routeId,
-        ...routeData,
-      });
-    } catch (err) {
-      throw new HttpException(
-        err instanceof Error ? err.message : '알 수 없는 오류',
-        HttpStatus.NOT_FOUND,
-      );
-    }
+    const routeData = await this.sessionService.getRoute(routeId);
+    return SuccessResponseDto.create('경로 데이터 조회 성공', {
+      routeId,
+      ...routeData,
+    });
   }
 
   @Get('test/session/:sessionId/with-route')
@@ -309,14 +248,7 @@ export class NavigationController {
   async getSessionWithRouteTest(
     @Param('sessionId') sessionId: string,
   ): Promise<SuccessResponseDto<any>> {
-    try {
-      const result = await this.sessionService.getSessionWithRoute(sessionId);
-      return SuccessResponseDto.create('세션 및 경로 데이터 조회 성공', result);
-    } catch (err) {
-      throw new HttpException(
-        err instanceof Error ? err.message : '알 수 없는 오류',
-        HttpStatus.NOT_FOUND,
-      );
-    }
+    const result = await this.sessionService.getSessionWithRoute(sessionId);
+    return SuccessResponseDto.create('세션 및 경로 데이터 조회 성공', result);
   }
 }

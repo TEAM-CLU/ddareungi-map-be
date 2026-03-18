@@ -1,9 +1,11 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { MailModule } from './mail/mail.module';
 import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
@@ -20,6 +22,11 @@ import { TypeormWinstonLogger } from './common/logger/typeorm-logger';
 import { SupabaseModule } from './common/supabase/supabase.module';
 import { BenchmarkModule } from './common/benchmark/benchmark.module';
 import type { Request } from 'express';
+import {
+  getAppRateLimit,
+  getClientIp,
+  shouldSkipGlobalRateLimit,
+} from './common/rate-limit/rate-limit.util';
 
 type ClsLike = {
   set(key: string, value: unknown): void;
@@ -54,6 +61,20 @@ type ClsLike = {
 
     // 스케줄링 모듈 설정
     ScheduleModule.forRoot(),
+
+    ThrottlerModule.forRoot({
+      errorMessage:
+        '너무 많은 요청이 발생했습니다. 잠시 후 다시 시도해주세요.',
+      getTracker: (request) => getClientIp(request as Request),
+      skipIf: shouldSkipGlobalRateLimit,
+      throttlers: [
+        {
+          name: 'default',
+          limit: getAppRateLimit().limit,
+          ttl: getAppRateLimit().ttl,
+        },
+      ],
+    }),
 
     // TypeORM 모듈 설정 (DB 연결)
     TypeOrmModule.forRootAsync({
@@ -123,6 +144,12 @@ type ClsLike = {
     LocationModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
 })
 export class AppModule {}

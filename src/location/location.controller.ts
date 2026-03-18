@@ -4,8 +4,6 @@ import {
   Query,
   HttpCode,
   HttpStatus,
-  HttpException,
-  Logger,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { LocationService } from './location.service';
@@ -23,8 +21,6 @@ import {
 @ApiTags('장소검색 (Location)')
 @Controller('locations')
 export class LocationController {
-  private readonly logger = new Logger(LocationController.name);
-
   constructor(private readonly locationService: LocationService) {}
 
   /**
@@ -95,22 +91,11 @@ export class LocationController {
   async searchKeyword(
     @Query() dto: KeywordSearchDto,
   ): Promise<SuccessResponseDto<KakaoApiResponseDto>> {
-    try {
-      const result = await this.locationService.searchKeyword(dto);
-      return SuccessResponseDto.create(
-        '키워드 검색이 성공적으로 완료되었습니다.',
-        result,
-      );
-    } catch (error) {
-      this.logger.error('키워드 검색 중 오류 발생:', error);
-      throw new HttpException(
-        ErrorResponseDto.create(
-          HttpStatus.INTERNAL_SERVER_ERROR,
-          '키워드 검색 중 오류가 발생했습니다.',
-        ),
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+    const result = await this.locationService.searchKeyword(dto);
+    return SuccessResponseDto.create(
+      '키워드 검색이 성공적으로 완료되었습니다.',
+      result,
+    );
   }
 
   /**
@@ -160,22 +145,11 @@ export class LocationController {
   async searchAddress(
     @Query() dto: AddressSearchDto,
   ): Promise<SuccessResponseDto<KakaoApiResponseDto>> {
-    try {
-      const result = await this.locationService.searchAddress(dto);
-      return SuccessResponseDto.create(
-        '주소 검색이 성공적으로 완료되었습니다.',
-        result,
-      );
-    } catch (error) {
-      this.logger.error('주소 검색 중 오류 발생:', error);
-      throw new HttpException(
-        ErrorResponseDto.create(
-          HttpStatus.INTERNAL_SERVER_ERROR,
-          '주소 검색 중 오류가 발생했습니다.',
-        ),
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+    const result = await this.locationService.searchAddress(dto);
+    return SuccessResponseDto.create(
+      '주소 검색이 성공적으로 완료되었습니다.',
+      result,
+    );
   }
 
   /**
@@ -225,21 +199,10 @@ export class LocationController {
   async reverseGeocode(
     @Query() dto: ReverseGeocodeDto,
   ): Promise<SuccessResponseDto<KakaoApiResponseDto>> {
-    try {
-      const result = await this.locationService.reverseGeocode(dto);
-      return SuccessResponseDto.create(
-        '역지오코딩이 성공적으로 완료되었습니다.',
-        result,
-      );
-    } catch (error) {
-      this.logger.error('역지오코딩 중 오류 발생:', error);
-      throw new HttpException(
-        ErrorResponseDto.create(
-          HttpStatus.INTERNAL_SERVER_ERROR,
-          '역지오코딩 중 오류가 발생했습니다.',
-        ),
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+    const result = await this.locationService.reverseGeocode(dto);
+    return SuccessResponseDto.create(
+      '역지오코딩이 성공적으로 완료되었습니다.',
+      result,
+    );
   }
 }

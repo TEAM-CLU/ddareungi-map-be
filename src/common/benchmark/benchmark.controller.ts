@@ -1,5 +1,6 @@
 import { Body, Controller, Get, NotFoundException, Post } from '@nestjs/common';
 import { ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { SuccessResponseDto, ErrorResponseDto } from '../api-response.dto';
 import { BenchmarkResetDto } from './dto/benchmark-reset.dto';
 import { BenchmarkMetricsService } from './benchmark-metrics.service';
@@ -9,8 +10,15 @@ import {
 } from './dto/benchmark-map-scenario.dto';
 import { BenchmarkNavigationScenarioDto } from './dto/benchmark-navigation-scenario.dto';
 import { BenchmarkScenarioService } from './benchmark-scenario.service';
+import { AdminProtected } from '../decorators/admin-protected.decorator';
+import {
+  getAdminRateLimit,
+  getBenchmarkRateLimit,
+} from '../rate-limit/rate-limit.util';
 
 @ApiTags('내부 벤치마크 (internal-benchmark)')
+@AdminProtected()
+@Throttle({ default: getAdminRateLimit() })
 @Controller('internal/benchmark')
 export class BenchmarkController {
   constructor(
@@ -79,6 +87,7 @@ export class BenchmarkController {
   }
 
   @Post('scenarios/map-area/query')
+  @Throttle({ default: getBenchmarkRateLimit() })
   @ApiOperation({
     summary: '벤치마크용 지도 조회 시나리오',
     description: 'DB 기반 지도 조회만 수행하는 벤치마크 전용 시나리오입니다.',
@@ -106,6 +115,7 @@ export class BenchmarkController {
   }
 
   @Post('scenarios/map-area/end-to-end')
+  @Throttle({ default: getBenchmarkRateLimit() })
   @ApiOperation({
     summary: '벤치마크용 지도 조회 + 실시간 동기화 시나리오',
     description:
@@ -137,6 +147,7 @@ export class BenchmarkController {
   }
 
   @Post('scenarios/navigation/start')
+  @Throttle({ default: getBenchmarkRateLimit() })
   @ApiOperation({
     summary: '벤치마크용 경로 생성 + 네비게이션 시작 시나리오',
     description:

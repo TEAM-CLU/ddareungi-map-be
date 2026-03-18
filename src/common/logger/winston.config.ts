@@ -145,7 +145,9 @@ export function createWinstonLogger(
   const isProduction = nodeEnv === 'production';
 
   // 로그 레벨 설정
-  const logLevel = isProduction ? 'info' : 'debug';
+  const logLevel =
+    configService.get<string>('LOG_LEVEL') ??
+    (isProduction ? 'info' : 'debug');
 
   // 기본 포맷 선택
   const defaultFormat = isProduction ? jsonFormat : nestLikeFormat;
@@ -173,7 +175,7 @@ export function createWinstonLogger(
         maxSize: '20m',
         maxFiles: '14d',
         format: jsonFormat,
-        level: 'info',
+        level: logLevel,
         zippedArchive: true, // Gzip 압축
       }),
     );

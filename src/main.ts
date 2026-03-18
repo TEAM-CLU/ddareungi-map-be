@@ -13,20 +13,21 @@ import {
   buildSwaggerBasicAuthMiddleware,
   isSwaggerEnabled,
 } from './common/swagger/swagger-basic-auth.util';
+import { ApiExceptionFilter } from './common/filters/api-exception.filter';
+import { ADMIN_BASIC_AUTH_SWAGGER_SCHEME } from './common/auth/basic-auth.util';
 
 async function bootstrap() {
   const bootstrapLogger = new Logger('Bootstrap');
 
-  // ConfigService를 먼저 가져와서 환경 변수 확인
-  const tempApp = await NestFactory.createApplicationContext(AppModule, {
-    logger: false, // 임시로 로거 비활성화 (Winston 설정 전)
+  // NestJS 앱 생성 (Winston Logger 사용)
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bufferLogs: true,
     abortOnError: false,
   });
-  const configService = tempApp.get(ConfigService);
-  await tempApp.close();
-
-  // Winston Logger 생성
+  const configService = app.get(ConfigService);
   const winstonLogger = createWinstonLogger(configService);
+  app.useLogger(winstonLogger);
+  app.set('trust proxy', 1);
 
   // Sentry 초기화 (에러 모니터링 전용, production에서만)
   const nodeEnv = configService.get<string>('NODE_ENV', 'local');
@@ -45,16 +46,11 @@ async function bootstrap() {
     });
   }
 
-  // NestJS 앱 생성 (Winston Logger 사용)
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
-    logger: winstonLogger,
-    abortOnError: false,
-  });
-
   // Global Interceptor 등록 (요청/응답 로깅)
   const clsService = app.get(ClsService);
   app.useGlobalInterceptors(new SentryInterceptor(configService, clsService));
-  app.useGlobalInterceptors(new LoggingInterceptor(clsService));
+  app.useGlobalInterceptors(new LoggingInterceptor(configService, clsService));
+  app.useGlobalFilters(new ApiExceptionFilter());
 
   // helmet 임시 비활성화 - Swagger 테스트용
   // app.use(
@@ -107,6 +103,15 @@ async function bootstrap() {
         in: 'header',
       },
       'JWT-auth', // This name here is important for matching up with @ApiBearerAuth() in your controller!
+    )
+    .addBasicAuth(
+      {
+        type: 'http',
+        scheme: 'basic',
+        description:
+          'Swagger와 관리자 전용 API에서 공용으로 사용하는 관리자 Basic Auth입니다.',
+      },
+      ADMIN_BASIC_AUTH_SWAGGER_SCHEME,
     )
     .addOAuth2({
       type: 'oauth2',

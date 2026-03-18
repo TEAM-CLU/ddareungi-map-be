@@ -1,4 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import {
   FullJourneyRequestDto,
   RouteDto,
@@ -28,6 +33,20 @@ export class RoutesService {
     private readonly routeUtil: RouteUtilService,
   ) {}
 
+  private mapRouteException(error: unknown): never {
+    if (
+      error instanceof BadRequestException ||
+      error instanceof InternalServerErrorException
+    ) {
+      throw error;
+    }
+
+    throw new InternalServerErrorException({
+      statusCode: 500,
+      message: '경로 검색 중 오류가 발생했습니다.',
+    });
+  }
+
   // ===== 컨트롤러 호출 메서드 (Public API) =====
 
   /** 통합 경로 검색 (A → B, 왕복, 경유지 포함) */
@@ -43,7 +62,7 @@ export class RoutesService {
 
       if (isRoundTrip) {
         if (!request.waypoints || request.waypoints.length === 0) {
-          throw new Error(
+          throw new BadRequestException(
             '왕복 경로 검색에는 최소한 하나의 경유지가 필요합니다.',
           );
         }
@@ -69,7 +88,7 @@ export class RoutesService {
         '통합 경로 검색 실패',
         error instanceof Error ? error.stack : error,
       );
-      throw error;
+      this.mapRouteException(error);
     }
   }
 
@@ -81,7 +100,7 @@ export class RoutesService {
       this.routeUtil.validateCoordinate(request.start, '시작 위치');
 
       if (request.targetDistance <= 0) {
-        throw new Error('목표 거리는 0보다 커야 합니다.');
+        throw new BadRequestException('목표 거리는 0보다 커야 합니다.');
       }
 
       const station =
@@ -90,7 +109,7 @@ export class RoutesService {
         );
 
       if (!station) {
-        throw new Error(
+        throw new BadRequestException(
           `원형 경로 시작지 근처에 이용 가능한 대여소를 찾을 수 없습니다.`,
         );
       }
@@ -107,7 +126,9 @@ export class RoutesService {
         );
 
       if (optimalCircularPaths.length === 0) {
-        throw new Error('조건에 맞는 원형 경로를 찾을 수 없습니다.');
+        throw new BadRequestException(
+          '조건에 맞는 원형 경로를 찾을 수 없습니다.',
+        );
       }
 
       // this.logger.debug(
@@ -151,7 +172,7 @@ export class RoutesService {
         '원형 경로 추천 실패',
         error instanceof Error ? error.stack : error,
       );
-      throw error;
+      this.mapRouteException(error);
     }
   }
 
@@ -164,7 +185,9 @@ export class RoutesService {
     const { start, waypoints } = request;
 
     if (!waypoints || waypoints.length === 0) {
-      throw new Error('왕복 경로에는 최소한 하나의 경유지가 필요합니다.');
+      throw new BadRequestException(
+        '왕복 경로에는 최소한 하나의 경유지가 필요합니다.',
+      );
     }
 
     // this.logger.debug(`왕복 경로 검색 시작 - 경유지: ${waypoints.length}개`);
@@ -174,7 +197,9 @@ export class RoutesService {
         await this.stationRouteService.findNearestAvailableStation(start);
 
       if (!startStation) {
-        throw new Error('시작지 근처에 이용 가능한 대여소를 찾을 수 없습니다.');
+        throw new BadRequestException(
+          '시작지 근처에 이용 가능한 대여소를 찾을 수 없습니다.',
+        );
       }
 
       // instructions 포함하여 검색 (Redis 저장 및 네비게이션용)
@@ -215,7 +240,7 @@ export class RoutesService {
           const paths = await this.routeOptimizer.findOptimalRoutes(from, to);
 
           if (paths.length === 0) {
-            throw new Error(
+            throw new BadRequestException(
               `구간 ${i + 1}의 경로를 찾을 수 없습니다. (${from.lat},${from.lng}) → (${to.lat},${to.lng})`,
             );
           }
@@ -326,7 +351,9 @@ export class RoutesService {
       );
 
       if (optimalBikePaths.length === 0) {
-        throw new Error('조건에 맞는 자전거 경로를 찾을 수 없습니다.');
+        throw new BadRequestException(
+          '조건에 맞는 자전거 경로를 찾을 수 없습니다.',
+        );
       }
 
       // this.logger.debug(
@@ -404,7 +431,9 @@ export class RoutesService {
       );
 
       if (optimalPaths.length === 0) {
-        throw new Error('조건에 맞는 자전거 경로를 찾을 수 없습니다.');
+        throw new BadRequestException(
+          '조건에 맞는 자전거 경로를 찾을 수 없습니다.',
+        );
       }
 
       const routeBuildFailures: Array<{ category: string; error: Error }> = [];

@@ -1,4 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'crypto';
 import { TtsRecord, TtsResponseDto } from './dto/tts.dto';
@@ -101,6 +105,27 @@ export class TtsService {
 
   private incrementTemporaryCacheMiss(): void {
     this.benchmarkMetricsService.increment('tts_cache_miss_total');
+  }
+
+  private extractSafeErrorMessage(
+    error: unknown,
+    fallbackMessage: string,
+  ): string {
+    if (error instanceof InternalServerErrorException) {
+      const response = error.getResponse();
+      if (typeof response === 'string') {
+        return response;
+      }
+      if (typeof response === 'object' && response !== null) {
+        const message = (response as { message?: unknown }).message;
+        if (typeof message === 'string') {
+          return message;
+        }
+      }
+      return fallbackMessage;
+    }
+
+    return fallbackMessage;
   }
 
   private async synthesizeTemporaryFulltext(
@@ -220,7 +245,7 @@ export class TtsService {
         ? await this.synthesizeTemporaryChunked(text, lang, voice)
         : await this.synthesizeTemporaryFulltext(text, lang, voice);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = this.extractSafeErrorMessage(error, 'TTS 생성 실패');
       const stack = error instanceof Error ? error.stack : undefined;
       this.logger.error(`TTS synthesis failed: ${message}`, stack);
       return {
@@ -230,6 +255,23 @@ export class TtsService {
         cached: false,
       };
     }
+  }
+
+  async synthesizeAndCacheOrThrow(
+    text: string,
+    lang = 'ko-KR',
+    voice?: string,
+  ): Promise<TtsResponseDto> {
+    const result = await this.synthesizeAndCache(text, lang, voice);
+
+    if (result.status === 'error') {
+      throw new InternalServerErrorException({
+        statusCode: 500,
+        message: result.error || 'TTS 생성 실패',
+      });
+    }
+
+    return result;
   }
 
   async batchSynthesize(
@@ -321,7 +363,10 @@ export class TtsService {
         cached,
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = this.extractSafeErrorMessage(
+        error,
+        '고정 메시지 TTS 생성 실패',
+      );
       const stack = error instanceof Error ? error.stack : undefined;
       this.logger.error(`Permanent TTS synthesis failed: ${message}`, stack);
       return {
@@ -331,6 +376,23 @@ export class TtsService {
         cached: false,
       };
     }
+  }
+
+  async synthesizePermanentOrThrow(
+    text: string,
+    lang = 'ko-KR',
+    voice?: string,
+  ): Promise<TtsResponseDto> {
+    const result = await this.synthesizePermanent(text, lang, voice);
+
+    if (result.status === 'error') {
+      throw new InternalServerErrorException({
+        statusCode: 500,
+        message: result.error || '고정 메시지 TTS 생성 실패',
+      });
+    }
+
+    return result;
   }
 
   async lookup(

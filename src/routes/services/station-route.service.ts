@@ -1,4 +1,10 @@
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
 import { StationQueryService } from '../../stations/services/station-query.service';
 import { StationResponseDto } from '../../stations/dto/station-api.dto';
 import { RouteUtilService } from './route-util.service';
@@ -105,13 +111,13 @@ export class StationRouteService {
     ]);
 
     if (!startStation) {
-      throw new Error(
+      throw new BadRequestException(
         `출발지 근처에 이용 가능한 대여소를 찾을 수 없습니다. 좌표: ${startCoordinate.lat}, ${startCoordinate.lng}`,
       );
     }
 
     if (!endStation) {
-      throw new Error(
+      throw new BadRequestException(
         `도착지 근처에 이용 가능한 대여소를 찾을 수 없습니다. 좌표: ${endCoordinate.lat}, ${endCoordinate.lng}`,
       );
     }
@@ -133,7 +139,7 @@ export class StationRouteService {
     const station = await this.findNearestAvailableStation(coordinate);
 
     if (!station) {
-      throw new Error(
+      throw new BadRequestException(
         `${purpose} 근처에 이용 가능한 대여소를 찾을 수 없습니다. 좌표: ${coordinate.lat}, ${coordinate.lng}`,
       );
     }

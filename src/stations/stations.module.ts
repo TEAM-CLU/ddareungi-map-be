@@ -11,6 +11,10 @@ import { StationManagementService } from './services/station-management.service'
 import { StationDomainService } from './services/station-domain.service';
 import { StationMapperService } from './services/station-mapper.service';
 import { StationRealtimeLockService } from './services/station-realtime-lock.service';
+import { StationBatchRealtimeSyncService } from './services/station-batch-realtime-sync.service';
+import { StationRequestValidationService } from './services/station-request-validation.service';
+import { StationReadFacadeService } from './services/station-read-facade.service';
+import { AdminBasicAuthGuard } from '../common/guards/admin-basic-auth.guard';
 import { Station } from './entities/station.entity';
 import { SyncLog } from './entities/sync-log.entity';
 
@@ -27,6 +31,10 @@ import { SyncLog } from './entities/sync-log.entity';
     StationDomainService,
     StationMapperService,
     StationRealtimeLockService,
+    StationBatchRealtimeSyncService,
+    StationRequestValidationService,
+    StationReadFacadeService,
+    AdminBasicAuthGuard,
   ],
   exports: [
     StationsService,
@@ -36,6 +44,9 @@ import { SyncLog } from './entities/sync-log.entity';
     StationRealtimeService,
     StationDomainService,
     StationRealtimeLockService,
+    StationBatchRealtimeSyncService,
+    StationRequestValidationService,
+    StationReadFacadeService,
   ],
 })
 export class StationsModule {}

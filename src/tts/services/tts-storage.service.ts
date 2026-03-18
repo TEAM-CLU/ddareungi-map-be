@@ -1,4 +1,9 @@
-import { Inject, Injectable } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   STORAGE_BUCKET,
@@ -10,6 +15,8 @@ import { SUPABASE_CLIENT } from '../../common/supabase/supabase.module';
 
 @Injectable()
 export class TtsStorageService {
+  private readonly logger = new Logger(TtsStorageService.name);
+
   constructor(
     @Inject(SUPABASE_CLIENT)
     private readonly supabase: SupabaseClient,
@@ -53,7 +60,10 @@ export class TtsStorageService {
       });
 
     if (error) {
-      throw new Error(`Supabase upload failed: ${error.message}`);
+      this.logger.error(`Supabase upload failed: ${error.message}`);
+      throw new InternalServerErrorException(
+        'TTS 오디오 업로드에 실패했습니다.',
+      );
     }
 
     return this.storagePublicUrl(path);
@@ -65,8 +75,11 @@ export class TtsStorageService {
       .download(path);
 
     if (error || !data) {
-      throw new Error(
+      this.logger.error(
         `Supabase download failed: ${error?.message ?? 'empty data'}`,
+      );
+      throw new InternalServerErrorException(
+        'TTS 오디오 다운로드에 실패했습니다.',
       );
     }
 

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { GraphHopperPath } from '../interfaces/graphhopper.interface';
 import type { RouteSegmentDto } from '../dto/route.dto';
 
@@ -389,7 +389,7 @@ export class RouteUtilService {
    * 좌표 유효성 검증
    * @param coord 검증할 좌표
    * @param label 에러 메시지에 표시할 라벨
-   * @throws Error 좌표가 유효하지 않은 경우
+   * @throws BadRequestException 좌표가 유효하지 않은 경우
    */
   validateCoordinate(coord: { lat: number; lng: number }, label: string): void {
     if (
@@ -397,13 +397,17 @@ export class RouteUtilService {
       typeof coord.lat !== 'number' ||
       typeof coord.lng !== 'number'
     ) {
-      throw new Error(`${label} 좌표가 올바르지 않습니다.`);
+      throw new BadRequestException(`${label} 좌표가 올바르지 않습니다.`);
     }
     if (coord.lat < -90 || coord.lat > 90) {
-      throw new Error(`${label} 위도는 -90 ~ 90 사이여야 합니다.`);
+      throw new BadRequestException(
+        `${label} 위도는 -90 ~ 90 사이여야 합니다.`,
+      );
     }
     if (coord.lng < -180 || coord.lng > 180) {
-      throw new Error(`${label} 경도는 -180 ~ 180 사이여야 합니다.`);
+      throw new BadRequestException(
+        `${label} 경도는 -180 ~ 180 사이여야 합니다.`,
+      );
     }
   }
 

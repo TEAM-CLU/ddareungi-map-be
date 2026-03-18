@@ -11,6 +11,7 @@ import { JwtNaverStrategy } from './strategies/naver.strategy';
 import { JwtKakaoStrategy } from './strategies/kakao.strategy';
 import { JwtGoogleStrategy } from './strategies/google.strategy';
 import { CryptoService } from '../common/crypto.service';
+import { AdminBasicAuthGuard } from '../common/guards/admin-basic-auth.guard';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { CryptoService } from '../common/crypto.service';
     JwtNaverStrategy,
     JwtKakaoStrategy,
     JwtGoogleStrategy,
+    AdminBasicAuthGuard,
   ],
   exports: [AuthService],
 })

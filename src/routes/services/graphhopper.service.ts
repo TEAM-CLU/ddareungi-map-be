@@ -1,4 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
@@ -22,6 +27,7 @@ const DEFAULT_ROUNDTRIP_POINTS = 2;
  */
 @Injectable()
 export class GraphHopperService {
+  private readonly logger = new Logger(GraphHopperService.name);
   private readonly baseUrl: string;
 
   constructor(
@@ -51,30 +57,44 @@ export class GraphHopperService {
     profile: string,
     includeInstructions: boolean = false,
   ): Promise<GraphHopperPath> {
-    const requestBody = {
-      points: [
-        [from.lng, from.lat],
-        [to.lng, to.lat],
-      ],
-      profile,
-      elevation: true,
-      points_encoded: false,
-      details: ROUTE_DETAILS,
-      instruction: includeInstructions,
-    };
+    try {
+      const requestBody = {
+        points: [
+          [from.lng, from.lat],
+          [to.lng, to.lat],
+        ],
+        profile,
+        elevation: true,
+        points_encoded: false,
+        details: ROUTE_DETAILS,
+        instruction: includeInstructions,
+      };
 
-    const response = await firstValueFrom(
-      this.httpService.post<GraphHopperResponse>(
-        `${this.baseUrl}/route`,
-        requestBody,
-      ),
-    );
+      const response = await firstValueFrom(
+        this.httpService.post<GraphHopperResponse>(
+          `${this.baseUrl}/route`,
+          requestBody,
+        ),
+      );
 
-    if (!response.data.paths?.length) {
-      throw new Error('No route found');
+      if (!response.data.paths?.length) {
+        throw new BadRequestException('조건에 맞는 경로를 찾을 수 없습니다.');
+      }
+
+      return response.data.paths[0];
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+
+      this.logger.error(
+        `GraphHopper 단일 경로 조회 실패: profile=${profile}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw new InternalServerErrorException(
+        '경로 검색 중 외부 경로 엔진 호출에 실패했습니다.',
+      );
     }
-
-    return response.data.paths[0];
   }
 
   /**
@@ -93,32 +113,46 @@ export class GraphHopperService {
     maxPaths: number = DEFAULT_ALT_PATHS,
     includeInstructions: boolean = false,
   ): Promise<GraphHopperPath[]> {
-    const requestBody = {
-      points: [
-        [from.lng, from.lat],
-        [to.lng, to.lat],
-      ],
-      profile,
-      elevation: true,
-      points_encoded: false,
-      details: ROUTE_DETAILS,
-      'alternative_route.max_paths': maxPaths,
-      'ch.disable': true,
-      instruction: includeInstructions,
-    };
+    try {
+      const requestBody = {
+        points: [
+          [from.lng, from.lat],
+          [to.lng, to.lat],
+        ],
+        profile,
+        elevation: true,
+        points_encoded: false,
+        details: ROUTE_DETAILS,
+        'alternative_route.max_paths': maxPaths,
+        'ch.disable': true,
+        instruction: includeInstructions,
+      };
 
-    const response = await firstValueFrom(
-      this.httpService.post<GraphHopperResponse>(
-        `${this.baseUrl}/route`,
-        requestBody,
-      ),
-    );
+      const response = await firstValueFrom(
+        this.httpService.post<GraphHopperResponse>(
+          `${this.baseUrl}/route`,
+          requestBody,
+        ),
+      );
 
-    if (!response.data.paths?.length) {
-      throw new Error('No route found');
+      if (!response.data.paths?.length) {
+        throw new BadRequestException('조건에 맞는 경로를 찾을 수 없습니다.');
+      }
+
+      return response.data.paths.map((path) => ({ ...path, profile }));
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+
+      this.logger.error(
+        `GraphHopper 대안 경로 조회 실패: profile=${profile}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw new InternalServerErrorException(
+        '대안 경로 검색 중 외부 경로 엔진 호출에 실패했습니다.',
+      );
     }
-
-    return response.data.paths.map((path) => ({ ...path, profile }));
   }
 
   /**
@@ -135,33 +169,47 @@ export class GraphHopperService {
     targetDistance: number,
     includeInstructions: boolean = false,
   ): Promise<GraphHopperPath> {
-    const seed = Math.floor(Math.random() * 1000);
-    const requestBody = {
-      points: [[start.lng, start.lat]],
-      profile,
-      elevation: true,
-      points_encoded: false,
-      details: ROUTE_DETAILS,
-      algorithm: 'round_trip',
-      'ch.disable': true,
-      'round_trip.distance': targetDistance,
-      'round_trip.seed': seed,
-      'round_trip.points': DEFAULT_ROUNDTRIP_POINTS,
-      instruction: includeInstructions,
-    };
+    try {
+      const seed = Math.floor(Math.random() * 1000);
+      const requestBody = {
+        points: [[start.lng, start.lat]],
+        profile,
+        elevation: true,
+        points_encoded: false,
+        details: ROUTE_DETAILS,
+        algorithm: 'round_trip',
+        'ch.disable': true,
+        'round_trip.distance': targetDistance,
+        'round_trip.seed': seed,
+        'round_trip.points': DEFAULT_ROUNDTRIP_POINTS,
+        instruction: includeInstructions,
+      };
 
-    const response = await firstValueFrom(
-      this.httpService.post<GraphHopperResponse>(
-        `${this.baseUrl}/route`,
-        requestBody,
-      ),
-    );
+      const response = await firstValueFrom(
+        this.httpService.post<GraphHopperResponse>(
+          `${this.baseUrl}/route`,
+          requestBody,
+        ),
+      );
 
-    if (!response.data.paths?.length) {
-      throw new Error('No round trip route found');
+      if (!response.data.paths?.length) {
+        throw new BadRequestException('조건에 맞는 원형 경로를 찾을 수 없습니다.');
+      }
+
+      return response.data.paths[0];
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+
+      this.logger.error(
+        `GraphHopper 원형 경로 조회 실패: profile=${profile}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw new InternalServerErrorException(
+        '원형 경로 검색 중 외부 경로 엔진 호출에 실패했습니다.',
+      );
     }
-
-    return response.data.paths[0];
   }
 
   // ============================================================================

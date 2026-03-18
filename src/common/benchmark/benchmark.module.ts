@@ -5,12 +5,17 @@ import { BenchmarkScenarioService } from './benchmark-scenario.service';
 import { StationsModule } from '../../stations/stations.module';
 import { RoutesModule } from '../../routes/routes.module';
 import { NavigationModule } from '../../navigation/navigation.module';
+import { AdminBasicAuthGuard } from '../guards/admin-basic-auth.guard';
 
 @Global()
 @Module({
   imports: [StationsModule, RoutesModule, NavigationModule],
   controllers: [BenchmarkController],
-  providers: [BenchmarkMetricsService, BenchmarkScenarioService],
+  providers: [
+    BenchmarkMetricsService,
+    BenchmarkScenarioService,
+    AdminBasicAuthGuard,
+  ],
   exports: [BenchmarkMetricsService, BenchmarkScenarioService],
 })
 export class BenchmarkModule {}

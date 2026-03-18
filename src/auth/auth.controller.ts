@@ -14,6 +14,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import {
   SendVerificationEmailDto,
@@ -21,12 +22,18 @@ import {
 } from './dto/email-verification.dto';
 import { FindAccountRequestDto } from './dto/find-account.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { ExchangeTokenDto } from './dto/exchange-token.dto';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request, Response } from 'express';
 import {
   SuccessResponseDto,
   ErrorResponseDto,
 } from '../common/api-response.dto';
+import { AdminProtected } from '../common/decorators/admin-protected.decorator';
+import {
+  getAdminRateLimit,
+  getAuthPollRateLimit,
+} from '../common/rate-limit/rate-limit.util';
 import { isPkceErrorCode } from './pkce-error-code';
 import * as crypto from 'crypto';
 
@@ -123,6 +130,137 @@ export class AuthController {
     return whitelist.has(msgCandidate) ? msgCandidate : undefined;
   }
 
+  private extractExistingProvider(error: unknown): string | undefined {
+    if (!(error instanceof HttpException)) {
+      return undefined;
+    }
+
+    const response = error.getResponse() as unknown;
+    if (typeof response === 'object' && response !== null) {
+      const value = (response as { existingProvider?: unknown })
+        .existingProvider;
+      return typeof value === 'string' ? value : undefined;
+    }
+
+    return undefined;
+  }
+
+  private redirectPkceCallbackResult(
+    res: Response,
+    params: Parameters<typeof this.buildAuthResultRedirectUrl>[0],
+  ) {
+    return res.redirect(303, this.buildAuthResultRedirectUrl(params));
+  }
+
+  private async handlePkceCallback(params: {
+    provider: 'google' | 'kakao' | 'naver';
+    code?: string;
+    state?: string;
+    oauthError?: string;
+    oauthErrorDescription?: string;
+    callback: (code: string, state: string) => Promise<unknown>;
+    res: Response;
+  }) {
+    const {
+      provider,
+      code,
+      state,
+      oauthError,
+      oauthErrorDescription,
+      callback,
+      res,
+    } = params;
+
+    res.set({ 'Cache-Control': 'no-store' });
+
+    if (oauthError) {
+      const errorCode = this.mapProviderOAuthErrorToErrorCode(oauthError);
+      this.logger.warn({
+        message: `[PKCE] ${provider} callback oauthError`,
+        provider,
+        oauthError,
+        oauthErrorDescription,
+        stateHash: state ? this.hashForLog(state) : undefined,
+      });
+
+      return this.redirectPkceCallbackResult(res, {
+        status: 'error',
+        provider,
+        errorCode: errorCode ?? 'PKCE_VERIFY_FAIL',
+      });
+    }
+
+    if (!code || !state) {
+      return this.redirectPkceCallbackResult(res, {
+        status: 'error',
+        provider,
+        errorCode: 'PKCE_VERIFY_FAIL',
+      });
+    }
+
+    try {
+      await callback(code, state);
+
+      return this.redirectPkceCallbackResult(res, {
+        status: 'success',
+        provider,
+        state,
+      });
+    } catch (error) {
+      const errorCode = this.mapExceptionToErrorCode(error);
+      const errorMessage = this.pickSafeErrorMessage(error);
+      const existingProvider = this.extractExistingProvider(error);
+
+      this.logger.error({
+        message: `[PKCE] ${provider} callback failed`,
+        provider,
+        errorCode,
+        stateHash: state ? this.hashForLog(state) : undefined,
+        error:
+          error instanceof Error
+            ? { name: error.name, message: error.message, stack: error.stack }
+            : { message: String(error) },
+      });
+
+      return this.redirectPkceCallbackResult(res, {
+        status: 'error',
+        provider,
+        errorCode,
+        errorMessage,
+        existingProvider,
+      });
+    }
+  }
+
+  private setNoCacheHeaders(res: Response): void {
+    res.set({
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      Pragma: 'no-cache',
+      Expires: '0',
+    });
+  }
+
+  private buildCheckStatusResponse(result: {
+    state?: string | null;
+    isComplete: boolean;
+    message: string;
+  }) {
+    return SuccessResponseDto.create(result.message, {
+      state: result.state,
+      isComplete: result.isComplete,
+      recommendedPollingInterval: result.isComplete ? 0 : 3000,
+    });
+  }
+
+  private buildLogoutCookieOptions() {
+    return {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict' as const,
+      path: '/',
+    };
+  }
+
   @Post('send-verification-email')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -144,20 +282,11 @@ export class AuthController {
   async sendVerificationEmail(
     @Body() sendVerificationEmailDto: SendVerificationEmailDto,
   ) {
-    try {
-      await this.authService.sendVerificationEmail(sendVerificationEmailDto);
-      return SuccessResponseDto.create(
-        '인증코드 발송완료. 10분내 인증 필요',
-        null,
-      );
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : '알 수 없는 오류';
-      throw new HttpException(
-        ErrorResponseDto.create(HttpStatus.BAD_REQUEST, message),
-        HttpStatus.BAD_REQUEST,
-      );
-    }
+    await this.authService.sendVerificationEmail(sendVerificationEmailDto);
+    return SuccessResponseDto.create(
+      '인증코드 발송완료. 10분내 인증 필요',
+      null,
+    );
   }
 
   @Post('verify-email')
@@ -189,20 +318,11 @@ export class AuthController {
     type: ErrorResponseDto,
   })
   async verifyEmail(@Body() verifyEmailDto: VerifyEmailDto) {
-    try {
-      const result = await this.authService.verifyEmail(verifyEmailDto);
-      return SuccessResponseDto.create(result.message, {
-        isVerified: result.isVerified,
-        securityToken: result.securityToken,
-      });
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : '알 수 없는 오류';
-      throw new HttpException(
-        ErrorResponseDto.create(HttpStatus.BAD_REQUEST, message),
-        HttpStatus.BAD_REQUEST,
-      );
-    }
+    const result = await this.authService.verifyEmail(verifyEmailDto);
+    return SuccessResponseDto.create(result.message, {
+      isVerified: result.isVerified,
+      securityToken: result.securityToken,
+    });
   }
 
   @Post('find-account')
@@ -262,20 +382,11 @@ export class AuthController {
     type: ErrorResponseDto,
   })
   async findAccount(@Body() findAccountRequestDto: FindAccountRequestDto) {
-    try {
-      const result = await this.authService.findAccount(findAccountRequestDto);
-      return SuccessResponseDto.create(result.message, {
-        isRegistered: result.isRegistered,
-        accountType: result.accountType,
-      });
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : '알 수 없는 오류';
-      throw new HttpException(
-        ErrorResponseDto.create(HttpStatus.BAD_REQUEST, message),
-        HttpStatus.BAD_REQUEST,
-      );
-    }
+    const result = await this.authService.findAccount(findAccountRequestDto);
+    return SuccessResponseDto.create(result.message, {
+      isRegistered: result.isRegistered,
+      accountType: result.accountType,
+    });
   }
 
   @Get('naver')
@@ -364,23 +475,11 @@ export class AuthController {
     type: ErrorResponseDto,
   })
   async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
-    try {
-      await this.authService.resetPassword(resetPasswordDto);
-      return SuccessResponseDto.create(
-        '비밀번호가 성공적으로 재설정되었습니다.',
-        null,
-      );
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : '알 수 없는 오류';
-      const statusCode = message.includes('찾을 수 없습니다')
-        ? HttpStatus.NOT_FOUND
-        : HttpStatus.BAD_REQUEST;
-      throw new HttpException(
-        ErrorResponseDto.create(statusCode, message),
-        statusCode,
-      );
-    }
+    await this.authService.resetPassword(resetPasswordDto);
+    return SuccessResponseDto.create(
+      '비밀번호가 성공적으로 재설정되었습니다.',
+      null,
+    );
   }
 
   // ==================== PKCE 소셜 로그인 엔드포인트들 ====================
@@ -397,17 +496,8 @@ export class AuthController {
     type: SuccessResponseDto,
   })
   async getGooglePKCEUrl() {
-    try {
-      const result = await this.authService.getGooglePKCEAuthUrl();
-      return SuccessResponseDto.create('Google PKCE 로그인 URL입니다.', result);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : '알 수 없는 오류';
-      throw new HttpException(
-        ErrorResponseDto.create(HttpStatus.BAD_REQUEST, message),
-        HttpStatus.BAD_REQUEST,
-      );
-    }
+    const result = await this.authService.getGooglePKCEAuthUrl();
+    return SuccessResponseDto.create('Google PKCE 로그인 URL입니다.', result);
   }
 
   @Get('kakao/pkce')
@@ -422,17 +512,8 @@ export class AuthController {
     type: SuccessResponseDto,
   })
   async getKakaoPKCEUrl() {
-    try {
-      const result = await this.authService.getKakaoPKCEAuthUrl();
-      return SuccessResponseDto.create('Kakao PKCE 로그인 URL입니다.', result);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : '알 수 없는 오류';
-      throw new HttpException(
-        ErrorResponseDto.create(HttpStatus.BAD_REQUEST, message),
-        HttpStatus.BAD_REQUEST,
-      );
-    }
+    const result = await this.authService.getKakaoPKCEAuthUrl();
+    return SuccessResponseDto.create('Kakao PKCE 로그인 URL입니다.', result);
   }
 
   @Get('naver/pkce')
@@ -447,17 +528,8 @@ export class AuthController {
     type: SuccessResponseDto,
   })
   async getNaverPKCEUrl() {
-    try {
-      const result = await this.authService.getNaverPKCEAuthUrl();
-      return SuccessResponseDto.create('Naver PKCE 로그인 URL입니다.', result);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : '알 수 없는 오류';
-      throw new HttpException(
-        ErrorResponseDto.create(HttpStatus.BAD_REQUEST, message),
-        HttpStatus.BAD_REQUEST,
-      );
-    }
+    const result = await this.authService.getNaverPKCEAuthUrl();
+    return SuccessResponseDto.create('Naver PKCE 로그인 URL입니다.', result);
   }
 
   @Get('google/pkce/callback')
@@ -472,86 +544,16 @@ export class AuthController {
     @Query('error') oauthError?: string,
     @Query('error_description') oauthErrorDescription?: string,
   ) {
-    try {
-      res.set({ 'Cache-Control': 'no-store' });
-
-      // provider가 OAuth 에러를 콜백으로 내려주는 케이스(사용자 취소/동의 거부 등)
-      if (oauthError) {
-        const errorCode = this.mapProviderOAuthErrorToErrorCode(oauthError);
-        this.logger.warn({
-          message: '[PKCE] google callback oauthError',
-          provider: 'google',
-          oauthError,
-          oauthErrorDescription,
-          stateHash: state ? this.hashForLog(state) : undefined,
-        });
-        return res.redirect(
-          303,
-          this.buildAuthResultRedirectUrl({
-            status: 'error',
-            provider: 'google',
-            errorCode: errorCode ?? 'PKCE_VERIFY_FAIL',
-          }),
-        );
-      }
-
-      if (!code || !state) {
-        return res.redirect(
-          303,
-          this.buildAuthResultRedirectUrl({
-            status: 'error',
-            provider: 'google',
-            errorCode: 'PKCE_VERIFY_FAIL',
-          }),
-        );
-      }
-
-      await this.authService.handleGooglePKCECallback(code, state);
-
-      return res.redirect(
-        303,
-        this.buildAuthResultRedirectUrl({
-          status: 'success',
-          provider: 'google',
-          state,
-        }),
-      );
-    } catch (error) {
-      const errorCode = this.mapExceptionToErrorCode(error);
-      const errorMessage = this.pickSafeErrorMessage(error);
-      const existingProvider =
-        error instanceof HttpException
-          ? (() => {
-              const resp = error.getResponse() as unknown;
-              if (typeof resp === 'object' && resp !== null) {
-                const v = (resp as { existingProvider?: unknown })
-                  .existingProvider;
-                return typeof v === 'string' ? v : undefined;
-              }
-              return undefined;
-            })()
-          : undefined;
-      this.logger.error({
-        message: '[PKCE] google callback failed',
-        provider: 'google',
-        errorCode,
-        stateHash: state ? this.hashForLog(state) : undefined,
-        error:
-          error instanceof Error
-            ? { name: error.name, message: error.message, stack: error.stack }
-            : { message: String(error) },
-      });
-      return res.redirect(
-        303,
-        this.buildAuthResultRedirectUrl({
-          status: 'error',
-          provider: 'google',
-          errorCode,
-          errorMessage,
-          existingProvider,
-        }),
-      );
-    }
+    return this.handlePkceCallback({
+      provider: 'google',
+      code,
+      state,
+      oauthError,
+      oauthErrorDescription,
+      callback: (authCode, authState) =>
+        this.authService.handleGooglePKCECallback(authCode, authState),
+      res,
+    });
   }
 
   @Get('kakao/pkce/callback')
@@ -566,85 +568,16 @@ export class AuthController {
     @Query('error') oauthError?: string,
     @Query('error_description') oauthErrorDescription?: string,
   ) {
-    try {
-      res.set({ 'Cache-Control': 'no-store' });
-
-      if (oauthError) {
-        const errorCode = this.mapProviderOAuthErrorToErrorCode(oauthError);
-        this.logger.warn({
-          message: '[PKCE] kakao callback oauthError',
-          provider: 'kakao',
-          oauthError,
-          oauthErrorDescription,
-          stateHash: state ? this.hashForLog(state) : undefined,
-        });
-        return res.redirect(
-          303,
-          this.buildAuthResultRedirectUrl({
-            status: 'error',
-            provider: 'kakao',
-            errorCode: errorCode ?? 'PKCE_VERIFY_FAIL',
-          }),
-        );
-      }
-
-      if (!code || !state) {
-        return res.redirect(
-          303,
-          this.buildAuthResultRedirectUrl({
-            status: 'error',
-            provider: 'kakao',
-            errorCode: 'PKCE_VERIFY_FAIL',
-          }),
-        );
-      }
-
-      await this.authService.handleKakaoPKCECallback(code, state);
-
-      return res.redirect(
-        303,
-        this.buildAuthResultRedirectUrl({
-          status: 'success',
-          provider: 'kakao',
-          state,
-        }),
-      );
-    } catch (error) {
-      const errorCode = this.mapExceptionToErrorCode(error);
-      const errorMessage = this.pickSafeErrorMessage(error);
-      const existingProvider =
-        error instanceof HttpException
-          ? (() => {
-              const resp = error.getResponse() as unknown;
-              if (typeof resp === 'object' && resp !== null) {
-                const v = (resp as { existingProvider?: unknown })
-                  .existingProvider;
-                return typeof v === 'string' ? v : undefined;
-              }
-              return undefined;
-            })()
-          : undefined;
-      this.logger.error({
-        message: '[PKCE] kakao callback failed',
-        provider: 'kakao',
-        errorCode,
-        stateHash: state ? this.hashForLog(state) : undefined,
-        error:
-          error instanceof Error
-            ? { name: error.name, message: error.message, stack: error.stack }
-            : { message: String(error) },
-      });
-      return res.redirect(
-        303,
-        this.buildAuthResultRedirectUrl({
-          status: 'error',
-          provider: 'kakao',
-          errorCode,
-          errorMessage,
-          existingProvider,
-        }),
-      );
-    }
+    return this.handlePkceCallback({
+      provider: 'kakao',
+      code,
+      state,
+      oauthError,
+      oauthErrorDescription,
+      callback: (authCode, authState) =>
+        this.authService.handleKakaoPKCECallback(authCode, authState),
+      res,
+    });
   }
 
   @Get('naver/pkce/callback')
@@ -659,85 +592,16 @@ export class AuthController {
     @Query('error') oauthError?: string,
     @Query('error_description') oauthErrorDescription?: string,
   ) {
-    try {
-      res.set({ 'Cache-Control': 'no-store' });
-
-      if (oauthError) {
-        const errorCode = this.mapProviderOAuthErrorToErrorCode(oauthError);
-        this.logger.warn({
-          message: '[PKCE] naver callback oauthError',
-          provider: 'naver',
-          oauthError,
-          oauthErrorDescription,
-          stateHash: state ? this.hashForLog(state) : undefined,
-        });
-        return res.redirect(
-          303,
-          this.buildAuthResultRedirectUrl({
-            status: 'error',
-            provider: 'naver',
-            errorCode: errorCode ?? 'PKCE_VERIFY_FAIL',
-          }),
-        );
-      }
-
-      if (!code || !state) {
-        return res.redirect(
-          303,
-          this.buildAuthResultRedirectUrl({
-            status: 'error',
-            provider: 'naver',
-            errorCode: 'PKCE_VERIFY_FAIL',
-          }),
-        );
-      }
-
-      await this.authService.handleNaverPKCECallback(code, state);
-
-      return res.redirect(
-        303,
-        this.buildAuthResultRedirectUrl({
-          status: 'success',
-          provider: 'naver',
-          state,
-        }),
-      );
-    } catch (error) {
-      const errorCode = this.mapExceptionToErrorCode(error);
-      const errorMessage = this.pickSafeErrorMessage(error);
-      const existingProvider =
-        error instanceof HttpException
-          ? (() => {
-              const resp = error.getResponse() as unknown;
-              if (typeof resp === 'object' && resp !== null) {
-                const v = (resp as { existingProvider?: unknown })
-                  .existingProvider;
-                return typeof v === 'string' ? v : undefined;
-              }
-              return undefined;
-            })()
-          : undefined;
-      this.logger.error({
-        message: '[PKCE] naver callback failed',
-        provider: 'naver',
-        errorCode,
-        stateHash: state ? this.hashForLog(state) : undefined,
-        error:
-          error instanceof Error
-            ? { name: error.name, message: error.message, stack: error.stack }
-            : { message: String(error) },
-      });
-      return res.redirect(
-        303,
-        this.buildAuthResultRedirectUrl({
-          status: 'error',
-          provider: 'naver',
-          errorCode,
-          errorMessage,
-          existingProvider,
-        }),
-      );
-    }
+    return this.handlePkceCallback({
+      provider: 'naver',
+      code,
+      state,
+      oauthError,
+      oauthErrorDescription,
+      callback: (authCode, authState) =>
+        this.authService.handleNaverPKCECallback(authCode, authState),
+      res,
+    });
   }
 
   @Get('check-status')
@@ -780,28 +644,14 @@ export class AuthController {
       },
     },
   })
-  checkAuthStatus(
+  @Throttle({ default: getAuthPollRateLimit() })
+  async checkAuthStatus(
     @Res() res: Response,
     @Query('clientState') clientState?: string,
   ) {
-    // 서버 부하 방지를 위한 캐시 헤더 설정
-    res.set({
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
-      Pragma: 'no-cache',
-      Expires: '0',
-    });
-
-    // (async) Redis 기반 조회
-    return this.authService.checkAuthStatus(clientState).then((result) => {
-      // 폴링 간격 권장사항 추가
-      const data = {
-        state: result.state,
-        isComplete: result.isComplete,
-        recommendedPollingInterval: result.isComplete ? 0 : 3000, // 완료되면 0, 미완료면 3초
-      };
-
-      return res.json(SuccessResponseDto.create(result.message, data));
-    });
+    this.setNoCacheHeaders(res);
+    const result = await this.authService.checkAuthStatus(clientState);
+    return res.json(this.buildCheckStatusResponse(result));
   }
 
   @Post('exchange-token')
@@ -811,13 +661,7 @@ export class AuthController {
       '프론트에서 codeVerifier를 사용하여 최종 JWT 토큰을 교환합니다.',
   })
   @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        codeVerifier: { type: 'string', description: 'PKCE code verifier' },
-      },
-      required: ['codeVerifier'],
-    },
+    type: ExchangeTokenDto,
   })
   @ApiResponse({
     status: 200,
@@ -829,29 +673,10 @@ export class AuthController {
     description: '토큰 교환 실패',
     type: ErrorResponseDto,
   })
-  async exchangeToken(@Body('codeVerifier') codeVerifier: string) {
-    if (!codeVerifier) {
-      throw new HttpException(
-        ErrorResponseDto.create(
-          HttpStatus.BAD_REQUEST,
-          'codeVerifier is required',
-        ),
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-
-    try {
-      const result =
-        await this.authService.exchangeTokenWithCodeVerifier(codeVerifier);
-      return SuccessResponseDto.create('토큰 교환 성공', result);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : '알 수 없는 오류';
-      throw new HttpException(
-        ErrorResponseDto.create(HttpStatus.UNAUTHORIZED, message),
-        HttpStatus.UNAUTHORIZED,
-      );
-    }
+  async exchangeToken(@Body() dto: ExchangeTokenDto) {
+    const result =
+      await this.authService.exchangeTokenWithCodeVerifier(dto.codeVerifier);
+    return SuccessResponseDto.create('토큰 교환 성공', result);
   }
 
   @Post('logout')
@@ -872,13 +697,7 @@ export class AuthController {
     },
   })
   logout(@Res() res: Response) {
-    // 쿠키 삭제
-    res.clearCookie('accessToken', {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      path: '/',
-    });
+    res.clearCookie('accessToken', this.buildLogoutCookieOptions());
 
     return res.json(SuccessResponseDto.create('로그아웃되었습니다.', null));
   }
@@ -886,6 +705,8 @@ export class AuthController {
   // ==================== 디버깅용 엔드포인트 (개발 환경 전용) ====================
 
   @Get('debug/states')
+  @AdminProtected()
+  @Throttle({ default: getAdminRateLimit() })
   @ApiOperation({
     summary: '저장된 PKCE 상태 목록 조회 (개발용)',
     description:
@@ -923,6 +744,8 @@ export class AuthController {
   }
 
   @Get('debug/states/:state')
+  @AdminProtected()
+  @Throttle({ default: getAdminRateLimit() })
   @ApiOperation({
     summary: '특정 PKCE 상태 상세 조회 (개발용)',
     description:

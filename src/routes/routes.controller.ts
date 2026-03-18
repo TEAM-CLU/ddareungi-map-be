@@ -2,8 +2,6 @@ import {
   Controller,
   Post,
   Body,
-  HttpException,
-  HttpStatus,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { RoutesService } from './routes.service';
@@ -12,7 +10,6 @@ import {
   CircularRouteRequestDto,
   FullJourneyRequestDto,
 } from './dto/route.dto';
-import { Logger } from '@nestjs/common';
 import {
   SuccessResponseDto,
   ErrorResponseDto,
@@ -21,8 +18,6 @@ import {
 @ApiTags('길찾기 (routes)')
 @Controller('routes')
 export class RoutesController {
-  private readonly logger = new Logger(RoutesController.name);
-
   constructor(private readonly routesService: RoutesService) {}
 
   @Post('full-journey')
@@ -78,24 +73,13 @@ export class RoutesController {
   async getFullJourney(
     @Body() fullJourneyRequestDto: FullJourneyRequestDto,
   ): Promise<SuccessResponseDto<RouteDto[]>> {
-    try {
-      const result = await this.routesService.findFullJourney(
-        fullJourneyRequestDto,
-      );
-      return SuccessResponseDto.create(
-        '통합 경로를 성공적으로 검색했습니다.',
-        result,
-      );
-    } catch (error) {
-      this.logger.error('통합 경로 검색 중 오류 발생:', error);
-      throw new HttpException(
-        ErrorResponseDto.create(
-          HttpStatus.INTERNAL_SERVER_ERROR,
-          '통합 경로 검색 중 오류가 발생했습니다.',
-        ),
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+    const result = await this.routesService.findFullJourney(
+      fullJourneyRequestDto,
+    );
+    return SuccessResponseDto.create(
+      '통합 경로를 성공적으로 검색했습니다.',
+      result,
+    );
   }
 
   @Post('circular-journey')
@@ -142,23 +126,12 @@ export class RoutesController {
   async getCircularRoute(
     @Body() circularRouteRequestDto: CircularRouteRequestDto,
   ): Promise<SuccessResponseDto<RouteDto[]>> {
-    try {
-      const result = await this.routesService.findRoundTripRecommendations(
-        circularRouteRequestDto,
-      );
-      return SuccessResponseDto.create(
-        '원형 경로를 성공적으로 추천했습니다.',
-        result,
-      );
-    } catch (error) {
-      this.logger.error('원형 경로 추천 중 오류 발생:', error);
-      throw new HttpException(
-        ErrorResponseDto.create(
-          HttpStatus.INTERNAL_SERVER_ERROR,
-          '원형 경로 추천 중 오류가 발생했습니다.',
-        ),
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+    const result = await this.routesService.findRoundTripRecommendations(
+      circularRouteRequestDto,
+    );
+    return SuccessResponseDto.create(
+      '원형 경로를 성공적으로 추천했습니다.',
+      result,
+    );
   }
 }

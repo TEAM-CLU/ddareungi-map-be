@@ -7,7 +7,6 @@ import {
   Delete,
   Query,
   HttpStatus,
-  HttpException,
   Logger,
 } from '@nestjs/common';
 import {
@@ -18,12 +17,13 @@ import {
   ApiQuery,
   ApiBody,
 } from '@nestjs/swagger';
-import { StationsService } from './services/stations.service';
+import { Throttle } from '@nestjs/throttler';
 import { StationSyncService } from './services/station-sync.service';
-import { StationQueryService } from './services/station-query.service';
 import { StationManagementService } from './services/station-management.service';
 import { StationRealtimeService } from './services/station-realtime.service';
-import { StationMapperService } from './services/station-mapper.service';
+import { StationBatchRealtimeSyncService } from './services/station-batch-realtime-sync.service';
+import { StationRequestValidationService } from './services/station-request-validation.service';
+import { StationReadFacadeService } from './services/station-read-facade.service';
 import { StationResponseDto } from './dto/station-api.dto';
 import {
   CreateStationDto,
@@ -38,6 +38,8 @@ import {
   SuccessResponseDto,
   ErrorResponseDto,
 } from '../common/api-response.dto';
+import { AdminProtected } from '../common/decorators/admin-protected.decorator';
+import { getAdminRateLimit } from '../common/rate-limit/rate-limit.util';
 
 @ApiTags('대여소 (stations)')
 @Controller('stations')
@@ -45,15 +47,17 @@ export class StationsController {
   private readonly logger = new Logger(StationsController.name);
 
   constructor(
-    private readonly stationsService: StationsService, // 생명주기 관리용
     private readonly stationSyncService: StationSyncService,
-    private readonly stationQueryService: StationQueryService,
     private readonly stationManagementService: StationManagementService,
     private readonly stationRealtimeService: StationRealtimeService,
-    private readonly stationMapperService: StationMapperService,
+    private readonly stationBatchRealtimeSyncService: StationBatchRealtimeSyncService,
+    private readonly stationRequestValidationService: StationRequestValidationService,
+    private readonly stationReadFacadeService: StationReadFacadeService,
   ) {}
 
   @Post('sync')
+  @AdminProtected()
+  @Throttle({ default: getAdminRateLimit() })
   @ApiOperation({
     summary: '서울시 API로부터 대여소 데이터 동기화',
     description:
@@ -79,6 +83,8 @@ export class StationsController {
   }
 
   @Post('realtime-sync')
+  @AdminProtected()
+  @Throttle({ default: getAdminRateLimit() })
   @ApiOperation({
     summary: '전체 대여소 실시간 대여정보 동기화',
     description:
@@ -109,6 +115,8 @@ export class StationsController {
   }
 
   @Post('realtime-sync/batch')
+  @AdminProtected()
+  @Throttle({ default: getAdminRateLimit() })
   @ApiOperation({
     summary: '특정 대여소(들) 실시간 대여정보 동기화',
     description:
@@ -165,23 +173,10 @@ export class StationsController {
   async syncBatchStationsRealtimeInfo(
     @Body() body: StationNumbersDto,
   ): Promise<SuccessResponseDto<object>> {
-    const stationNumbers = body.stationNumbers;
-    const stationIds: string[] = [];
-
-    for (const number of stationNumbers) {
-      const station = await this.stationQueryService.findByNumber(number);
-      if (station) {
-        stationIds.push(String(station.id));
-      }
-    }
-
-    const resultMap =
-      await this.stationRealtimeService.syncRealtimeInfoByIds(stationIds);
-    const results = Array.from(resultMap.values());
-    const successCount = results.filter(
-      (result) => result.outcome !== 'not_found' && !result.error,
-    ).length;
-    const failureCount = results.length - successCount;
+    const { successCount, failureCount } =
+      await this.stationBatchRealtimeSyncService.syncByStationNumbers(
+        body.stationNumbers,
+      );
 
     return SuccessResponseDto.create(
       `부분 대여소 실시간 대여정보 동기화가 완료되었습니다. (성공: ${successCount}개, 실패: ${failureCount}개)`,
@@ -237,69 +232,18 @@ export class StationsController {
     @Query('longitude') longitude: number,
     @Query('format') format: 'json' | 'geojson' = 'json',
   ): Promise<SuccessResponseDto<NearbyStationResponseDto[] | GeoJsonResponse>> {
-    try {
-      const lat = Number(latitude);
-      const lng = Number(longitude);
-      if (isNaN(lat) || isNaN(lng)) {
-        throw new HttpException(
-          ErrorResponseDto.create(
-            HttpStatus.BAD_REQUEST,
-            '유효하지 않은 위도/경도 값입니다.',
-          ),
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-        throw new HttpException(
-          ErrorResponseDto.create(
-            HttpStatus.BAD_REQUEST,
-            '위도는 -90~90, 경도는 -180~180 범위여야 합니다.',
-          ),
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-      const stations = await this.stationQueryService.findNearbyStations(
-        lat,
-        lng,
+    const validated =
+      this.stationRequestValidationService.validateCoordinates(
+        latitude,
+        longitude,
       );
+    const result = await this.stationReadFacadeService.getNearbyStations(
+      validated.latitude,
+      validated.longitude,
+      format,
+    );
 
-      for (const station of stations) {
-        if (station && station.id) {
-          await this.stationRealtimeService.syncSingleStationRealtimeInfo(
-            station.id,
-          );
-        }
-      }
-
-      if (format === 'geojson') {
-        const geoJsonData =
-          this.stationQueryService.convertStationsToGeoJSON(stations);
-        return SuccessResponseDto.create(
-          `GeoJSON 형태로 가장 가까운 대여소 ${stations.length}개를 성공적으로 조회했습니다.`,
-          geoJsonData,
-        );
-      }
-
-      const nearbyStations =
-        this.stationMapperService.mapToNearbyResponseArray(stations);
-
-      return SuccessResponseDto.create(
-        `근처 대여소 ${stations.length}개를 성공적으로 조회했습니다.`,
-        nearbyStations,
-      );
-    } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-      this.logger.error('가장 가까운 대여소 조회 실패:', error);
-      throw new HttpException(
-        ErrorResponseDto.create(
-          HttpStatus.INTERNAL_SERVER_ERROR,
-          '근처 대여소 조회에 실패했습니다.',
-        ),
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+    return SuccessResponseDto.create(result.message, result.data);
   }
 
   @Get('map-area')
@@ -354,98 +298,20 @@ export class StationsController {
     @Query('radius') radius: number,
     @Query('format') format: 'json' | 'geojson' = 'json',
   ): Promise<SuccessResponseDto<NearbyStationResponseDto[] | GeoJsonResponse>> {
-    try {
-      // 입력값 검증
-      const lat = Number(latitude);
-      const lng = Number(longitude);
-      const searchRadius = Number(radius);
-
-      if (isNaN(lat) || isNaN(lng) || isNaN(searchRadius)) {
-        throw new HttpException(
-          ErrorResponseDto.create(
-            HttpStatus.BAD_REQUEST,
-            '유효하지 않은 위도/경도/반경 값입니다.',
-          ),
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-
-      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-        throw new HttpException(
-          ErrorResponseDto.create(
-            HttpStatus.BAD_REQUEST,
-            '위도는 -90~90, 경도는 -180~180 범위여야 합니다.',
-          ),
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-
-      if (searchRadius < 100 || searchRadius > 20000) {
-        throw new HttpException(
-          ErrorResponseDto.create(
-            HttpStatus.BAD_REQUEST,
-            '반경은 100m~20km 범위여야 합니다.',
-          ),
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-
-      const stations = await this.stationQueryService.findStationsInMapArea(
-        lat,
-        lng,
-        searchRadius,
+    const validated =
+      this.stationRequestValidationService.validateCoordinatesWithRadius(
+        latitude,
+        longitude,
+        radius,
       );
+    const result = await this.stationReadFacadeService.getStationsWithinRadius(
+      validated.latitude,
+      validated.longitude,
+      validated.radius,
+      format,
+    );
 
-      // 조회된 대여소가 없을 때 예외처리
-      if (stations.length === 0) {
-        if (format === 'geojson') {
-          const emptyGeoJson: GeoJsonResponse = {
-            type: 'FeatureCollection',
-            features: [],
-          };
-          return SuccessResponseDto.create(
-            `지정된 영역(반경 ${searchRadius}m) 내에 이용 가능한 대여소가 없습니다.`,
-            emptyGeoJson,
-          );
-        }
-
-        const emptyArray: NearbyStationResponseDto[] = [];
-        return SuccessResponseDto.create(
-          `지정된 영역(반경 ${searchRadius}m) 내에 이용 가능한 대여소가 없습니다.`,
-          emptyArray,
-        );
-      }
-
-      if (format === 'geojson') {
-        const geoJsonData =
-          this.stationQueryService.convertStationsToGeoJSON(stations);
-        return SuccessResponseDto.create(
-          `GeoJSON 형태로 지도 영역 내 대여소 ${stations.length}개를 성공적으로 조회했습니다.`,
-          geoJsonData,
-        );
-      }
-
-      const nearbyStations =
-        this.stationMapperService.mapToNearbyResponseArray(stations);
-
-      return SuccessResponseDto.create(
-        `지도 영역 내 대여소 ${stations.length}개를 성공적으로 조회했습니다.`,
-        nearbyStations,
-      );
-    } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-
-      this.logger.error('지도 영역 내 대여소 조회 실패:', error);
-      throw new HttpException(
-        ErrorResponseDto.create(
-          HttpStatus.INTERNAL_SERVER_ERROR,
-          '지도 영역 내 대여소 조회에 실패했습니다.',
-        ),
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+    return SuccessResponseDto.create(result.message, result.data);
   }
 
   @Get()
@@ -474,32 +340,8 @@ export class StationsController {
   async findAll(
     @Query('format') format: 'json' | 'geojson' = 'json',
   ): Promise<SuccessResponseDto<StationResponseDto[] | GeoJsonResponse>> {
-    try {
-      const stations = await this.stationQueryService.findAll();
-
-      if (format === 'geojson') {
-        const geoJsonData =
-          this.stationQueryService.convertStationsToGeoJSON(stations);
-        return SuccessResponseDto.create(
-          'GeoJSON 형태로 모든 대여소를 성공적으로 조회했습니다.',
-          geoJsonData,
-        );
-      }
-
-      return SuccessResponseDto.create(
-        '모든 대여소를 성공적으로 조회했습니다.',
-        stations,
-      );
-    } catch (error) {
-      this.logger.error('대여소 전체 조회 실패:', error);
-      throw new HttpException(
-        ErrorResponseDto.create(
-          HttpStatus.INTERNAL_SERVER_ERROR,
-          '대여소 조회에 실패했습니다.',
-        ),
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+    const result = await this.stationReadFacadeService.getAllStations(format);
+    return SuccessResponseDto.create(result.message, result.data);
   }
 
   @Get(':number')
@@ -555,107 +397,24 @@ export class StationsController {
     @Query('latitude') latitude?: number,
     @Query('longitude') longitude?: number,
   ): Promise<SuccessResponseDto<NearbyStationResponseDto | GeoJsonResponse>> {
-    try {
-      // 위치 좌표 검증 (제공된 경우)
-      let validatedLat: number | undefined;
-      let validatedLng: number | undefined;
-
-      if (latitude !== undefined && longitude !== undefined) {
-        const lat = Number(latitude);
-        const lng = Number(longitude);
-
-        if (
-          !isNaN(lat) &&
-          !isNaN(lng) &&
-          lat >= -90 &&
-          lat <= 90 &&
-          lng >= -180 &&
-          lng <= 180
-        ) {
-          validatedLat = lat;
-          validatedLng = lng;
-        }
-      }
-
-      // number로 대여소 조회 (거리 포함 가능)
-      const station =
-        validatedLat !== undefined && validatedLng !== undefined
-          ? await this.stationQueryService.findByNumberWithDistance(
-              number,
-              validatedLat,
-              validatedLng,
-            )
-          : await this.stationQueryService.findByNumber(number);
-
-      if (!station) {
-        throw new HttpException(
-          ErrorResponseDto.create(
-            HttpStatus.NOT_FOUND,
-            '대여소를 찾을 수 없습니다.',
-          ),
-          HttpStatus.NOT_FOUND,
-        );
-      }
-
-      // 실시간 정보 업데이트
-      await this.stationRealtimeService.syncSingleStationRealtimeInfo(
-        station.id,
+    const validatedOptionalCoordinates =
+      this.stationRequestValidationService.validateOptionalCoordinates(
+        latitude,
+        longitude,
       );
+    const result = await this.stationReadFacadeService.getStationDetail({
+      number,
+      format,
+      latitude: validatedOptionalCoordinates.latitude,
+      longitude: validatedOptionalCoordinates.longitude,
+    });
 
-      // 업데이트된 정보 다시 조회 (거리 정보 유지)
-      const updatedStation =
-        validatedLat !== undefined && validatedLng !== undefined
-          ? await this.stationQueryService.findByNumberWithDistance(
-              number,
-              validatedLat,
-              validatedLng,
-            )
-          : await this.stationQueryService.findByNumber(number);
-
-      if (!updatedStation) {
-        throw new HttpException(
-          ErrorResponseDto.create(
-            HttpStatus.NOT_FOUND,
-            '대여소 업데이트 후 조회에 실패했습니다.',
-          ),
-          HttpStatus.NOT_FOUND,
-        );
-      }
-
-      if (format === 'geojson') {
-        const geoJsonData = this.stationQueryService.convertStationsToGeoJSON([
-          updatedStation,
-        ]);
-        return SuccessResponseDto.create(
-          'GeoJSON 형태로 대여소 상세 정보를 성공적으로 조회했습니다.',
-          geoJsonData,
-        );
-      }
-
-      const nearbyStationResponse =
-        this.stationMapperService.mapToNearbyResponse(updatedStation);
-
-      return SuccessResponseDto.create(
-        '대여소를 성공적으로 조회했습니다.',
-        nearbyStationResponse,
-      );
-    } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-
-      this.logger.error(`대여소 번호 ${number} 조회 실패:`, error);
-      throw new HttpException(
-        ErrorResponseDto.create(
-          HttpStatus.INTERNAL_SERVER_ERROR,
-          '대여소 조회에 실패했습니다.',
-        ),
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+    return SuccessResponseDto.create(result.message, result.data);
   }
 
   @Post()
+  @AdminProtected()
+  @Throttle({ default: getAdminRateLimit() })
   @ApiOperation({
     summary: '대여소 생성',
     description:
@@ -679,28 +438,18 @@ export class StationsController {
   async create(
     @Body() createStationDto: CreateStationDto,
   ): Promise<SuccessResponseDto<StationResponseDto>> {
-    try {
-      const station =
-        await this.stationManagementService.create(createStationDto);
+    const station = await this.stationManagementService.create(createStationDto);
 
-      return {
-        statusCode: HttpStatus.CREATED,
-        message: '대여소가 성공적으로 생성되었습니다.',
-        data: station,
-      };
-    } catch (error) {
-      this.logger.error('대여소 생성 실패:', error);
-      throw new HttpException(
-        ErrorResponseDto.create(
-          HttpStatus.INTERNAL_SERVER_ERROR,
-          '대여소 생성에 실패했습니다.',
-        ),
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+    return new SuccessResponseDto(
+      HttpStatus.CREATED,
+      '대여소가 성공적으로 생성되었습니다.',
+      station,
+    );
   }
 
   @Delete('confirm')
+  @AdminProtected()
+  @Throttle({ default: getAdminRateLimit() })
   @ApiOperation({
     summary: '모든 대여소 삭제 (관리자용)',
     description:
@@ -730,38 +479,18 @@ export class StationsController {
   async removeAll(
     @Query('confirmKey') confirmKey: string,
   ): Promise<SuccessResponseDto<DeleteAllResult>> {
-    try {
-      this.logger.warn('🚨 전체 대여소 삭제 API 호출됨');
+    this.logger.warn('🚨 전체 대여소 삭제 API 호출됨');
+    const result = await this.stationManagementService.removeAll(confirmKey);
 
-      const result = await this.stationManagementService.removeAll(confirmKey);
-
-      return SuccessResponseDto.create(
-        `모든 대여소가 성공적으로 삭제되었습니다. (${result.deletedCount}개 삭제됨)`,
-        result,
-      );
-    } catch (error) {
-      this.logger.error('전체 대여소 삭제 실패:', error);
-
-      if (error instanceof Error && error.message.includes('잘못된 확인 키')) {
-        throw new HttpException(
-          ErrorResponseDto.create(HttpStatus.BAD_REQUEST, error.message),
-          HttpStatus.BAD_REQUEST,
-        );
-      }
-
-      throw new HttpException(
-        ErrorResponseDto.create(
-          HttpStatus.INTERNAL_SERVER_ERROR,
-          error instanceof Error
-            ? error.message
-            : '전체 대여소 삭제 중 내부 오류가 발생했습니다.',
-        ),
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+    return SuccessResponseDto.create(
+      `모든 대여소가 성공적으로 삭제되었습니다. (${result.deletedCount}개 삭제됨)`,
+      result,
+    );
   }
 
   @Delete(':number')
+  @AdminProtected()
+  @Throttle({ default: getAdminRateLimit() })
   @ApiOperation({
     summary: '대여소 삭제',
     description: '지정된 대여소를 영구적으로 삭제합니다.',
@@ -790,48 +519,12 @@ export class StationsController {
   async remove(
     @Param('number') number: string,
   ): Promise<SuccessResponseDto<null>> {
-    try {
-      // number로 대여소 조회해서 id 찾기
-      const station = await this.stationQueryService.findByNumber(number);
+    await this.stationManagementService.removeByNumber(number);
 
-      if (!station) {
-        throw new HttpException(
-          ErrorResponseDto.create(
-            HttpStatus.NOT_FOUND,
-            '대여소를 찾을 수 없습니다.',
-          ),
-          HttpStatus.NOT_FOUND,
-        );
-      }
-
-      await this.stationManagementService.remove(station.id);
-
-      return SuccessResponseDto.create(
-        '대여소가 성공적으로 삭제되었습니다.',
-        null,
-      );
-    } catch (error) {
-      this.logger.error(`대여소 번호 ${number} 삭제 실패:`, error);
-
-      // 404: 대여소를 찾을 수 없는 경우
-      if (error instanceof Error && error.message.includes('찾을 수 없')) {
-        throw new HttpException(
-          ErrorResponseDto.create(HttpStatus.NOT_FOUND, error.message),
-          HttpStatus.NOT_FOUND,
-        );
-      }
-
-      // 500: 기타 내부 서버 오류
-      throw new HttpException(
-        ErrorResponseDto.create(
-          HttpStatus.INTERNAL_SERVER_ERROR,
-          error instanceof Error
-            ? error.message
-            : '대여소 삭제 중 내부 오류가 발생했습니다.',
-        ),
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+    return SuccessResponseDto.create(
+      '대여소가 성공적으로 삭제되었습니다.',
+      null,
+    );
   }
 
   @Get('sync/status')
@@ -850,18 +543,7 @@ export class StationsController {
     type: ErrorResponseDto,
   })
   async getSyncStatus(): Promise<SuccessResponseDto<object>> {
-    try {
-      const status = await this.stationSyncService.getSyncStatus();
-      return SuccessResponseDto.create('동기화 상태 조회 성공', status);
-    } catch (error) {
-      this.logger.error('동기화 상태 조회 실패:', error);
-      throw new HttpException(
-        ErrorResponseDto.create(
-          HttpStatus.INTERNAL_SERVER_ERROR,
-          '동기화 상태 조회에 실패했습니다.',
-        ),
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+    const status = await this.stationSyncService.getSyncStatus();
+    return SuccessResponseDto.create('동기화 상태 조회 성공', status);
   }
 }

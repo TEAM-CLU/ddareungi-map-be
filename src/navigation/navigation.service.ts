@@ -1,4 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+} from '@nestjs/common';
 import { NavigationSessionDto } from './dto/navigation.dto';
 import { InstructionDto } from '../routes/dto/route.dto';
 import { NavigationHelperService } from './services/navigation-helper.service';
@@ -36,9 +40,10 @@ export class NavigationService {
       this.logger.error(
         `segments 필드 누락: routeId=${routeId}, hasSegments=${!!route.segments}`,
       );
-      throw new Error(
-        '경로 데이터에 segments 정보가 없습니다. 경로를 다시 검색해주세요.',
-      );
+      throw new BadRequestException({
+        statusCode: 400,
+        message: '경로 데이터에 segments 정보가 없습니다. 경로를 다시 검색해주세요.',
+      });
     }
 
     // 3. Instructions 추출 및 통합 (interval 오프셋 자동 조정)
@@ -49,9 +54,11 @@ export class NavigationService {
       this.logger.warn(
         `instructions가 있는 segment가 없습니다: ${routeId}, total segments: ${route.segments.length}`,
       );
-      throw new Error(
-        '경로에 네비게이션 정보가 포함되어 있지 않습니다. 경로를 다시 검색해주세요.',
-      );
+      throw new BadRequestException({
+        statusCode: 400,
+        message:
+          '경로에 네비게이션 정보가 포함되어 있지 않습니다. 경로를 다시 검색해주세요.',
+      });
     }
 
     // 4. 좌표 통합 추출 (TTS 트리거 좌표 계산용)

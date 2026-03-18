@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
@@ -57,7 +57,9 @@ export class LocationService {
             ? { name: error.name, message: error.message, stack: error.stack }
             : { message: String(error) },
       });
-      throw error;
+      throw new InternalServerErrorException(
+        '키워드 검색 중 오류가 발생했습니다.',
+      );
     }
   }
 
@@ -92,7 +94,9 @@ export class LocationService {
             ? { name: error.name, message: error.message, stack: error.stack }
             : { message: String(error) },
       });
-      throw error;
+      throw new InternalServerErrorException(
+        '주소 검색 중 오류가 발생했습니다.',
+      );
     }
   }
 
@@ -128,7 +132,9 @@ export class LocationService {
             ? { name: error.name, message: error.message, stack: error.stack }
             : { message: String(error) },
       });
-      throw error;
+      throw new InternalServerErrorException(
+        '역지오코딩 중 오류가 발생했습니다.',
+      );
     }
   }
 }

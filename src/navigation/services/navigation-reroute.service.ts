@@ -1,4 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import {
   CoordinateDto,
   RouteSegmentDto,
@@ -72,17 +77,21 @@ export class NavigationRerouteService {
 
     // 2. circular 경로는 재검색 불가 (return-to-route만 사용)
     if (originalRoute.routeType === 'circular') {
-      throw new Error(
-        '원형 경로는 완전 재검색을 지원하지 않습니다. 기존 경로로 복귀(return) 기능을 사용해주세요.',
-      );
+      throw new BadRequestException({
+        statusCode: 400,
+        message:
+          '원형 경로는 완전 재검색을 지원하지 않습니다. 기존 경로로 복귀(return) 기능을 사용해주세요.',
+      });
     }
 
     // 3. 도착 대여소 정보 확인 (원본 경로의 endStation)
     const endStation = originalRoute.endStation;
     if (!endStation) {
-      throw new Error(
-        '원본 경로에 도착 대여소 정보가 없습니다. 재검색을 수행할 수 없습니다.',
-      );
+      throw new InternalServerErrorException({
+        statusCode: 500,
+        message:
+          '원본 경로에 도착 대여소 정보가 없습니다. 재검색을 수행할 수 없습니다.',
+      });
     }
 
     const endStationCoord: CoordinateDto = {
@@ -102,9 +111,11 @@ export class NavigationRerouteService {
     const lastSegment =
       originalRoute.segments[originalRoute.segments.length - 1];
     if (!lastSegment || lastSegment.type !== 'walking') {
-      throw new Error(
-        '원본 경로에 마지막 도보 세그먼트가 없습니다. 재검색을 수행할 수 없습니다.',
-      );
+      throw new InternalServerErrorException({
+        statusCode: 500,
+        message:
+          '원본 경로에 마지막 도보 세그먼트가 없습니다. 재검색을 수행할 수 없습니다.',
+      });
     }
 
     const finalWalkingSegment = lastSegment;
@@ -116,9 +127,11 @@ export class NavigationRerouteService {
     // 5. 원본 경로의 자전거 프로필 추출 (이탈한 자전거 세그먼트의 프로필)
     const bikeProfile = this.extractBikeProfile(originalRoute.segments);
     if (!bikeProfile) {
-      throw new Error(
-        '원본 경로에 자전거 프로필 정보가 없습니다. 재검색을 수행할 수 없습니다.',
-      );
+      throw new InternalServerErrorException({
+        statusCode: 500,
+        message:
+          '원본 경로에 자전거 프로필 정보가 없습니다. 재검색을 수행할 수 없습니다.',
+      });
     }
 
     this.logger.debug(`원본 경로의 자전거 프로필: ${bikeProfile}`);
@@ -142,9 +155,10 @@ export class NavigationRerouteService {
         });
 
       if (!startStation) {
-        throw new Error(
-          `현재 위치 근처에 이용 가능한 출발 대여소를 찾을 수 없습니다. 좌표: ${currentLocation.lat}, ${currentLocation.lng}`,
-        );
+        throw new BadRequestException({
+          statusCode: 400,
+          message: `현재 위치 근처에 이용 가능한 출발 대여소를 찾을 수 없습니다. 좌표: ${currentLocation.lat}, ${currentLocation.lng}`,
+        });
       }
 
       const startStationCoord: CoordinateDto = {
@@ -223,9 +237,11 @@ export class NavigationRerouteService {
       .flatMap((segment) => segment.instructions!);
 
     if (allInstructions.length === 0) {
-      throw new Error(
-        '재검색된 경로에 네비게이션 정보가 없습니다. 다시 시도해주세요.',
-      );
+      throw new InternalServerErrorException({
+        statusCode: 500,
+        message:
+          '재검색된 경로에 네비게이션 정보가 없습니다. 다시 시도해주세요.',
+      });
     }
 
     this.logger.debug(`통합된 instructions: ${allInstructions.length}개`);
@@ -236,9 +252,10 @@ export class NavigationRerouteService {
     );
 
     if (allSegments.length === 0) {
-      throw new Error(
-        '재검색된 경로에 geometry 정보가 없습니다. 다시 시도해주세요.',
-      );
+      throw new InternalServerErrorException({
+        statusCode: 500,
+        message: '재검색된 경로에 geometry 정보가 없습니다. 다시 시도해주세요.',
+      });
     }
 
     this.logger.debug(
@@ -255,7 +272,10 @@ export class NavigationRerouteService {
 
     // 12. Redis 저장용 경로 생성 (원본 routeId 사용하여 덮어쓰기)
     if (!routeId) {
-      throw new Error('원본 경로에 routeId가 없습니다.');
+      throw new InternalServerErrorException({
+        statusCode: 500,
+        message: '원본 경로에 routeId가 없습니다.',
+      });
     }
 
     const updatedRouteForRedis: NavigationRouteRedis = {
@@ -450,9 +470,10 @@ export class NavigationRerouteService {
           `구간 ${i + 1} 검색 실패: (${from.lat}, ${from.lng}) → (${to.lat}, ${to.lng})`,
           error,
         );
-        throw new Error(
-          `자전거 경로 검색 실패: 구간 ${i + 1} (${from.lat}, ${from.lng}) → (${to.lat}, ${to.lng})`,
-        );
+        throw new BadRequestException({
+          statusCode: 400,
+          message: `자전거 경로 검색 실패: 구간 ${i + 1} (${from.lat}, ${from.lng}) → (${to.lat}, ${to.lng})`,
+        });
       }
     }
 

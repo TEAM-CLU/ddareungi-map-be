@@ -1,4 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { RedisService } from '@liaoliaots/nestjs-redis';
 import type { Redis } from 'ioredis';
 import {
@@ -139,7 +144,7 @@ export class NavigationHelperService {
    * 세션 데이터 조회
    * @param sessionId 세션 ID
    * @returns 세션 데이터
-   * @throws Error 세션을 찾을 수 없는 경우
+   * @throws NotFoundException 세션을 찾을 수 없는 경우
    */
   async getSessionData(sessionId: string): Promise<{
     routeId: string;
@@ -150,7 +155,7 @@ export class NavigationHelperService {
 
     if (!sessionJson) {
       this.logger.warn(`세션 조회 실패: ${sessionId}`);
-      throw new Error(NAVIGATION_ERRORS.SESSION_NOT_FOUND);
+      throw new NotFoundException(NAVIGATION_ERRORS.SESSION_NOT_FOUND);
     }
 
     try {
@@ -160,7 +165,9 @@ export class NavigationHelperService {
       };
     } catch (error) {
       this.logger.error(`세션 데이터 파싱 실패: ${sessionId}`, error);
-      throw new Error(NAVIGATION_ERRORS.INVALID_SESSION_DATA);
+      throw new InternalServerErrorException(
+        NAVIGATION_ERRORS.INVALID_SESSION_DATA,
+      );
     }
   }
 
@@ -168,7 +175,7 @@ export class NavigationHelperService {
    * 경로 데이터 조회
    * @param routeId 경로 ID
    * @returns 경로 데이터
-   * @throws Error 경로를 찾을 수 없는 경우
+   * @throws NotFoundException 경로를 찾을 수 없는 경우
    */
   async getRouteData(routeId: string): Promise<NavigationRouteRedis> {
     const routeKey = `${REDIS_KEY_PREFIX.ROUTE}${routeId}`;
@@ -176,14 +183,16 @@ export class NavigationHelperService {
 
     if (!routeJson) {
       this.logger.warn(`경로 조회 실패: ${routeId}`);
-      throw new Error(NAVIGATION_ERRORS.ROUTE_NOT_FOUND);
+      throw new NotFoundException(NAVIGATION_ERRORS.ROUTE_NOT_FOUND);
     }
 
     try {
       return JSON.parse(routeJson) as NavigationRouteRedis;
     } catch (error) {
       this.logger.error(`경로 데이터 파싱 실패: ${routeId}`, error);
-      throw new Error(NAVIGATION_ERRORS.INVALID_SESSION_DATA);
+      throw new InternalServerErrorException(
+        NAVIGATION_ERRORS.INVALID_SESSION_DATA,
+      );
     }
   }
 

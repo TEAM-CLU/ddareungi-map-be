@@ -90,6 +90,16 @@ export class StationManagementService {
     }
   }
 
+  async removeByNumber(number: string): Promise<void> {
+    const result = await this.stationRepository.delete({
+      number,
+    });
+
+    if (result.affected === 0) {
+      throw new NotFoundException('대여소를 찾을 수 없습니다.');
+    }
+  }
+
   /**
    * 모든 대여소 삭제 (관리자용 - 주의 필요)
    */

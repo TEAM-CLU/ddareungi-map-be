@@ -5,10 +5,12 @@ import {
   CallHandler,
   Logger,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { Request, Response } from 'express';
 import { randomUUID } from 'crypto';
+import { getSlowRequestThresholdMs } from '../rate-limit/rate-limit.util';
 
 interface ClsService {
   set(key: string, value: unknown): void;
@@ -25,15 +27,32 @@ interface ClsService {
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
   private readonly logger = new Logger(LoggingInterceptor.name);
+  private readonly nodeEnv: string;
+  private readonly slowRequestThresholdMs: number;
 
-  constructor(private readonly cls?: ClsService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly cls?: ClsService,
+  ) {
+    this.nodeEnv = this.configService.get<string>('NODE_ENV', 'local');
+    this.slowRequestThresholdMs = getSlowRequestThresholdMs(this.nodeEnv);
+  }
+
+  private shouldSkipLogging(url: string): boolean {
+    return (
+      url === '/health' ||
+      url.startsWith('/health/') ||
+      url === '/api-docs' ||
+      url.startsWith('/api-docs/') ||
+      url === '/api-docs-json'
+    );
+  }
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const request = context.switchToHttp().getRequest<Request>();
     const response = context.switchToHttp().getResponse<Response>();
 
-    // /health 경로는 로그에서 제외
-    if (request.url === '/health' || request.url.startsWith('/health/')) {
+    if (this.shouldSkipLogging(request.url)) {
       return next.handle();
     }
 
@@ -69,9 +88,7 @@ export class LoggingInterceptor implements NestInterceptor {
           const latency = Date.now() - startTime;
           const statusCode = response.statusCode;
           const externalCalls = this.cls?.get('externalCalls');
-
-          // 로그 형식: [Method] [URL] [Status] [Latency]
-          this.logger.log({
+          const payload = {
             message: `[${method}] ${url} [${statusCode}] ${latency}ms`,
             traceId,
             method,
@@ -79,7 +96,17 @@ export class LoggingInterceptor implements NestInterceptor {
             statusCode,
             latency: `${latency}ms`,
             ...(externalCalls ? { externalCalls } : {}),
-          });
+          };
+
+          if (
+            this.nodeEnv === 'production' &&
+            latency >= this.slowRequestThresholdMs
+          ) {
+            this.logger.warn(payload);
+            return;
+          }
+
+          this.logger.log(payload);
         },
         error: (error: unknown) => {
           const latency = Date.now() - startTime;
@@ -87,9 +114,7 @@ export class LoggingInterceptor implements NestInterceptor {
           const externalCalls = this.cls?.get('externalCalls');
           const errorObj =
             error instanceof Error ? error : new Error(String(error));
-
-          // 에러 로그 형식: [Method] [URL] [Status] [Latency]
-          this.logger.error({
+          const payload = {
             message: `[${method}] ${url} [${statusCode}] ${latency}ms`,
             traceId,
             method,
@@ -104,7 +129,14 @@ export class LoggingInterceptor implements NestInterceptor {
                 ? { stack: errorObj.stack }
                 : {}),
             },
-          });
+          };
+
+          if (statusCode >= 500) {
+            this.logger.error(payload);
+            return;
+          }
+
+          this.logger.warn(payload);
         },
       }),
     );

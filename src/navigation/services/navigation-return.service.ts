@@ -1,4 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { CoordinateDto, RouteSegmentDto } from '../../routes/dto/route.dto';
 import { GraphHopperService } from '../../routes/services/graphhopper.service';
 import { ReturnToRouteResponseDto } from '../dto/navigation.dto';
@@ -60,9 +65,11 @@ export class NavigationReturnService {
     );
 
     if (!closestPoint) {
-      throw new Error(
-        '경로에서 복귀 지점을 찾을 수 없습니다. 새로 경로를 검색해주세요.',
-      );
+      throw new BadRequestException({
+        statusCode: 400,
+        message:
+          '경로에서 복귀 지점을 찾을 수 없습니다. 새로 경로를 검색해주세요.',
+      });
     }
 
     this.logger.log(
@@ -85,9 +92,11 @@ export class NavigationReturnService {
     );
 
     if (!nextInstruction) {
-      throw new Error(
-        '다음 안내 지점을 찾을 수 없습니다. 목적지에 거의 도착했을 수 있습니다.',
-      );
+      throw new BadRequestException({
+        statusCode: 400,
+        message:
+          '다음 안내 지점을 찾을 수 없습니다. 목적지에 거의 도착했을 수 있습니다.',
+      });
     }
 
     this.logger.debug(
@@ -142,7 +151,10 @@ export class NavigationReturnService {
 
     if (!ghPath || !ghPath.instructions || ghPath.instructions.length === 0) {
       this.logger.error('[복귀 경로] 경로를 찾을 수 없음');
-      throw new Error('복귀 경로를 찾을 수 없습니다.');
+      throw new BadRequestException({
+        statusCode: 400,
+        message: '복귀 경로를 찾을 수 없습니다.',
+      });
     }
 
     this.logger.debug(

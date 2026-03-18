@@ -2,8 +2,7 @@ import {
   Controller,
   Post,
   Body,
-  HttpException,
-  HttpStatus,
+  BadRequestException,
   Get,
   Query,
 } from '@nestjs/common';
@@ -99,30 +98,18 @@ export class TtsController {
       ttsUrl?: string;
     }>
   > {
-    try {
-      // synthesizeAndCache가 이미 번역을 수행함
-      const result = await this.ttsService.synthesizeAndCache(dto.text);
+    const result = await this.ttsService.synthesizeAndCacheOrThrow(dto.text);
 
-      if (result.status === 'error') {
-        throw new Error(result.error || 'TTS 생성 실패');
-      }
+    const message = result.cached
+      ? '캐시된 TTS를 반환했습니다.'
+      : 'TTS를 새로 생성했습니다.';
 
-      const message = result.cached
-        ? '캐시된 TTS를 반환했습니다.'
-        : 'TTS를 새로 생성했습니다.';
-
-      return SuccessResponseDto.create(message, {
-        text: dto.text,
-        textKo: (result.textKo as string) || dto.text,
-        cached: Boolean(result.cached),
-        ttsUrl: result.url,
-      });
-    } catch (error) {
-      throw new HttpException(
-        `TTS 생성 실패: ${(error as Error).message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+    return SuccessResponseDto.create(message, {
+      text: dto.text,
+      textKo: (result.textKo as string) || dto.text,
+      cached: Boolean(result.cached),
+      ttsUrl: result.url,
+    });
   }
 
   @Post('permanent')
@@ -142,28 +129,17 @@ export class TtsController {
   ): Promise<
     SuccessResponseDto<{ text: string; cached: boolean; ttsUrl?: string }>
   > {
-    try {
-      const result = await this.ttsService.synthesizePermanent(dto.text);
+    const result = await this.ttsService.synthesizePermanentOrThrow(dto.text);
 
-      if (result.status === 'error') {
-        throw new Error(result.error || 'TTS 생성 실패');
-      }
+    const message = result.cached
+      ? '캐시된 고정 메시지 TTS를 반환했습니다.'
+      : '고정 메시지 TTS를 새로 생성했습니다.';
 
-      const message = result.cached
-        ? '캐시된 고정 메시지 TTS를 반환했습니다.'
-        : '고정 메시지 TTS를 새로 생성했습니다.';
-
-      return SuccessResponseDto.create(message, {
-        text: dto.text,
-        cached: Boolean(result.cached),
-        ttsUrl: result.url,
-      });
-    } catch (error) {
-      throw new HttpException(
-        `고정 메시지 TTS 생성 실패: ${(error as Error).message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+    return SuccessResponseDto.create(message, {
+      text: dto.text,
+      cached: Boolean(result.cached),
+      ttsUrl: result.url,
+    });
   }
 
   @Get('lookup')
@@ -209,40 +185,32 @@ export class TtsController {
       | { items: unknown[]; nextCursor: string }
     >
   > {
-    try {
-      // 전체 조회 (임시 캐시 목록)
-      if (!text || !text.trim()) {
-        const { items, nextCursor } = await this.ttsService.listCached(
-          'temporary',
-          cursor || '0',
-          limit ? Number(limit) : 200,
-        );
-        return SuccessResponseDto.create('임시 TTS 캐시 목록 조회 성공', {
-          items,
-          nextCursor,
-        });
-      }
-
-      const result = await this.ttsService.lookup(text);
-
-      if (!result) {
-        return SuccessResponseDto.create('캐시에 TTS가 없습니다', {
-          text,
-          cached: false,
-        });
-      }
-
-      return SuccessResponseDto.create('TTS 캐시 조회 성공', {
-        text,
-        cached: true,
-        ttsUrl: result.url,
-      });
-    } catch (error) {
-      throw new HttpException(
-        `TTS 조회 실패: ${(error as Error).message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR,
+    if (!text || !text.trim()) {
+      const { items, nextCursor } = await this.ttsService.listCached(
+        'temporary',
+        cursor || '0',
+        limit ? Number(limit) : 200,
       );
+      return SuccessResponseDto.create('임시 TTS 캐시 목록 조회 성공', {
+        items,
+        nextCursor,
+      });
     }
+
+    const result = await this.ttsService.lookup(text);
+
+    if (!result) {
+      return SuccessResponseDto.create('캐시에 TTS가 없습니다', {
+        text,
+        cached: false,
+      });
+    }
+
+    return SuccessResponseDto.create('TTS 캐시 조회 성공', {
+      text,
+      cached: true,
+      ttsUrl: result.url,
+    });
   }
 
   @Get('lookup-permanent')
@@ -288,43 +256,32 @@ export class TtsController {
       | { items: unknown[]; nextCursor: string }
     >
   > {
-    try {
-      // 전체 조회 (고정 메시지 캐시 목록)
-      if (!text || !text.trim()) {
-        const { items, nextCursor } = await this.ttsService.listCached(
-          'permanent',
-          cursor || '0',
-          limit ? Number(limit) : 200,
-        );
-        return SuccessResponseDto.create(
-          '고정 메시지 TTS 캐시 목록 조회 성공',
-          {
-            items,
-            nextCursor,
-          },
-        );
-      }
-
-      const result = await this.ttsService.lookupPermanent(text);
-
-      if (!result) {
-        return SuccessResponseDto.create('캐시에 고정 메시지 TTS가 없습니다', {
-          text,
-          cached: false,
-        });
-      }
-
-      return SuccessResponseDto.create('고정 메시지 TTS 캐시 조회 성공', {
-        text,
-        cached: true,
-        ttsUrl: result.url,
-      });
-    } catch (error) {
-      throw new HttpException(
-        `고정 메시지 TTS 조회 실패: ${(error as Error).message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR,
+    if (!text || !text.trim()) {
+      const { items, nextCursor } = await this.ttsService.listCached(
+        'permanent',
+        cursor || '0',
+        limit ? Number(limit) : 200,
       );
+      return SuccessResponseDto.create('고정 메시지 TTS 캐시 목록 조회 성공', {
+        items,
+        nextCursor,
+      });
     }
+
+    const result = await this.ttsService.lookupPermanent(text);
+
+    if (!result) {
+      return SuccessResponseDto.create('캐시에 고정 메시지 TTS가 없습니다', {
+        text,
+        cached: false,
+      });
+    }
+
+    return SuccessResponseDto.create('고정 메시지 TTS 캐시 조회 성공', {
+      text,
+      cached: true,
+      ttsUrl: result.url,
+    });
   }
 
   @Get('lookup-s3')
@@ -348,7 +305,10 @@ export class TtsController {
     @Query('text') text?: string,
   ): Promise<SuccessResponseDto<S3LookupResponseDto>> {
     if (!text || !text.trim()) {
-      throw new HttpException('text는 필수입니다', HttpStatus.BAD_REQUEST);
+      throw new BadRequestException({
+        statusCode: 400,
+        message: 'text는 필수입니다',
+      });
     }
 
     const result = await this.ttsService.lookupS3(text);
@@ -382,7 +342,10 @@ export class TtsController {
     @Query('text') text?: string,
   ): Promise<SuccessResponseDto<S3LookupResponseDto>> {
     if (!text || !text.trim()) {
-      throw new HttpException('text는 필수입니다', HttpStatus.BAD_REQUEST);
+      throw new BadRequestException({
+        statusCode: 400,
+        message: 'text는 필수입니다',
+      });
     }
 
     const result = await this.ttsService.lookupS3Permanent(text);

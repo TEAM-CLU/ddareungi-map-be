@@ -5,10 +5,8 @@ import {
   Delete,
   Body,
   UseGuards,
-  Req,
   HttpStatus,
   HttpCode,
-  HttpException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -17,10 +15,6 @@ import {
   ApiBearerAuth,
   ApiBody,
 } from '@nestjs/swagger';
-import { Request as ExpressRequest } from 'express';
-interface AuthRequest extends ExpressRequest {
-  user?: { userId: number };
-}
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { UserStatsService } from './services/user-stats.service';
 import { UpdateUserStatsDto } from './dto/update-user-stats.dto';
@@ -28,6 +22,7 @@ import {
   SuccessResponseDto,
   ErrorResponseDto,
 } from '../common/api-response.dto';
+import { CurrentUserId } from '../common/decorators/current-user-id.decorator';
 
 @ApiTags('유저 통계 (User Stats)')
 @Controller('user/stats')
@@ -71,34 +66,14 @@ export class UserStatsController {
     },
   })
   async updateStats(
-    @Req() req: AuthRequest,
+    @CurrentUserId() userId: number,
     @Body() updateUserStatsDto: UpdateUserStatsDto,
   ) {
-    const userId = req.user?.userId;
-    if (typeof userId !== 'number') {
-      throw new HttpException(
-        ErrorResponseDto.create(
-          HttpStatus.UNAUTHORIZED,
-          '유저 정보가 올바르지 않습니다.',
-        ),
-        HttpStatus.UNAUTHORIZED,
-      );
-    }
-
-    try {
-      const stats = await this.userStatsService.updateUserStats(
-        userId,
-        updateUserStatsDto,
-      );
-      return SuccessResponseDto.create('통계 업데이트 성공', stats);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : '알 수 없는 오류';
-      throw new HttpException(
-        ErrorResponseDto.create(HttpStatus.BAD_REQUEST, message),
-        HttpStatus.BAD_REQUEST,
-      );
-    }
+    const stats = await this.userStatsService.updateUserStats(
+      userId,
+      updateUserStatsDto,
+    );
+    return SuccessResponseDto.create('통계 업데이트 성공', stats);
   }
 
   @Get()
@@ -131,29 +106,9 @@ export class UserStatsController {
       },
     },
   })
-  async getStats(@Req() req: AuthRequest) {
-    const userId = req.user?.userId;
-    if (typeof userId !== 'number') {
-      throw new HttpException(
-        ErrorResponseDto.create(
-          HttpStatus.UNAUTHORIZED,
-          '유저 정보가 올바르지 않습니다.',
-        ),
-        HttpStatus.UNAUTHORIZED,
-      );
-    }
-
-    try {
-      const stats = await this.userStatsService.getUserStats(userId);
-      return SuccessResponseDto.create('통계 조회 성공', stats);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : '알 수 없는 오류';
-      throw new HttpException(
-        ErrorResponseDto.create(HttpStatus.BAD_REQUEST, message),
-        HttpStatus.BAD_REQUEST,
-      );
-    }
+  async getStats(@CurrentUserId() userId: number) {
+    const stats = await this.userStatsService.getUserStats(userId);
+    return SuccessResponseDto.create('통계 조회 성공', stats);
   }
 
   @Delete('reset')
@@ -177,28 +132,8 @@ export class UserStatsController {
     description: '인증되지 않은 사용자',
     type: ErrorResponseDto,
   })
-  async resetStats(@Req() req: AuthRequest) {
-    const userId = req.user?.userId;
-    if (typeof userId !== 'number') {
-      throw new HttpException(
-        ErrorResponseDto.create(
-          HttpStatus.UNAUTHORIZED,
-          '유저 정보가 올바르지 않습니다.',
-        ),
-        HttpStatus.UNAUTHORIZED,
-      );
-    }
-
-    try {
-      await this.userStatsService.resetUserStats(userId);
-      return SuccessResponseDto.create('통계 초기화 성공', null);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : '알 수 없는 오류';
-      throw new HttpException(
-        ErrorResponseDto.create(HttpStatus.BAD_REQUEST, message),
-        HttpStatus.BAD_REQUEST,
-      );
-    }
+  async resetStats(@CurrentUserId() userId: number) {
+    await this.userStatsService.resetUserStats(userId);
+    return SuccessResponseDto.create('통계 초기화 성공', null);
   }
 }

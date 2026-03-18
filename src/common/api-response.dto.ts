@@ -28,14 +28,17 @@ export class ErrorResponseDto {
   statusCode: number;
 
   @ApiProperty({ description: '에러 메시지' })
-  message: string;
+  message: string | string[];
 
-  constructor(statusCode: number, message: string) {
+  constructor(statusCode: number, message: string | string[]) {
     this.statusCode = statusCode;
     this.message = message;
   }
 
-  static create(statusCode: number, message: string): ErrorResponseDto {
+  static create(
+    statusCode: number,
+    message: string | string[],
+  ): ErrorResponseDto {
     return new ErrorResponseDto(statusCode, message);
   }
 }

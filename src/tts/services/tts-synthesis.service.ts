@@ -1,4 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import { createHash, randomUUID } from 'crypto';
 import ffmpeg from 'fluent-ffmpeg';
 import { promises as fs } from 'fs';
@@ -13,6 +17,8 @@ import { TtsTextChunkService } from './tts-text-chunk.service';
 
 @Injectable()
 export class TtsSynthesisService {
+  private readonly logger = new Logger(TtsSynthesisService.name);
+
   constructor(
     private readonly ttsProvider: GoogleTtsProvider,
     private readonly ttsStorageService: TtsStorageService,
@@ -26,7 +32,7 @@ export class TtsSynthesisService {
 
   private async mergeAudioChunks(buffers: Buffer[]): Promise<Buffer> {
     if (buffers.length === 0) {
-      throw new Error('No audio chunk buffers');
+      throw new InternalServerErrorException('병합할 오디오 청크가 없습니다.');
     }
 
     if (buffers.length === 1) {
@@ -63,6 +69,12 @@ export class TtsSynthesisService {
       });
 
       return fs.readFile(outputFile);
+    } catch (error) {
+      this.logger.error(
+        '오디오 청크 병합 실패',
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw new InternalServerErrorException('TTS 오디오 병합에 실패했습니다.');
     } finally {
       await fs.rm(workdir, { recursive: true, force: true });
     }

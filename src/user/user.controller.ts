@@ -8,15 +8,7 @@ import {
   HttpCode,
   HttpStatus,
   UseGuards,
-  Req,
-  HttpException,
 } from '@nestjs/common';
-
-import type { Request as ExpressRequest } from 'express';
-
-interface AuthRequest extends ExpressRequest {
-  user?: { userId: number };
-}
 import {
   ApiTags,
   ApiOperation,
@@ -39,6 +31,7 @@ import { CheckEmailDto } from './dto/check-email.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { WithdrawByEmailDto } from './dto/withdraw-by-email.dto';
 import { WithdrawByEmailGuard } from './guards/withdraw-by-email.guard';
+import { CurrentUserId } from '../common/decorators/current-user-id.decorator';
 
 @ApiTags('유저 (User)')
 @Controller('user')
@@ -76,17 +69,8 @@ export class UserController {
     },
   })
   async createUser(@Body() createUserDto: CreateUserDto) {
-    try {
-      await this.userService.register(createUserDto);
-      return SuccessResponseDto.create('회원가입이 완료되었습니다.', null);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : '알 수 없는 오류';
-      throw new HttpException(
-        ErrorResponseDto.create(HttpStatus.BAD_REQUEST, message),
-        HttpStatus.BAD_REQUEST,
-      );
-    }
+    await this.userService.register(createUserDto);
+    return SuccessResponseDto.create('회원가입이 완료되었습니다.', null);
   }
 
   @Post('login-user')
@@ -122,17 +106,8 @@ export class UserController {
     },
   })
   async loginUser(@Body() loginUserDto: LoginUserDto) {
-    try {
-      const result = await this.userService.login(loginUserDto);
-      return SuccessResponseDto.create('로그인이 완료되었습니다.', result);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : '알 수 없는 오류';
-      throw new HttpException(
-        ErrorResponseDto.create(HttpStatus.BAD_REQUEST, message),
-        HttpStatus.BAD_REQUEST,
-      );
-    }
+    const result = await this.userService.login(loginUserDto);
+    return SuccessResponseDto.create('로그인이 완료되었습니다.', result);
   }
 
   @Get('info')
@@ -170,29 +145,9 @@ export class UserController {
       },
     },
   })
-  async getUserInfo(@Req() req: AuthRequest) {
-    const userId = req.user?.userId;
-    if (typeof userId !== 'number') {
-      throw new HttpException(
-        ErrorResponseDto.create(
-          HttpStatus.UNAUTHORIZED,
-          '유저 정보가 올바르지 않습니다.',
-        ),
-        HttpStatus.UNAUTHORIZED,
-      );
-    }
-
-    try {
-      const userInfo = await this.userService.getUserInfo(userId);
-      return SuccessResponseDto.create('사용자 정보 조회 성공', userInfo);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : '알 수 없는 오류';
-      throw new HttpException(
-        ErrorResponseDto.create(HttpStatus.BAD_REQUEST, message),
-        HttpStatus.BAD_REQUEST,
-      );
-    }
+  async getUserInfo(@CurrentUserId() userId: number) {
+    const userInfo = await this.userService.getUserInfo(userId);
+    return SuccessResponseDto.create('사용자 정보 조회 성공', userInfo);
   }
 
   @Put('info-update')
@@ -244,34 +199,14 @@ export class UserController {
     },
   })
   async updateUserInfo(
-    @Req() req: AuthRequest,
+    @CurrentUserId() userId: number,
     @Body() updateUserInfoDto: UpdateUserInfoDto,
   ) {
-    const userId = req.user?.userId;
-    if (typeof userId !== 'number') {
-      throw new HttpException(
-        ErrorResponseDto.create(
-          HttpStatus.UNAUTHORIZED,
-          '유저 정보가 올바르지 않습니다.',
-        ),
-        HttpStatus.UNAUTHORIZED,
-      );
-    }
-
-    try {
-      const updatedInfo = await this.userService.updateUserInfo(
-        userId,
-        updateUserInfoDto,
-      );
-      return SuccessResponseDto.create('사용자 정보 수정 성공', updatedInfo);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : '알 수 없는 오류';
-      throw new HttpException(
-        ErrorResponseDto.create(HttpStatus.BAD_REQUEST, message),
-        HttpStatus.BAD_REQUEST,
-      );
-    }
+    const updatedInfo = await this.userService.updateUserInfo(
+      userId,
+      updateUserInfoDto,
+    );
+    return SuccessResponseDto.create('사용자 정보 수정 성공', updatedInfo);
   }
 
   @Put('password')
@@ -331,34 +266,14 @@ export class UserController {
     },
   })
   async changePassword(
-    @Req() req: AuthRequest,
+    @CurrentUserId() userId: number,
     @Body() changePasswordDto: ChangePasswordDto,
   ) {
-    const userId = req.user?.userId;
-    if (typeof userId !== 'number') {
-      throw new HttpException(
-        ErrorResponseDto.create(
-          HttpStatus.UNAUTHORIZED,
-          '유저 정보가 올바르지 않습니다.',
-        ),
-        HttpStatus.UNAUTHORIZED,
-      );
-    }
-
-    try {
-      await this.userService.changePassword(userId, changePasswordDto);
-      return SuccessResponseDto.create(
-        '비밀번호가 성공적으로 변경되었습니다.',
-        null,
-      );
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : '알 수 없는 오류';
-      throw new HttpException(
-        ErrorResponseDto.create(HttpStatus.BAD_REQUEST, message),
-        HttpStatus.BAD_REQUEST,
-      );
-    }
+    await this.userService.changePassword(userId, changePasswordDto);
+    return SuccessResponseDto.create(
+      '비밀번호가 성공적으로 변경되었습니다.',
+      null,
+    );
   }
 
   @Get('mypage')
@@ -397,30 +312,10 @@ export class UserController {
       },
     },
   })
-  async getMyPageInfo(@Req() req: AuthRequest) {
-    const userId = req.user?.userId;
-    if (typeof userId !== 'number') {
-      throw new HttpException(
-        ErrorResponseDto.create(
-          HttpStatus.UNAUTHORIZED,
-          '유저 정보가 올바르지 않습니다.',
-        ),
-        HttpStatus.UNAUTHORIZED,
-      );
-    }
-
-    try {
-      const myPage: MyPageInfoResponseDto =
-        await this.userService.getMyPageInfo(userId);
-      return SuccessResponseDto.create('마이페이지 정보 조회 성공', myPage);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : '알 수 없는 오류';
-      throw new HttpException(
-        ErrorResponseDto.create(HttpStatus.BAD_REQUEST, message),
-        HttpStatus.BAD_REQUEST,
-      );
-    }
+  async getMyPageInfo(@CurrentUserId() userId: number) {
+    const myPage: MyPageInfoResponseDto =
+      await this.userService.getMyPageInfo(userId);
+    return SuccessResponseDto.create('마이페이지 정보 조회 성공', myPage);
   }
 
   @Post('check-email')
@@ -465,21 +360,8 @@ export class UserController {
     },
   })
   async checkEmail(@Body() checkEmailDto: CheckEmailDto) {
-    try {
-      await this.userService.checkEmailExists(checkEmailDto);
-      return SuccessResponseDto.create('사용 가능한 이메일입니다.', null);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : '알 수 없는 오류';
-      const statusCode =
-        message.includes('이미 존재') || message.includes('중복')
-          ? HttpStatus.CONFLICT
-          : HttpStatus.BAD_REQUEST;
-      throw new HttpException(
-        ErrorResponseDto.create(statusCode, message),
-        statusCode,
-      );
-    }
+    await this.userService.checkEmailExists(checkEmailDto);
+    return SuccessResponseDto.create('사용 가능한 이메일입니다.', null);
   }
 
   @Delete('withdraw')
@@ -525,28 +407,9 @@ export class UserController {
       },
     },
   })
-  async withdrawUser(@Req() req: AuthRequest) {
-    if (!req.user || typeof req.user.userId !== 'number') {
-      throw new HttpException(
-        ErrorResponseDto.create(
-          HttpStatus.UNAUTHORIZED,
-          '유저 정보가 올바르지 않습니다.',
-        ),
-        HttpStatus.UNAUTHORIZED,
-      );
-    }
-
-    try {
-      await this.userService.withdraw(req.user.userId);
-      return SuccessResponseDto.create('회원 탈퇴가 완료되었습니다.', null);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : '알 수 없는 오류';
-      throw new HttpException(
-        ErrorResponseDto.create(HttpStatus.BAD_REQUEST, message),
-        HttpStatus.BAD_REQUEST,
-      );
-    }
+  async withdrawUser(@CurrentUserId() userId: number) {
+    await this.userService.withdraw(userId);
+    return SuccessResponseDto.create('회원 탈퇴가 완료되었습니다.', null);
   }
 
   @Delete('withdraw/email')
@@ -587,17 +450,7 @@ export class UserController {
     type: ErrorResponseDto,
   })
   async withdrawUserByEmail(@Body() dto: WithdrawByEmailDto) {
-    try {
-      await this.userService.withdrawByEmail(dto.email);
-      return SuccessResponseDto.create('회원 탈퇴가 완료되었습니다.', null);
-    } catch (error) {
-      if (error instanceof HttpException) throw error;
-      const message =
-        error instanceof Error ? error.message : '알 수 없는 오류';
-      throw new HttpException(
-        ErrorResponseDto.create(HttpStatus.BAD_REQUEST, message),
-        HttpStatus.BAD_REQUEST,
-      );
-    }
+    await this.userService.withdrawByEmail(dto.email);
+    return SuccessResponseDto.create('회원 탈퇴가 완료되었습니다.', null);
   }
 }

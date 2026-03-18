@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TextToSpeechClient } from '@google-cloud/text-to-speech';
 import * as fs from 'fs';
@@ -29,14 +34,14 @@ export class GoogleTtsProvider implements TtsProvider, OnModuleInit {
     );
 
     if (!keyFilename) {
-      throw new Error(
-        'Google Cloud credentials not configured. Set GOOGLE_APPLICATION_CREDENTIALS to a valid file path.',
+      throw new InternalServerErrorException(
+        'Google TTS 인증 정보가 설정되지 않았습니다.',
       );
     }
 
     if (!fs.existsSync(keyFilename)) {
-      throw new Error(
-        `Google Cloud credentials file not found: ${keyFilename}. Check GOOGLE_APPLICATION_CREDENTIALS.`,
+      throw new InternalServerErrorException(
+        'Google TTS 인증 파일을 찾을 수 없습니다.',
       );
     }
 
@@ -71,7 +76,9 @@ export class GoogleTtsProvider implements TtsProvider, OnModuleInit {
       });
 
       if (!response.audioContent) {
-        throw new Error('No audio content returned from Google TTS');
+        throw new InternalServerErrorException(
+          'Google TTS 오디오 응답이 비어 있습니다.',
+        );
       }
 
       this.logger.debug(
@@ -84,7 +91,10 @@ export class GoogleTtsProvider implements TtsProvider, OnModuleInit {
         `Failed to synthesize speech: ${(error as Error).message}`,
         (error as Error).stack,
       );
-      throw error;
+      if (error instanceof InternalServerErrorException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Google TTS 합성에 실패했습니다.');
     }
   }
 
