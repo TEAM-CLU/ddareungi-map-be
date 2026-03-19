@@ -104,6 +104,31 @@ SENTRY_TRACES_SAMPLE_RATE=0.1
 - `GET /test/sentry-error` 호출 시 의도적으로 에러를 발생시킵니다.
 - production 환경에서 호출하면 Sentry 대시보드에 에러가 유입되는지 확인할 수 있습니다.
 
+## 📈 GA4 서버사이드 Analytics 설정
+
+GA4는 프런트 SDK 없이 NestJS 백엔드가 직접 Measurement Protocol로 전송합니다.
+
+상세 동작 원리와 이벤트 설계는 [`./GA4_ANALYTICS_IMPLEMENTATION.md`](./GA4_ANALYTICS_IMPLEMENTATION.md)를 참고합니다.
+
+### 필수 환경변수
+
+```env
+GA4_MEASUREMENT_ID=G-XXXXXXXXXX
+GA4_API_SECRET=your_ga4_measurement_protocol_secret
+```
+
+### 동작 방식
+
+- 두 값이 모두 있으면 analytics가 활성화됩니다.
+- 하나라도 없으면 analytics는 no-op로 동작합니다.
+- 비활성 상태여도 station search, route search, navigation API 본 기능은 정상 동작합니다.
+
+### 권장 운영 조건
+
+- React Native 앱은 `X-Anonymous-App-Id`를 모든 요청에 포함합니다.
+- 프런트가 별도 GA client id를 만들 수 있으면 `X-GA-Client-Id`를 우선 사용합니다.
+- 둘 다 없으면 서버가 임시 UUID를 `client_id`로 사용하지만 revisit KPI 정확도는 낮아집니다.
+
 ## 📘 Swagger 관리자 접근 설정
 
 Swagger 문서는 기본 공개가 아니라, 전용 관리자 계정이 설정된 경우에만 활성화됩니다.

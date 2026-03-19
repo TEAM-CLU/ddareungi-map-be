@@ -8,9 +8,10 @@ import { NavigationRerouteService } from './services/navigation-reroute.service'
 import { NavigationEndService } from './services/navigation-end.service';
 import { RoutesModule } from '../routes/routes.module';
 import { TtsModule } from '../tts/tts.module';
+import { AnalyticsModule } from '../analytics/analytics.module';
 
 @Module({
-  imports: [RoutesModule, TtsModule],
+  imports: [RoutesModule, TtsModule, AnalyticsModule],
   controllers: [NavigationController],
   providers: [
     // 핵심 서비스

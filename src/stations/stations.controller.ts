@@ -8,6 +8,7 @@ import {
   Query,
   HttpStatus,
   Logger,
+  Req,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -38,6 +39,17 @@ import {
   SuccessResponseDto,
   ErrorResponseDto,
 } from '../common/api-response.dto';
+import {
+  ANALYTICS_EVENT_API_OPERATION_RESULT,
+  ANALYTICS_EVENT_STATION_SEARCH,
+  getErrorType,
+  getHttpStatusFromError,
+  toRadiusBucket,
+  toResultCountBucket,
+} from '../analytics/analytics.constants';
+import { AnalyticsIdentityResolver } from '../analytics/analytics-identity.resolver';
+import { AnalyticsService } from '../analytics/analytics.service';
+import type { AnalyticsRequest } from '../analytics/analytics.types';
 import { AdminProtected } from '../common/decorators/admin-protected.decorator';
 import { getAdminRateLimit } from '../common/rate-limit/rate-limit.util';
 
@@ -53,7 +65,15 @@ export class StationsController {
     private readonly stationBatchRealtimeSyncService: StationBatchRealtimeSyncService,
     private readonly stationRequestValidationService: StationRequestValidationService,
     private readonly stationReadFacadeService: StationReadFacadeService,
+    private readonly analyticsService: AnalyticsService,
+    private readonly analyticsIdentityResolver: AnalyticsIdentityResolver,
   ) {}
+
+  private getStationResultCount(
+    data: NearbyStationResponseDto[] | GeoJsonResponse,
+  ): number {
+    return Array.isArray(data) ? data.length : data.features.length;
+  }
 
   @Post('sync')
   @AdminProtected()
@@ -231,19 +251,64 @@ export class StationsController {
     @Query('latitude') latitude: number,
     @Query('longitude') longitude: number,
     @Query('format') format: 'json' | 'geojson' = 'json',
+    @Req() request: AnalyticsRequest,
   ): Promise<SuccessResponseDto<NearbyStationResponseDto[] | GeoJsonResponse>> {
-    const validated =
-      this.stationRequestValidationService.validateCoordinates(
-        latitude,
-        longitude,
-      );
-    const result = await this.stationReadFacadeService.getNearbyStations(
-      validated.latitude,
-      validated.longitude,
-      format,
-    );
+    const startedAt = Date.now();
+    const identity = this.analyticsIdentityResolver.resolve(request);
 
-    return SuccessResponseDto.create(result.message, result.data);
+    try {
+      const validated =
+        this.stationRequestValidationService.validateCoordinates(
+          latitude,
+          longitude,
+        );
+      const result = await this.stationReadFacadeService.getNearbyStations(
+        validated.latitude,
+        validated.longitude,
+        format,
+      );
+
+      const resultCount = this.getStationResultCount(result.data);
+      this.analyticsService.trackEvent({
+        name: ANALYTICS_EVENT_STATION_SEARCH,
+        identity,
+        params: {
+          search_type: 'nearby',
+          format,
+          result_count_bucket: toResultCountBucket(resultCount),
+          auth_state: identity.authState,
+        },
+      });
+      this.analyticsService.trackEvent({
+        name: ANALYTICS_EVENT_API_OPERATION_RESULT,
+        identity,
+        params: {
+          feature_area: 'station_search',
+          operation_name: 'get_nearby_stations',
+          outcome: 'success',
+          duration_ms: Date.now() - startedAt,
+          http_status: 200,
+          auth_state: identity.authState,
+        },
+      });
+
+      return SuccessResponseDto.create(result.message, result.data);
+    } catch (error) {
+      this.analyticsService.trackEvent({
+        name: ANALYTICS_EVENT_API_OPERATION_RESULT,
+        identity,
+        params: {
+          feature_area: 'station_search',
+          operation_name: 'get_nearby_stations',
+          outcome: 'error',
+          duration_ms: Date.now() - startedAt,
+          http_status: getHttpStatusFromError(error),
+          error_type: getErrorType(error),
+          auth_state: identity.authState,
+        },
+      });
+      throw error;
+    }
   }
 
   @Get('map-area')
@@ -297,21 +362,68 @@ export class StationsController {
     @Query('longitude') longitude: number,
     @Query('radius') radius: number,
     @Query('format') format: 'json' | 'geojson' = 'json',
+    @Req() request: AnalyticsRequest,
   ): Promise<SuccessResponseDto<NearbyStationResponseDto[] | GeoJsonResponse>> {
-    const validated =
-      this.stationRequestValidationService.validateCoordinatesWithRadius(
-        latitude,
-        longitude,
-        radius,
-      );
-    const result = await this.stationReadFacadeService.getStationsWithinRadius(
-      validated.latitude,
-      validated.longitude,
-      validated.radius,
-      format,
-    );
+    const startedAt = Date.now();
+    const identity = this.analyticsIdentityResolver.resolve(request);
 
-    return SuccessResponseDto.create(result.message, result.data);
+    try {
+      const validated =
+        this.stationRequestValidationService.validateCoordinatesWithRadius(
+          latitude,
+          longitude,
+          radius,
+        );
+      const result =
+        await this.stationReadFacadeService.getStationsWithinRadius(
+          validated.latitude,
+          validated.longitude,
+          validated.radius,
+          format,
+        );
+
+      const resultCount = this.getStationResultCount(result.data);
+      this.analyticsService.trackEvent({
+        name: ANALYTICS_EVENT_STATION_SEARCH,
+        identity,
+        params: {
+          search_type: 'map_area',
+          format,
+          radius_bucket: toRadiusBucket(validated.radius),
+          result_count_bucket: toResultCountBucket(resultCount),
+          auth_state: identity.authState,
+        },
+      });
+      this.analyticsService.trackEvent({
+        name: ANALYTICS_EVENT_API_OPERATION_RESULT,
+        identity,
+        params: {
+          feature_area: 'station_search',
+          operation_name: 'get_stations_within_radius',
+          outcome: 'success',
+          duration_ms: Date.now() - startedAt,
+          http_status: 200,
+          auth_state: identity.authState,
+        },
+      });
+
+      return SuccessResponseDto.create(result.message, result.data);
+    } catch (error) {
+      this.analyticsService.trackEvent({
+        name: ANALYTICS_EVENT_API_OPERATION_RESULT,
+        identity,
+        params: {
+          feature_area: 'station_search',
+          operation_name: 'get_stations_within_radius',
+          outcome: 'error',
+          duration_ms: Date.now() - startedAt,
+          http_status: getHttpStatusFromError(error),
+          error_type: getErrorType(error),
+          auth_state: identity.authState,
+        },
+      });
+      throw error;
+    }
   }
 
   @Get()
@@ -438,7 +550,8 @@ export class StationsController {
   async create(
     @Body() createStationDto: CreateStationDto,
   ): Promise<SuccessResponseDto<StationResponseDto>> {
-    const station = await this.stationManagementService.create(createStationDto);
+    const station =
+      await this.stationManagementService.create(createStationDto);
 
     return new SuccessResponseDto(
       HttpStatus.CREATED,

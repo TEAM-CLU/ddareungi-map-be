@@ -229,6 +229,37 @@
 - `MailService` 가 Nodemailer transport 를 만들고 Gmail SMTP 로 메일을 발송한다.
 - 이메일 인증 코드는 `AuthService` 에서 생성하고, 실제 발송은 `MailService` 가 담당한다.
 
+## 11. Google Analytics 4 (Measurement Protocol)
+
+### 역할
+
+- station search / route search / navigation 사용 행동 추적
+- 핵심 API의 성공/실패/응답 시간 추적
+
+### 연결 도메인
+
+- `analytics`
+- `stations`
+- `routes`
+- `navigation`
+
+### 관련 코드
+
+- [`../src/analytics/analytics.module.ts`](../src/analytics/analytics.module.ts)
+- [`../src/analytics/analytics.service.ts`](../src/analytics/analytics.service.ts)
+- [`../src/analytics/ga4-measurement-protocol.client.ts`](../src/analytics/ga4-measurement-protocol.client.ts)
+- [`../src/analytics/analytics-identity.resolver.ts`](../src/analytics/analytics-identity.resolver.ts)
+
+### 현재 사용 방식
+
+- 백엔드가 `https://www.google-analytics.com/mp/collect`로 직접 이벤트를 전송한다.
+- `GA4_MEASUREMENT_ID`, `GA4_API_SECRET`가 모두 있을 때만 활성화된다.
+- `X-GA-Client-Id` 또는 `X-Anonymous-App-Id`를 기준으로 `client_id`를 구성한다.
+- `Authorization` 헤더가 있으면 optional JWT decode로 `user_id`를 보강한다.
+- analytics 전송 실패는 warning만 남기고 비즈니스 API 흐름은 그대로 유지한다.
+
+상세 이벤트 스키마와 동작 원리는 [`./GA4_ANALYTICS_IMPLEMENTATION.md`](./GA4_ANALYTICS_IMPLEMENTATION.md)를 참고한다.
+
 ## 참고 문서
 
 - [GRAPHHOPPER_SETUP.md](./GRAPHHOPPER_SETUP.md)

@@ -17,9 +17,14 @@ import { StationReadFacadeService } from './services/station-read-facade.service
 import { AdminBasicAuthGuard } from '../common/guards/admin-basic-auth.guard';
 import { Station } from './entities/station.entity';
 import { SyncLog } from './entities/sync-log.entity';
+import { AnalyticsModule } from '../analytics/analytics.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Station, SyncLog]), ConfigModule],
+  imports: [
+    TypeOrmModule.forFeature([Station, SyncLog]),
+    ConfigModule,
+    AnalyticsModule,
+  ],
   controllers: [StationsController],
   providers: [
     StationsService,

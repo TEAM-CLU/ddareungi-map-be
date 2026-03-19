@@ -8,6 +8,7 @@ import { RouteBuilderService } from './services/route-builder.service';
 import { StationRouteService } from './services/station-route.service';
 import { RouteUtilService } from './services/route-util.service';
 import { StationsModule } from '../stations/stations.module';
+import { AnalyticsModule } from '../analytics/analytics.module';
 
 import { RedisModule } from '@liaoliaots/nestjs-redis';
 
@@ -15,6 +16,7 @@ import { RedisModule } from '@liaoliaots/nestjs-redis';
   imports: [
     StationsModule, // StationQueryService를 사용하기 위해 추가
     RedisModule,
+    AnalyticsModule,
   ],
   controllers: [RoutesController],
   providers: [

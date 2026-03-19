@@ -5,6 +5,7 @@ import {
   Param,
   Delete,
   Get,
+  Req,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBody, ApiResponse } from '@nestjs/swagger';
 import { NavigationService } from './navigation.service';
@@ -20,6 +21,18 @@ import {
   FullRerouteResponseDto,
 } from './dto/navigation.dto';
 import { SuccessResponseDto } from '../common/api-response.dto';
+import {
+  ANALYTICS_EVENT_API_OPERATION_RESULT,
+  ANALYTICS_EVENT_NAVIGATION_COMPLETED,
+  ANALYTICS_EVENT_NAVIGATION_STARTED,
+  ANALYTICS_EVENT_NAVIGATION_UPDATED,
+  getErrorType,
+  getHttpStatusFromError,
+  toInstructionCountBucket,
+} from '../analytics/analytics.constants';
+import { AnalyticsIdentityResolver } from '../analytics/analytics-identity.resolver';
+import { AnalyticsService } from '../analytics/analytics.service';
+import type { AnalyticsRequest } from '../analytics/analytics.types';
 
 @ApiTags('네비게이션 (navigation)')
 @Controller('navigation')
@@ -30,6 +43,8 @@ export class NavigationController {
     private readonly rerouteService: NavigationRerouteService,
     private readonly endService: NavigationEndService,
     private readonly sessionService: NavigationSessionService,
+    private readonly analyticsService: AnalyticsService,
+    private readonly analyticsIdentityResolver: AnalyticsIdentityResolver,
   ) {}
 
   @Post('start')
@@ -47,14 +62,60 @@ export class NavigationController {
   })
   async startNavigation(
     @Body() dto: StartNavigationDto,
+    @Req() request: AnalyticsRequest,
   ): Promise<SuccessResponseDto<NavigationSessionDto>> {
-    const result = await this.navigationService.startNavigationSession(
-      dto.routeId,
-    );
-    return SuccessResponseDto.create(
-      '네비게이션 세션이 성공적으로 시작되었습니다.',
-      result,
-    );
+    const startedAt = Date.now();
+    const identity = this.analyticsIdentityResolver.resolve(request);
+
+    try {
+      const result = await this.navigationService.startNavigationSession(
+        dto.routeId,
+      );
+
+      this.analyticsService.trackEvent({
+        name: ANALYTICS_EVENT_NAVIGATION_STARTED,
+        identity,
+        params: {
+          instruction_count_bucket: toInstructionCountBucket(
+            result.instructions.length,
+          ),
+          waypoint_count: result.waypoints?.length ?? 0,
+          auth_state: identity.authState,
+        },
+      });
+      this.analyticsService.trackEvent({
+        name: ANALYTICS_EVENT_API_OPERATION_RESULT,
+        identity,
+        params: {
+          feature_area: 'navigation',
+          operation_name: 'start_navigation',
+          outcome: 'success',
+          duration_ms: Date.now() - startedAt,
+          http_status: 200,
+          auth_state: identity.authState,
+        },
+      });
+
+      return SuccessResponseDto.create(
+        '네비게이션 세션이 성공적으로 시작되었습니다.',
+        result,
+      );
+    } catch (error) {
+      this.analyticsService.trackEvent({
+        name: ANALYTICS_EVENT_API_OPERATION_RESULT,
+        identity,
+        params: {
+          feature_area: 'navigation',
+          operation_name: 'start_navigation',
+          outcome: 'error',
+          duration_ms: Date.now() - startedAt,
+          http_status: getHttpStatusFromError(error),
+          error_type: getErrorType(error),
+          auth_state: identity.authState,
+        },
+      });
+      throw error;
+    }
   }
 
   @Post(':sessionId/heartbeat')
@@ -106,13 +167,58 @@ export class NavigationController {
   async returnToRoute(
     @Param('sessionId') sessionId: string,
     @Body() dto: RerouteNavigationDto,
+    @Req() request: AnalyticsRequest,
   ): Promise<SuccessResponseDto<ReturnToRouteResponseDto>> {
-    const result: ReturnToRouteResponseDto =
-      await this.returnService.returnToRoute(sessionId, dto.currentLocation);
-    return SuccessResponseDto.create(
-      '기존 경로로 복귀하는 안내가 생성되었습니다.',
-      result,
-    );
+    const startedAt = Date.now();
+    const identity = this.analyticsIdentityResolver.resolve(request);
+
+    try {
+      const result: ReturnToRouteResponseDto =
+        await this.returnService.returnToRoute(sessionId, dto.currentLocation);
+
+      this.analyticsService.trackEvent({
+        name: ANALYTICS_EVENT_NAVIGATION_UPDATED,
+        identity,
+        params: {
+          update_type: 'return',
+          travel_mode: dto.travelMode ?? 'biking',
+          remaining_waypoint_count: dto.remainingWaypoints?.length ?? 0,
+          auth_state: identity.authState,
+        },
+      });
+      this.analyticsService.trackEvent({
+        name: ANALYTICS_EVENT_API_OPERATION_RESULT,
+        identity,
+        params: {
+          feature_area: 'navigation',
+          operation_name: 'return_to_route',
+          outcome: 'success',
+          duration_ms: Date.now() - startedAt,
+          http_status: 200,
+          auth_state: identity.authState,
+        },
+      });
+
+      return SuccessResponseDto.create(
+        '기존 경로로 복귀하는 안내가 생성되었습니다.',
+        result,
+      );
+    } catch (error) {
+      this.analyticsService.trackEvent({
+        name: ANALYTICS_EVENT_API_OPERATION_RESULT,
+        identity,
+        params: {
+          feature_area: 'navigation',
+          operation_name: 'return_to_route',
+          outcome: 'error',
+          duration_ms: Date.now() - startedAt,
+          http_status: getHttpStatusFromError(error),
+          error_type: getErrorType(error),
+          auth_state: identity.authState,
+        },
+      });
+      throw error;
+    }
   }
 
   @Post(':sessionId/reroute')
@@ -141,15 +247,60 @@ export class NavigationController {
   async fullReroute(
     @Param('sessionId') sessionId: string,
     @Body() dto: RerouteNavigationDto,
+    @Req() request: AnalyticsRequest,
   ): Promise<SuccessResponseDto<FullRerouteResponseDto>> {
-    const result: FullRerouteResponseDto =
-      await this.rerouteService.fullReroute(
-        sessionId,
-        dto.currentLocation,
-        dto.remainingWaypoints,
-        dto.travelMode ?? 'biking',
-      );
-    return SuccessResponseDto.create('새로운 경로가 검색되었습니다.', result);
+    const startedAt = Date.now();
+    const identity = this.analyticsIdentityResolver.resolve(request);
+
+    try {
+      const result: FullRerouteResponseDto =
+        await this.rerouteService.fullReroute(
+          sessionId,
+          dto.currentLocation,
+          dto.remainingWaypoints,
+          dto.travelMode ?? 'biking',
+        );
+
+      this.analyticsService.trackEvent({
+        name: ANALYTICS_EVENT_NAVIGATION_UPDATED,
+        identity,
+        params: {
+          update_type: 'reroute',
+          travel_mode: dto.travelMode ?? 'biking',
+          remaining_waypoint_count: dto.remainingWaypoints?.length ?? 0,
+          auth_state: identity.authState,
+        },
+      });
+      this.analyticsService.trackEvent({
+        name: ANALYTICS_EVENT_API_OPERATION_RESULT,
+        identity,
+        params: {
+          feature_area: 'navigation',
+          operation_name: 'full_reroute',
+          outcome: 'success',
+          duration_ms: Date.now() - startedAt,
+          http_status: 200,
+          auth_state: identity.authState,
+        },
+      });
+
+      return SuccessResponseDto.create('새로운 경로가 검색되었습니다.', result);
+    } catch (error) {
+      this.analyticsService.trackEvent({
+        name: ANALYTICS_EVENT_API_OPERATION_RESULT,
+        identity,
+        params: {
+          feature_area: 'navigation',
+          operation_name: 'full_reroute',
+          outcome: 'error',
+          duration_ms: Date.now() - startedAt,
+          http_status: getHttpStatusFromError(error),
+          error_type: getErrorType(error),
+          auth_state: identity.authState,
+        },
+      });
+      throw error;
+    }
   }
 
   @Delete(':sessionId')
@@ -168,12 +319,55 @@ export class NavigationController {
   })
   async endNavigation(
     @Param('sessionId') sessionId: string,
+    @Req() request: AnalyticsRequest,
   ): Promise<SuccessResponseDto<void>> {
-    await this.endService.endNavigationSession(sessionId);
-    return SuccessResponseDto.create(
-      '네비게이션 세션이 종료되었습니다.',
-      undefined,
-    );
+    const startedAt = Date.now();
+    const identity = this.analyticsIdentityResolver.resolve(request);
+
+    try {
+      await this.endService.endNavigationSession(sessionId);
+
+      this.analyticsService.trackEvent({
+        name: ANALYTICS_EVENT_NAVIGATION_COMPLETED,
+        identity,
+        params: {
+          completion_type: 'user_end',
+          auth_state: identity.authState,
+        },
+      });
+      this.analyticsService.trackEvent({
+        name: ANALYTICS_EVENT_API_OPERATION_RESULT,
+        identity,
+        params: {
+          feature_area: 'navigation',
+          operation_name: 'end_navigation',
+          outcome: 'success',
+          duration_ms: Date.now() - startedAt,
+          http_status: 200,
+          auth_state: identity.authState,
+        },
+      });
+
+      return SuccessResponseDto.create(
+        '네비게이션 세션이 종료되었습니다.',
+        undefined,
+      );
+    } catch (error) {
+      this.analyticsService.trackEvent({
+        name: ANALYTICS_EVENT_API_OPERATION_RESULT,
+        identity,
+        params: {
+          feature_area: 'navigation',
+          operation_name: 'end_navigation',
+          outcome: 'error',
+          duration_ms: Date.now() - startedAt,
+          http_status: getHttpStatusFromError(error),
+          error_type: getErrorType(error),
+          auth_state: identity.authState,
+        },
+      });
+      throw error;
+    }
   }
 
   // ============================================================================
