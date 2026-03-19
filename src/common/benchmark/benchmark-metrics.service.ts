@@ -4,6 +4,12 @@ import { RedisService } from '@liaoliaots/nestjs-redis';
 import type { Redis } from 'ioredis';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_CLIENT } from '../supabase/supabase.module';
+import {
+  STORAGE_PATH_CHUNK_TEMPORARY,
+  STORAGE_PATH_MERGED,
+  STORAGE_PATH_PERMANENT,
+  STORAGE_PATH_TEMP,
+} from '../../tts/tts.constants';
 
 const REDIS_CACHE_PATTERNS = [
   'tts:phrase:*',
@@ -11,7 +17,12 @@ const REDIS_CACHE_PATTERNS = [
   'route:*',
 ];
 const TTS_STORAGE_BUCKET = 'tts';
-const TTS_STORAGE_PREFIXES = ['temporary', 'permanent', 'merged'];
+const TTS_STORAGE_PREFIXES = [
+  STORAGE_PATH_TEMP,
+  STORAGE_PATH_CHUNK_TEMPORARY,
+  STORAGE_PATH_PERMANENT,
+  STORAGE_PATH_MERGED,
+];
 
 const DEFAULT_COUNTERS = [
   'station_sync_requested_total',

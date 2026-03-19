@@ -8,12 +8,14 @@ import { createHash } from 'crypto';
 import { TtsRecord, TtsResponseDto } from './dto/tts.dto';
 import {
   REDIS_TTL,
+  REDIS_TTL_MERGED,
   REDIS_TTL_PERMANENT,
   STORAGE_PATH_MERGED,
   STORAGE_PATH_PERMANENT,
   STORAGE_PATH_TEMP,
 } from './tts.constants';
 import { BenchmarkMetricsService } from '../common/benchmark/benchmark-metrics.service';
+import { TtsMetricsService } from './tts-metrics.service';
 import { normalizeText } from './utils/normalize-text';
 import { TtsCacheService } from './services/tts-cache.service';
 import { TtsStorageService } from './services/tts-storage.service';
@@ -35,6 +37,7 @@ export class TtsService {
     private readonly ttsSynthesisService: TtsSynthesisService,
     private readonly ttsCacheService: TtsCacheService,
     private readonly benchmarkMetricsService: BenchmarkMetricsService,
+    private readonly ttsMetricsService: TtsMetricsService,
   ) {
     this.synthesisMode =
       this.configService.get<string>('TTS_SYNTHESIS_MODE') === 'chunked'
@@ -85,7 +88,7 @@ export class TtsService {
     voice?: string,
   ): { hash: string; storageKey: string } {
     if (this.synthesisMode === 'chunked') {
-      const hash = this.hashText(`merged:${lang}:${voice || ''}:${textKo}`);
+      const hash = this.hashMergedText(textKo, lang, voice);
       return {
         hash,
         storageKey: this.ttsStorageService.mergedStorageKey(lang, hash),
@@ -105,6 +108,10 @@ export class TtsService {
 
   private incrementTemporaryCacheMiss(): void {
     this.benchmarkMetricsService.increment('tts_cache_miss_total');
+  }
+
+  private hashMergedText(textKo: string, lang: string, voice?: string): string {
+    return this.hashText(`merged:${lang}:${voice || ''}:${textKo}`);
   }
 
   private extractSafeErrorMessage(
@@ -197,6 +204,8 @@ export class TtsService {
     const normalized = normalizeText(text);
     const textKo = this.ttsTextChunkService.normalizeTemporaryText(normalized);
     const phraseHash = this.hashText(`${lang}:${voice || ''}:${textKo}`);
+    const mergedHash = this.hashMergedText(textKo, lang, voice);
+    await this.ttsMetricsService.recordMergedRequest(mergedHash);
     const cachedRecord = await this.ttsCacheService.getRecord(phraseHash);
 
     if (
@@ -204,7 +213,7 @@ export class TtsService {
       (cachedRecord.ttsUrl || cachedRecord.s3Url)
     ) {
       this.incrementTemporaryCacheHit();
-      await this.ttsCacheService.expire(phraseHash, REDIS_TTL);
+      await this.ttsCacheService.expire(phraseHash, REDIS_TTL_MERGED);
       return this.toReadyResponse(cachedRecord, phraseHash);
     }
 
@@ -224,7 +233,7 @@ export class TtsService {
       storageKey: merged.mergedKey,
       ttsUrl: merged.mergedUrl,
     });
-    await this.ttsCacheService.setRecord(phraseHash, record, REDIS_TTL);
+    await this.ttsCacheService.setRecord(phraseHash, record, REDIS_TTL_MERGED);
 
     return {
       status: 'ready',
@@ -436,7 +445,11 @@ export class TtsService {
       storageKey,
       ttsUrl,
     });
-    await this.ttsCacheService.setRecord(phraseHash, restoredRecord, REDIS_TTL);
+    await this.ttsCacheService.setRecord(
+      phraseHash,
+      restoredRecord,
+      this.synthesisMode === 'chunked' ? REDIS_TTL_MERGED : REDIS_TTL,
+    );
 
     return {
       status: 'ready',

@@ -1,4 +1,5 @@
 import { BenchmarkMetricsService } from '../../common/benchmark/benchmark-metrics.service';
+import { TtsMetricsService } from '../tts-metrics.service';
 import { GoogleTtsProvider } from '../tts.provider';
 import { TtsStorageService } from './tts-storage.service';
 import { TtsSynthesisService } from './tts-synthesis.service';
@@ -30,7 +31,8 @@ describe('TtsSynthesisService', () => {
 
   const ttsStorageService = {
     mergedStorageKey: jest.fn(),
-    makeStorageKey: jest.fn(),
+    permanentStorageKey: jest.fn(),
+    temporaryChunkStorageKey: jest.fn(),
     storageExists: storageExistsMock,
     storagePublicUrl: storagePublicUrlMock,
     uploadToStorage: uploadToStorageMock,
@@ -45,10 +47,24 @@ describe('TtsSynthesisService', () => {
     increment: incrementMock,
   } as unknown as BenchmarkMetricsService;
 
+  const ttsMetricsService = {
+    incrementChunkSynthesized: jest.fn().mockResolvedValue(undefined),
+    incrementMergedCreated: jest.fn().mockResolvedValue(undefined),
+    incrementMergedCacheHit: jest.fn().mockResolvedValue(undefined),
+  } as unknown as TtsMetricsService;
+
   beforeEach(() => {
     jest.clearAllMocks();
     (ttsStorageService.mergedStorageKey as jest.Mock).mockReturnValue(
       'merged/ko-KR/merged-hash.mp3',
+    );
+    (ttsStorageService.permanentStorageKey as jest.Mock).mockImplementation(
+      (_lang: string, hash: string) => `permanent/ko-KR/${hash}.mp3`,
+    );
+    (
+      ttsStorageService.temporaryChunkStorageKey as jest.Mock
+    ).mockImplementation(
+      (_lang: string, hash: string) => `chunk-temporary/ko-KR/${hash}.mp3`,
     );
     storagePublicUrlMock.mockReturnValue(
       'https://storage.example.com/merged/ko-KR/merged-hash.mp3',
@@ -66,6 +82,7 @@ describe('TtsSynthesisService', () => {
       ttsStorageService,
       ttsTextChunkService,
       benchmarkMetricsService,
+      ttsMetricsService,
     );
 
     const result = await service.synthesizeMerged('우회전입니다', 'ko-KR');
@@ -78,6 +95,9 @@ describe('TtsSynthesisService', () => {
       'https://storage.example.com/merged/ko-KR/merged-hash.mp3',
     );
     expect(incrementMock).toHaveBeenCalledWith('tts_merged_cache_hit_total');
+    expect(
+      ttsMetricsService.incrementMergedCacheHit as jest.Mock,
+    ).toHaveBeenCalledTimes(1);
   });
 
   it('starts all chunk work before merge and preserves chunk order', async () => {
@@ -92,6 +112,7 @@ describe('TtsSynthesisService', () => {
       ttsStorageService,
       ttsTextChunkService,
       benchmarkMetricsService,
+      ttsMetricsService,
     );
 
     const first = createDeferred<{
@@ -153,6 +174,9 @@ describe('TtsSynthesisService', () => {
       Buffer.from('merged-audio'),
     );
     expect(incrementMock).toHaveBeenCalledWith('tts_merged_created_total');
+    expect(
+      ttsMetricsService.incrementMergedCreated as jest.Mock,
+    ).toHaveBeenCalledTimes(1);
     expect(result.chunks).toEqual([
       {
         text: '좌회전',
@@ -171,5 +195,40 @@ describe('TtsSynthesisService', () => {
         cached: true,
       },
     ]);
+  });
+
+  it('stores temporary chunks under the chunk-temporary prefix', async () => {
+    storageExistsMock
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false);
+    splitNavigationTextMock.mockReturnValue([
+      { text: '공릉로', cacheType: 'temporary' },
+    ]);
+    synthesizeMock.mockResolvedValue(Buffer.from('chunk-audio'));
+
+    const service = new TtsSynthesisService(
+      ttsProvider,
+      ttsStorageService,
+      ttsTextChunkService,
+      benchmarkMetricsService,
+      ttsMetricsService,
+    );
+    jest
+      .spyOn(service as never, 'mergeAudioChunks' as never)
+      .mockResolvedValue(Buffer.from('merged-audio'));
+
+    await service.synthesizeMerged('공릉로', 'ko-KR');
+
+    expect(
+      ttsStorageService.temporaryChunkStorageKey as jest.Mock,
+    ).toHaveBeenCalledTimes(1);
+    expect(uploadToStorageMock).toHaveBeenCalledWith(
+      expect.stringMatching(/^chunk-temporary\/ko-KR\//),
+      Buffer.from('chunk-audio'),
+    );
+    expect(
+      ttsMetricsService.incrementChunkSynthesized as jest.Mock,
+    ).toHaveBeenCalledTimes(1);
   });
 });

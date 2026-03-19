@@ -1,9 +1,13 @@
 export const REDIS_PREFIX = 'tts:phrase:';
 export const REDIS_TTL = 86400 * 3;
+export const REDIS_TTL_MERGED = 86400;
 export const REDIS_TTL_PERMANENT = 86400 * 365 * 10;
+export const STORAGE_TTL_MERGED_SECONDS = 86400 * 3;
+export const STORAGE_TTL_CHUNK_TEMPORARY_SECONDS = 86400 * 30;
 
 export const STORAGE_BUCKET = 'tts';
 export const STORAGE_PATH_TEMP = 'temporary';
+export const STORAGE_PATH_CHUNK_TEMPORARY = 'chunk-temporary';
 export const STORAGE_PATH_PERMANENT = 'permanent';
 export const STORAGE_PATH_MERGED = 'merged';
 

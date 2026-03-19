@@ -9,8 +9,8 @@ import { promises as fs } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { BenchmarkMetricsService } from '../../common/benchmark/benchmark-metrics.service';
+import { TtsMetricsService } from '../tts-metrics.service';
 import { GoogleTtsProvider } from '../tts.provider';
-import { STORAGE_PATH_PERMANENT, STORAGE_PATH_TEMP } from '../tts.constants';
 import { CacheType, SplitChunk } from '../types/tts-cache.types';
 import { TtsStorageService } from './tts-storage.service';
 import { TtsTextChunkService } from './tts-text-chunk.service';
@@ -24,6 +24,7 @@ export class TtsSynthesisService {
     private readonly ttsStorageService: TtsStorageService,
     private readonly ttsTextChunkService: TtsTextChunkService,
     private readonly benchmarkMetricsService: BenchmarkMetricsService,
+    private readonly ttsMetricsService: TtsMetricsService,
   ) {}
 
   private hashText(text: string): string {
@@ -92,11 +93,10 @@ export class TtsSynthesisService {
     buffer: Buffer;
   }> {
     const chunkHash = this.hashText(`${lang}:${voice || ''}:${chunk.text}`);
-    const scope =
+    const key =
       chunk.cacheType === 'permanent'
-        ? STORAGE_PATH_PERMANENT
-        : STORAGE_PATH_TEMP;
-    const key = this.ttsStorageService.makeStorageKey(scope, lang, chunkHash);
+        ? this.ttsStorageService.permanentStorageKey(lang, chunkHash)
+        : this.ttsStorageService.temporaryChunkStorageKey(lang, chunkHash);
     const url = this.ttsStorageService.storagePublicUrl(key);
 
     if (await this.ttsStorageService.storageExists(key)) {
@@ -110,6 +110,7 @@ export class TtsSynthesisService {
       'tts_chunk_synthesized_chars_total',
       chunk.text.length,
     );
+    await this.ttsMetricsService.incrementChunkSynthesized();
     const audioBuffer = await this.ttsProvider.synthesize(
       chunk.text,
       lang,
@@ -153,6 +154,7 @@ export class TtsSynthesisService {
 
     if (await this.ttsStorageService.storageExists(mergedKey)) {
       this.benchmarkMetricsService.increment('tts_merged_cache_hit_total');
+      await this.ttsMetricsService.incrementMergedCacheHit();
       return {
         mergedHash,
         mergedKey,
@@ -178,6 +180,7 @@ export class TtsSynthesisService {
     );
 
     this.benchmarkMetricsService.increment('tts_merged_created_total');
+    await this.ttsMetricsService.incrementMergedCreated();
     const mergedBuffer = await this.mergeAudioChunks(
       chunkResults.map((chunk) => chunk.buffer),
     );
