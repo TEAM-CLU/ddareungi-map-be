@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
@@ -63,5 +64,71 @@ export function createLogger(prefix) {
     logError(message) {
       process.stderr.write(`${prefix} ${timestamp()} ${message}\n`);
     },
+  };
+}
+
+function readEnvFile(filePath) {
+  if (!existsSync(filePath)) {
+    return {};
+  }
+
+  const content = readFileSync(filePath, 'utf8');
+  const entries = {};
+
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) {
+      continue;
+    }
+
+    const separatorIndex = line.indexOf('=');
+    if (separatorIndex < 0) {
+      continue;
+    }
+
+    const key = line.slice(0, separatorIndex).trim();
+    const value = line.slice(separatorIndex + 1).trim();
+    entries[key] = value;
+  }
+
+  return entries;
+}
+
+function resolveEnvValue(key) {
+  const directValue = process.env[key];
+  if (directValue) {
+    return directValue;
+  }
+
+  const nodeEnv = process.env.NODE_ENV ?? 'local';
+  const envFilePaths = [
+    path.resolve(process.cwd(), `.env.${nodeEnv}`),
+    path.resolve(process.cwd(), '.env'),
+  ];
+
+  for (const envFilePath of envFilePaths) {
+    const entries = readEnvFile(envFilePath);
+    if (entries[key]) {
+      return entries[key];
+    }
+  }
+
+  return undefined;
+}
+
+export function getBenchmarkAuthHeaders() {
+  const username = resolveEnvValue('SWAGGER_ADMIN_USERNAME');
+  const password = resolveEnvValue('SWAGGER_ADMIN_PASSWORD');
+
+  if (!username || !password) {
+    return {};
+  }
+
+  const authorization = Buffer.from(`${username}:${password}`).toString(
+    'base64',
+  );
+
+  return {
+    Authorization: `Basic ${authorization}`,
   };
 }

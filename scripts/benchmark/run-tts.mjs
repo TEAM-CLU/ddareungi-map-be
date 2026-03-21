@@ -10,6 +10,7 @@ import {
   PNPM_CMD,
   PORT,
   createLogger,
+  getBenchmarkAuthHeaders,
   resolveOutputPaths,
 } from './_shared.mjs';
 
@@ -54,6 +55,7 @@ const MODE_ENVS = {
 let currentChild = null;
 const childState = new WeakMap();
 const { log, logError } = createLogger('[benchmark:tts]');
+const BENCHMARK_AUTH_HEADERS = getBenchmarkAuthHeaders();
 
 process.on('SIGINT', async () => {
   if (currentChild) {
@@ -194,7 +196,9 @@ async function waitForServer(modeName, child) {
     }
 
     try {
-      const response = await fetch(`${BASE_URL}/internal/benchmark/snapshot`);
+      const response = await fetch(`${BASE_URL}/internal/benchmark/snapshot`, {
+        headers: BENCHMARK_AUTH_HEADERS,
+      });
       if (response.ok) {
         log(`server is ready: mode=${modeName} attempt=${attempt + 1}`);
         return;
@@ -221,6 +225,10 @@ async function startServer(modeName) {
     ...process.env,
     NODE_ENV: process.env.NODE_ENV ?? 'local',
     ENABLE_BENCHMARK_METRICS: 'true',
+    BENCHMARK_RATE_LIMIT_LIMIT:
+      process.env.BENCHMARK_RATE_LIMIT_LIMIT ?? '1000',
+    BENCHMARK_RATE_LIMIT_TTL_SECONDS:
+      process.env.BENCHMARK_RATE_LIMIT_TTL_SECONDS ?? '60',
     PORT: String(PORT),
     ...MODE_ENVS[modeName],
   };
@@ -319,7 +327,10 @@ async function resetBenchmark(options = {}) {
   log(`resetting benchmark metrics: ${JSON.stringify(options)}`);
   return requestJson(`${BASE_URL}/internal/benchmark/reset`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...BENCHMARK_AUTH_HEADERS,
+    },
     body: JSON.stringify(options),
     logLabel: 'benchmark-reset',
   });
@@ -327,6 +338,7 @@ async function resetBenchmark(options = {}) {
 
 async function snapshotBenchmark() {
   const json = await requestJson(`${BASE_URL}/internal/benchmark/snapshot`, {
+    headers: BENCHMARK_AUTH_HEADERS,
     logLabel: 'benchmark-snapshot',
   });
   return json.data;
@@ -338,7 +350,10 @@ async function createRouteAndNavigation(routeRequest) {
     `${BASE_URL}/internal/benchmark/scenarios/navigation/start`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...BENCHMARK_AUTH_HEADERS,
+      },
       body: JSON.stringify(routeRequest.payload),
       logLabel: `tts-navigation-start ${routeRequest.name}`,
     },

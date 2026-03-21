@@ -1,4 +1,5 @@
 import { Global, Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { BenchmarkController } from './benchmark.controller';
 import { BenchmarkMetricsService } from './benchmark-metrics.service';
 import { BenchmarkScenarioService } from './benchmark-scenario.service';
@@ -9,7 +10,7 @@ import { AdminBasicAuthGuard } from '../guards/admin-basic-auth.guard';
 
 @Global()
 @Module({
-  imports: [StationsModule, RoutesModule, NavigationModule],
+  imports: [ConfigModule, StationsModule, RoutesModule, NavigationModule],
   controllers: [BenchmarkController],
   providers: [
     BenchmarkMetricsService,

@@ -1,0 +1,768 @@
+{
+  "generatedAt": "2026-03-21T10:37:34.804Z",
+  "scenarioType": "clustered",
+  "clusterSeed": "20260316",
+  "clusterPoints": [
+    {
+      "name": "gongneung_center",
+      "latitude": 37.630032,
+      "longitude": 127.076508
+    },
+    {
+      "name": "nowon_station",
+      "latitude": 37.655349,
+      "longitude": 127.060187
+    },
+    {
+      "name": "seoultech",
+      "latitude": 37.631668,
+      "longitude": 127.077481
+    },
+    {
+      "name": "seoul_womens_univ",
+      "latitude": 37.628114,
+      "longitude": 127.090549
+    },
+    {
+      "name": "sahmyook_univ",
+      "latitude": 37.642561,
+      "longitude": 127.105918
+    }
+  ],
+  "mapResults": {
+    "map_legacy": {
+      "1000": {
+        "iterations": [
+          {
+            "index": 0,
+            "clusterPointName": "seoul_womens_univ",
+            "latitude": 37.628114,
+            "longitude": 127.090549,
+            "radius": 1000,
+            "stationCount": 7,
+            "mapOnlyLatencyMs": 1121.525458,
+            "endToEndLatencyMs": 1121.525458
+          },
+          {
+            "index": 1,
+            "clusterPointName": "seoul_womens_univ",
+            "latitude": 37.628114,
+            "longitude": 127.090549,
+            "radius": 1000,
+            "stationCount": 7,
+            "mapOnlyLatencyMs": 1050.1134999999995,
+            "endToEndLatencyMs": 1050.1134999999995
+          }
+        ],
+        "mapOnlyStats": {
+          "avg": 1085.8194789999998,
+          "min": 1050.1134999999995,
+          "max": 1121.525458,
+          "p50": 1050.1134999999995,
+          "p95": 1121.525458
+        },
+        "endToEndStats": {
+          "avg": 1085.8194789999998,
+          "min": 1050.1134999999995,
+          "max": 1121.525458,
+          "p50": 1050.1134999999995,
+          "p95": 1121.525458
+        },
+        "avgStationCount": 7,
+        "metrics": {
+          "station_sync_requested_total": 14,
+          "station_lock_acquired_total": 0,
+          "station_lock_skipped_total": 0,
+          "seoul_realtime_fetch_started_total": 14,
+          "seoul_realtime_fetch_completed_total": 14,
+          "google_tts_synthesize_total": 0,
+          "google_tts_synthesize_chars_total": 0,
+          "tts_cache_hit_total": 0,
+          "tts_cache_miss_total": 0,
+          "tts_fulltext_synthesized_total": 0,
+          "tts_fulltext_synthesized_chars_total": 0,
+          "tts_chunk_cache_hit_total": 0,
+          "tts_chunk_synthesized_total": 0,
+          "tts_chunk_synthesized_chars_total": 0,
+          "tts_merged_cache_hit_total": 0,
+          "tts_merged_created_total": 0
+        },
+        "avgExternalCallsPerRequest": 7,
+        "clusterUsage": {
+          "gongneung_center": 0,
+          "nowon_station": 0,
+          "seoultech": 0,
+          "seoul_womens_univ": 2,
+          "sahmyook_univ": 0
+        }
+      },
+      "5000": {
+        "iterations": [
+          {
+            "index": 0,
+            "clusterPointName": "seoul_womens_univ",
+            "latitude": 37.628114,
+            "longitude": 127.090549,
+            "radius": 5000,
+            "stationCount": 266,
+            "mapOnlyLatencyMs": 52942.411959000005,
+            "endToEndLatencyMs": 52942.411959000005
+          },
+          {
+            "index": 1,
+            "clusterPointName": "seoul_womens_univ",
+            "latitude": 37.628114,
+            "longitude": 127.090549,
+            "radius": 5000,
+            "stationCount": 266,
+            "mapOnlyLatencyMs": 45019.113375,
+            "endToEndLatencyMs": 45019.113375
+          }
+        ],
+        "mapOnlyStats": {
+          "avg": 48980.762667,
+          "min": 45019.113375,
+          "max": 52942.411959000005,
+          "p50": 45019.113375,
+          "p95": 52942.411959000005
+        },
+        "endToEndStats": {
+          "avg": 48980.762667,
+          "min": 45019.113375,
+          "max": 52942.411959000005,
+          "p50": 45019.113375,
+          "p95": 52942.411959000005
+        },
+        "avgStationCount": 266,
+        "metrics": {
+          "station_sync_requested_total": 532,
+          "station_lock_acquired_total": 0,
+          "station_lock_skipped_total": 0,
+          "seoul_realtime_fetch_started_total": 532,
+          "seoul_realtime_fetch_completed_total": 532,
+          "google_tts_synthesize_total": 0,
+          "google_tts_synthesize_chars_total": 0,
+          "tts_cache_hit_total": 0,
+          "tts_cache_miss_total": 0,
+          "tts_fulltext_synthesized_total": 0,
+          "tts_fulltext_synthesized_chars_total": 0,
+          "tts_chunk_cache_hit_total": 0,
+          "tts_chunk_synthesized_total": 0,
+          "tts_chunk_synthesized_chars_total": 0,
+          "tts_merged_cache_hit_total": 0,
+          "tts_merged_created_total": 0
+        },
+        "avgExternalCallsPerRequest": 266,
+        "clusterUsage": {
+          "gongneung_center": 0,
+          "nowon_station": 0,
+          "seoultech": 0,
+          "seoul_womens_univ": 2,
+          "sahmyook_univ": 0
+        }
+      }
+    },
+    "map_split_no_lock": {
+      "1000": {
+        "iterations": [
+          {
+            "index": 0,
+            "clusterPointName": "seoul_womens_univ",
+            "latitude": 37.628114,
+            "longitude": 127.090549,
+            "radius": 1000,
+            "stationCount": 7,
+            "mapOnlyLatencyMs": 23.550791999994544,
+            "endToEndLatencyMs": 262.06425000001036
+          },
+          {
+            "index": 1,
+            "clusterPointName": "seoul_womens_univ",
+            "latitude": 37.628114,
+            "longitude": 127.090549,
+            "radius": 1000,
+            "stationCount": 7,
+            "mapOnlyLatencyMs": 16.692332999999053,
+            "endToEndLatencyMs": 130.1836670000048
+          }
+        ],
+        "mapOnlyStats": {
+          "avg": 20.1215624999968,
+          "min": 16.692332999999053,
+          "max": 23.550791999994544,
+          "p50": 16.692332999999053,
+          "p95": 23.550791999994544
+        },
+        "endToEndStats": {
+          "avg": 196.12395850000757,
+          "min": 130.1836670000048,
+          "max": 262.06425000001036,
+          "p50": 130.1836670000048,
+          "p95": 262.06425000001036
+        },
+        "avgStationCount": 7,
+        "metrics": {
+          "station_sync_requested_total": 14,
+          "station_lock_acquired_total": 0,
+          "station_lock_skipped_total": 0,
+          "seoul_realtime_fetch_started_total": 14,
+          "seoul_realtime_fetch_completed_total": 14,
+          "google_tts_synthesize_total": 0,
+          "google_tts_synthesize_chars_total": 0,
+          "tts_cache_hit_total": 0,
+          "tts_cache_miss_total": 0,
+          "tts_fulltext_synthesized_total": 0,
+          "tts_fulltext_synthesized_chars_total": 0,
+          "tts_chunk_cache_hit_total": 0,
+          "tts_chunk_synthesized_total": 0,
+          "tts_chunk_synthesized_chars_total": 0,
+          "tts_merged_cache_hit_total": 0,
+          "tts_merged_created_total": 0
+        },
+        "avgExternalCallsPerRequest": 7,
+        "clusterUsage": {
+          "gongneung_center": 0,
+          "nowon_station": 0,
+          "seoultech": 0,
+          "seoul_womens_univ": 2,
+          "sahmyook_univ": 0
+        }
+      },
+      "5000": {
+        "iterations": [
+          {
+            "index": 0,
+            "clusterPointName": "seoul_womens_univ",
+            "latitude": 37.628114,
+            "longitude": 127.090549,
+            "radius": 5000,
+            "stationCount": 266,
+            "mapOnlyLatencyMs": 33.79720800000359,
+            "endToEndLatencyMs": 3080.476125000001
+          },
+          {
+            "index": 1,
+            "clusterPointName": "seoul_womens_univ",
+            "latitude": 37.628114,
+            "longitude": 127.090549,
+            "radius": 5000,
+            "stationCount": 266,
+            "mapOnlyLatencyMs": 82.65899999999965,
+            "endToEndLatencyMs": 2828.4860419999895
+          }
+        ],
+        "mapOnlyStats": {
+          "avg": 58.22810400000162,
+          "min": 33.79720800000359,
+          "max": 82.65899999999965,
+          "p50": 33.79720800000359,
+          "p95": 82.65899999999965
+        },
+        "endToEndStats": {
+          "avg": 2954.4810834999953,
+          "min": 2828.4860419999895,
+          "max": 3080.476125000001,
+          "p50": 2828.4860419999895,
+          "p95": 3080.476125000001
+        },
+        "avgStationCount": 266,
+        "metrics": {
+          "station_sync_requested_total": 532,
+          "station_lock_acquired_total": 0,
+          "station_lock_skipped_total": 0,
+          "seoul_realtime_fetch_started_total": 532,
+          "seoul_realtime_fetch_completed_total": 532,
+          "google_tts_synthesize_total": 0,
+          "google_tts_synthesize_chars_total": 0,
+          "tts_cache_hit_total": 0,
+          "tts_cache_miss_total": 0,
+          "tts_fulltext_synthesized_total": 0,
+          "tts_fulltext_synthesized_chars_total": 0,
+          "tts_chunk_cache_hit_total": 0,
+          "tts_chunk_synthesized_total": 0,
+          "tts_chunk_synthesized_chars_total": 0,
+          "tts_merged_cache_hit_total": 0,
+          "tts_merged_created_total": 0
+        },
+        "avgExternalCallsPerRequest": 266,
+        "clusterUsage": {
+          "gongneung_center": 0,
+          "nowon_station": 0,
+          "seoultech": 0,
+          "seoul_womens_univ": 2,
+          "sahmyook_univ": 0
+        }
+      }
+    },
+    "map_split_with_lock": {
+      "1000": {
+        "iterations": [
+          {
+            "index": 0,
+            "clusterPointName": "seoul_womens_univ",
+            "latitude": 37.628114,
+            "longitude": 127.090549,
+            "radius": 1000,
+            "stationCount": 7,
+            "mapOnlyLatencyMs": 15.958249999996042,
+            "endToEndLatencyMs": 237.9887919999892
+          },
+          {
+            "index": 1,
+            "clusterPointName": "seoul_womens_univ",
+            "latitude": 37.628114,
+            "longitude": 127.090549,
+            "radius": 1000,
+            "stationCount": 7,
+            "mapOnlyLatencyMs": 17.24124999999185,
+            "endToEndLatencyMs": 128.78633299999638
+          }
+        ],
+        "mapOnlyStats": {
+          "avg": 16.599749999993946,
+          "min": 15.958249999996042,
+          "max": 17.24124999999185,
+          "p50": 15.958249999996042,
+          "p95": 17.24124999999185
+        },
+        "endToEndStats": {
+          "avg": 183.38756249999278,
+          "min": 128.78633299999638,
+          "max": 237.9887919999892,
+          "p50": 128.78633299999638,
+          "p95": 237.9887919999892
+        },
+        "avgStationCount": 7,
+        "metrics": {
+          "station_sync_requested_total": 14,
+          "station_lock_acquired_total": 14,
+          "station_lock_skipped_total": 0,
+          "seoul_realtime_fetch_started_total": 14,
+          "seoul_realtime_fetch_completed_total": 14,
+          "google_tts_synthesize_total": 0,
+          "google_tts_synthesize_chars_total": 0,
+          "tts_cache_hit_total": 0,
+          "tts_cache_miss_total": 0,
+          "tts_fulltext_synthesized_total": 0,
+          "tts_fulltext_synthesized_chars_total": 0,
+          "tts_chunk_cache_hit_total": 0,
+          "tts_chunk_synthesized_total": 0,
+          "tts_chunk_synthesized_chars_total": 0,
+          "tts_merged_cache_hit_total": 0,
+          "tts_merged_created_total": 0
+        },
+        "avgExternalCallsPerRequest": 7,
+        "clusterUsage": {
+          "gongneung_center": 0,
+          "nowon_station": 0,
+          "seoultech": 0,
+          "seoul_womens_univ": 2,
+          "sahmyook_univ": 0
+        }
+      },
+      "5000": {
+        "iterations": [
+          {
+            "index": 0,
+            "clusterPointName": "seoul_womens_univ",
+            "latitude": 37.628114,
+            "longitude": 127.090549,
+            "radius": 5000,
+            "stationCount": 266,
+            "mapOnlyLatencyMs": 42.33141699999396,
+            "endToEndLatencyMs": 3196.0854589999944
+          },
+          {
+            "index": 1,
+            "clusterPointName": "seoul_womens_univ",
+            "latitude": 37.628114,
+            "longitude": 127.090549,
+            "radius": 5000,
+            "stationCount": 266,
+            "mapOnlyLatencyMs": 39.61783400000422,
+            "endToEndLatencyMs": 2973.707624999981
+          }
+        ],
+        "mapOnlyStats": {
+          "avg": 40.97462549999909,
+          "min": 39.61783400000422,
+          "max": 42.33141699999396,
+          "p50": 39.61783400000422,
+          "p95": 42.33141699999396
+        },
+        "endToEndStats": {
+          "avg": 3084.8965419999877,
+          "min": 2973.707624999981,
+          "max": 3196.0854589999944,
+          "p50": 2973.707624999981,
+          "p95": 3196.0854589999944
+        },
+        "avgStationCount": 266,
+        "metrics": {
+          "station_sync_requested_total": 532,
+          "station_lock_acquired_total": 532,
+          "station_lock_skipped_total": 0,
+          "seoul_realtime_fetch_started_total": 532,
+          "seoul_realtime_fetch_completed_total": 532,
+          "google_tts_synthesize_total": 0,
+          "google_tts_synthesize_chars_total": 0,
+          "tts_cache_hit_total": 0,
+          "tts_cache_miss_total": 0,
+          "tts_fulltext_synthesized_total": 0,
+          "tts_fulltext_synthesized_chars_total": 0,
+          "tts_chunk_cache_hit_total": 0,
+          "tts_chunk_synthesized_total": 0,
+          "tts_chunk_synthesized_chars_total": 0,
+          "tts_merged_cache_hit_total": 0,
+          "tts_merged_created_total": 0
+        },
+        "avgExternalCallsPerRequest": 266,
+        "clusterUsage": {
+          "gongneung_center": 0,
+          "nowon_station": 0,
+          "seoultech": 0,
+          "seoul_womens_univ": 2,
+          "sahmyook_univ": 0
+        }
+      }
+    }
+  },
+  "lockResults": {
+    "map_split_no_lock": {
+      "1000": {
+        "iterations": [
+          {
+            "index": 0,
+            "clusterPointName": "seoultech",
+            "latitude": 37.631668,
+            "longitude": 127.077481,
+            "radius": 1000,
+            "stationCount": 20,
+            "mapOnlyLatencyMs": 73.58841699999175,
+            "endToEndLatencyMs": 510.1104580000101
+          },
+          {
+            "index": 1,
+            "clusterPointName": "nowon_station",
+            "latitude": 37.655349,
+            "longitude": 127.060187,
+            "radius": 1000,
+            "stationCount": 26,
+            "mapOnlyLatencyMs": 111.90729199998896,
+            "endToEndLatencyMs": 535.9857919999922
+          },
+          {
+            "index": 2,
+            "clusterPointName": "gongneung_center",
+            "latitude": 37.630032,
+            "longitude": 127.076508,
+            "radius": 1000,
+            "stationCount": 21,
+            "mapOnlyLatencyMs": 97.82145800002036,
+            "endToEndLatencyMs": 521.3447499999893
+          },
+          {
+            "index": 3,
+            "clusterPointName": "gongneung_center",
+            "latitude": 37.630032,
+            "longitude": 127.076508,
+            "radius": 1000,
+            "stationCount": 21,
+            "mapOnlyLatencyMs": 167.54458299998078,
+            "endToEndLatencyMs": 433.03800000000047
+          }
+        ],
+        "mapOnlyStats": {
+          "avg": 112.71543749999546,
+          "min": 73.58841699999175,
+          "max": 167.54458299998078,
+          "p50": 97.82145800002036,
+          "p95": 167.54458299998078
+        },
+        "endToEndStats": {
+          "avg": 500.119749999998,
+          "min": 433.03800000000047,
+          "max": 535.9857919999922,
+          "p50": 510.1104580000101,
+          "p95": 535.9857919999922
+        },
+        "metrics": {
+          "station_sync_requested_total": 88,
+          "station_lock_acquired_total": 0,
+          "station_lock_skipped_total": 0,
+          "seoul_realtime_fetch_started_total": 88,
+          "seoul_realtime_fetch_completed_total": 88,
+          "google_tts_synthesize_total": 0,
+          "google_tts_synthesize_chars_total": 0,
+          "tts_cache_hit_total": 0,
+          "tts_cache_miss_total": 0,
+          "tts_fulltext_synthesized_total": 0,
+          "tts_fulltext_synthesized_chars_total": 0,
+          "tts_chunk_cache_hit_total": 0,
+          "tts_chunk_synthesized_total": 0,
+          "tts_chunk_synthesized_chars_total": 0,
+          "tts_merged_cache_hit_total": 0,
+          "tts_merged_created_total": 0
+        },
+        "clusterUsage": {
+          "gongneung_center": 2,
+          "nowon_station": 1,
+          "seoultech": 1,
+          "seoul_womens_univ": 0,
+          "sahmyook_univ": 0
+        }
+      },
+      "5000": {
+        "iterations": [
+          {
+            "index": 0,
+            "clusterPointName": "sahmyook_univ",
+            "latitude": 37.642561,
+            "longitude": 127.105918,
+            "radius": 5000,
+            "stationCount": 176,
+            "mapOnlyLatencyMs": 27.807041000021854,
+            "endToEndLatencyMs": 2197.251667000004
+          },
+          {
+            "index": 1,
+            "clusterPointName": "sahmyook_univ",
+            "latitude": 37.642561,
+            "longitude": 127.105918,
+            "radius": 5000,
+            "stationCount": 176,
+            "mapOnlyLatencyMs": 28.605999999999767,
+            "endToEndLatencyMs": 2157.1995420000167
+          },
+          {
+            "index": 2,
+            "clusterPointName": "seoul_womens_univ",
+            "latitude": 37.628114,
+            "longitude": 127.090549,
+            "radius": 5000,
+            "stationCount": 265,
+            "mapOnlyLatencyMs": 41.492250000010245,
+            "endToEndLatencyMs": 3183.6602500000154
+          },
+          {
+            "index": 3,
+            "clusterPointName": "gongneung_center",
+            "latitude": 37.630032,
+            "longitude": 127.076508,
+            "radius": 5000,
+            "stationCount": 338,
+            "mapOnlyLatencyMs": 44.73958299998776,
+            "endToEndLatencyMs": 3934.1463330000115
+          }
+        ],
+        "mapOnlyStats": {
+          "avg": 35.66121850000491,
+          "min": 27.807041000021854,
+          "max": 44.73958299998776,
+          "p50": 28.605999999999767,
+          "p95": 44.73958299998776
+        },
+        "endToEndStats": {
+          "avg": 2868.064448000012,
+          "min": 2157.1995420000167,
+          "max": 3934.1463330000115,
+          "p50": 2197.251667000004,
+          "p95": 3934.1463330000115
+        },
+        "metrics": {
+          "station_sync_requested_total": 955,
+          "station_lock_acquired_total": 0,
+          "station_lock_skipped_total": 0,
+          "seoul_realtime_fetch_started_total": 955,
+          "seoul_realtime_fetch_completed_total": 955,
+          "google_tts_synthesize_total": 0,
+          "google_tts_synthesize_chars_total": 0,
+          "tts_cache_hit_total": 0,
+          "tts_cache_miss_total": 0,
+          "tts_fulltext_synthesized_total": 0,
+          "tts_fulltext_synthesized_chars_total": 0,
+          "tts_chunk_cache_hit_total": 0,
+          "tts_chunk_synthesized_total": 0,
+          "tts_chunk_synthesized_chars_total": 0,
+          "tts_merged_cache_hit_total": 0,
+          "tts_merged_created_total": 0
+        },
+        "clusterUsage": {
+          "gongneung_center": 1,
+          "nowon_station": 0,
+          "seoultech": 0,
+          "seoul_womens_univ": 1,
+          "sahmyook_univ": 2
+        }
+      }
+    },
+    "map_split_with_lock": {
+      "1000": {
+        "iterations": [
+          {
+            "index": 0,
+            "clusterPointName": "seoultech",
+            "latitude": 37.631668,
+            "longitude": 127.077481,
+            "radius": 1000,
+            "stationCount": 20,
+            "mapOnlyLatencyMs": 33.142250000004424,
+            "endToEndLatencyMs": 319.75212499999907
+          },
+          {
+            "index": 1,
+            "clusterPointName": "nowon_station",
+            "latitude": 37.655349,
+            "longitude": 127.060187,
+            "radius": 1000,
+            "stationCount": 25,
+            "mapOnlyLatencyMs": 103.70779200000106,
+            "endToEndLatencyMs": 470.6311659999774
+          },
+          {
+            "index": 2,
+            "clusterPointName": "gongneung_center",
+            "latitude": 37.630032,
+            "longitude": 127.076508,
+            "radius": 1000,
+            "stationCount": 21,
+            "mapOnlyLatencyMs": 104.64541699999245,
+            "endToEndLatencyMs": 281.69120900001144
+          },
+          {
+            "index": 3,
+            "clusterPointName": "gongneung_center",
+            "latitude": 37.630032,
+            "longitude": 127.076508,
+            "radius": 1000,
+            "stationCount": 21,
+            "mapOnlyLatencyMs": 100.34466699999757,
+            "endToEndLatencyMs": 400.9989160000114
+          }
+        ],
+        "mapOnlyStats": {
+          "avg": 85.46003149999888,
+          "min": 33.142250000004424,
+          "max": 104.64541699999245,
+          "p50": 100.34466699999757,
+          "p95": 104.64541699999245
+        },
+        "endToEndStats": {
+          "avg": 368.2683539999998,
+          "min": 281.69120900001144,
+          "max": 470.6311659999774,
+          "p50": 319.75212499999907,
+          "p95": 470.6311659999774
+        },
+        "metrics": {
+          "station_sync_requested_total": 87,
+          "station_lock_acquired_total": 48,
+          "station_lock_skipped_total": 39,
+          "seoul_realtime_fetch_started_total": 48,
+          "seoul_realtime_fetch_completed_total": 48,
+          "google_tts_synthesize_total": 0,
+          "google_tts_synthesize_chars_total": 0,
+          "tts_cache_hit_total": 0,
+          "tts_cache_miss_total": 0,
+          "tts_fulltext_synthesized_total": 0,
+          "tts_fulltext_synthesized_chars_total": 0,
+          "tts_chunk_cache_hit_total": 0,
+          "tts_chunk_synthesized_total": 0,
+          "tts_chunk_synthesized_chars_total": 0,
+          "tts_merged_cache_hit_total": 0,
+          "tts_merged_created_total": 0
+        },
+        "clusterUsage": {
+          "gongneung_center": 2,
+          "nowon_station": 1,
+          "seoultech": 1,
+          "seoul_womens_univ": 0,
+          "sahmyook_univ": 0
+        }
+      },
+      "5000": {
+        "iterations": [
+          {
+            "index": 0,
+            "clusterPointName": "sahmyook_univ",
+            "latitude": 37.642561,
+            "longitude": 127.105918,
+            "radius": 5000,
+            "stationCount": 176,
+            "mapOnlyLatencyMs": 31.69445799998357,
+            "endToEndLatencyMs": 1268.4387500000012
+          },
+          {
+            "index": 1,
+            "clusterPointName": "sahmyook_univ",
+            "latitude": 37.642561,
+            "longitude": 127.105918,
+            "radius": 5000,
+            "stationCount": 176,
+            "mapOnlyLatencyMs": 28.770000000018626,
+            "endToEndLatencyMs": 1223.2843330000178
+          },
+          {
+            "index": 2,
+            "clusterPointName": "seoul_womens_univ",
+            "latitude": 37.628114,
+            "longitude": 127.090549,
+            "radius": 5000,
+            "stationCount": 265,
+            "mapOnlyLatencyMs": 41.79733299999498,
+            "endToEndLatencyMs": 2937.391957999993
+          },
+          {
+            "index": 3,
+            "clusterPointName": "gongneung_center",
+            "latitude": 37.630032,
+            "longitude": 127.076508,
+            "radius": 5000,
+            "stationCount": 337,
+            "mapOnlyLatencyMs": 38.32387500000186,
+            "endToEndLatencyMs": 3890.14854200001
+          }
+        ],
+        "mapOnlyStats": {
+          "avg": 35.14641649999976,
+          "min": 28.770000000018626,
+          "max": 41.79733299999498,
+          "p50": 31.69445799998357,
+          "p95": 41.79733299999498
+        },
+        "endToEndStats": {
+          "avg": 2329.8158957500054,
+          "min": 1223.2843330000178,
+          "max": 3890.14854200001,
+          "p50": 1268.4387500000012,
+          "p95": 3890.14854200001
+        },
+        "metrics": {
+          "station_sync_requested_total": 954,
+          "station_lock_acquired_total": 725,
+          "station_lock_skipped_total": 229,
+          "seoul_realtime_fetch_started_total": 725,
+          "seoul_realtime_fetch_completed_total": 725,
+          "google_tts_synthesize_total": 0,
+          "google_tts_synthesize_chars_total": 0,
+          "tts_cache_hit_total": 0,
+          "tts_cache_miss_total": 0,
+          "tts_fulltext_synthesized_total": 0,
+          "tts_fulltext_synthesized_chars_total": 0,
+          "tts_chunk_cache_hit_total": 0,
+          "tts_chunk_synthesized_total": 0,
+          "tts_chunk_synthesized_chars_total": 0,
+          "tts_merged_cache_hit_total": 0,
+          "tts_merged_created_total": 0
+        },
+        "clusterUsage": {
+          "gongneung_center": 1,
+          "nowon_station": 0,
+          "seoultech": 0,
+          "seoul_womens_univ": 1,
+          "sahmyook_univ": 2
+        }
+      }
+    }
+  }
+}

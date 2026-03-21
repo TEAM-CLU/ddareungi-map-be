@@ -28,9 +28,9 @@ export class BenchmarkMapQueryDto {
 export class BenchmarkMapEndToEndDto extends BenchmarkMapQueryDto {
   @ApiProperty({
     description: '지도 조회 후 실시간 동기화 방식',
-    enum: ['inline', 'batch'],
-    example: 'batch',
+    enum: ['inline', 'batch', 'batch_parallel'],
+    example: 'batch_parallel',
   })
-  @IsIn(['inline', 'batch'])
-  syncStrategy: 'inline' | 'batch';
+  @IsIn(['inline', 'batch', 'batch_parallel'])
+  syncStrategy: 'inline' | 'batch' | 'batch_parallel';
 }

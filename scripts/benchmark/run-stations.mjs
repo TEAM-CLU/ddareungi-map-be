@@ -10,6 +10,7 @@ import {
   PNPM_CMD,
   PORT,
   createLogger,
+  getBenchmarkAuthHeaders,
   resolveOutputPaths,
 } from './_shared.mjs';
 
@@ -40,6 +41,7 @@ const MODE_ENVS = {
 };
 
 const { log, logError } = createLogger('[benchmark:stations]');
+const BENCHMARK_AUTH_HEADERS = getBenchmarkAuthHeaders();
 
 let currentChild = null;
 const childState = new WeakMap();
@@ -103,8 +105,8 @@ function relayServerOutput(modeName, source, chunk) {
     return;
   }
 
-    const text = chunk.toString();
-    const lines = text.split(/\r?\n/);
+  const text = chunk.toString();
+  const lines = text.split(/\r?\n/);
   for (const line of lines) {
     if (line.trim().length === 0) {
       continue;
@@ -204,7 +206,9 @@ async function waitForServer(modeName, child) {
     }
 
     try {
-      const response = await fetch(`${BASE_URL}/internal/benchmark/snapshot`);
+      const response = await fetch(`${BASE_URL}/internal/benchmark/snapshot`, {
+        headers: BENCHMARK_AUTH_HEADERS,
+      });
       if (response.ok) {
         log(`server is ready: mode=${modeName} attempt=${attempt + 1}`);
         return;
@@ -231,6 +235,10 @@ async function startServer(modeName) {
     ...process.env,
     NODE_ENV: process.env.NODE_ENV ?? 'local',
     ENABLE_BENCHMARK_METRICS: 'true',
+    BENCHMARK_RATE_LIMIT_LIMIT:
+      process.env.BENCHMARK_RATE_LIMIT_LIMIT ?? '1000',
+    BENCHMARK_RATE_LIMIT_TTL_SECONDS:
+      process.env.BENCHMARK_RATE_LIMIT_TTL_SECONDS ?? '60',
     PORT: String(PORT),
     ...MODE_ENVS[modeName],
   };
@@ -329,7 +337,10 @@ async function resetBenchmark(options = {}) {
   log(`resetting benchmark metrics: ${JSON.stringify(options)}`);
   return requestJson(`${BASE_URL}/internal/benchmark/reset`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...BENCHMARK_AUTH_HEADERS,
+    },
     body: JSON.stringify(options),
     logLabel: 'benchmark-reset',
   });
@@ -337,6 +348,7 @@ async function resetBenchmark(options = {}) {
 
 async function snapshotBenchmark() {
   const json = await requestJson(`${BASE_URL}/internal/benchmark/snapshot`, {
+    headers: BENCHMARK_AUTH_HEADERS,
     logLabel: 'benchmark-snapshot',
   });
   return json.data;
@@ -351,7 +363,10 @@ async function runMapRequest(radius, includeBatchSync) {
     `${BASE_URL}/internal/benchmark/scenarios/map-area/query`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...BENCHMARK_AUTH_HEADERS,
+      },
       body: JSON.stringify({
         latitude: MAP_COORDINATES.latitude,
         longitude: MAP_COORDINATES.longitude,
@@ -379,12 +394,15 @@ async function runMapRequest(radius, includeBatchSync) {
       `${BASE_URL}/internal/benchmark/scenarios/map-area/end-to-end`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...BENCHMARK_AUTH_HEADERS,
+        },
         body: JSON.stringify({
           latitude: MAP_COORDINATES.latitude,
           longitude: MAP_COORDINATES.longitude,
           radius,
-          syncStrategy: 'batch',
+          syncStrategy: 'batch_parallel',
         }),
         logLabel: `map-end-to-end-batch radius=${radius}`,
       },
@@ -408,7 +426,10 @@ async function runLegacyMapRequest(radius) {
     `${BASE_URL}/internal/benchmark/scenarios/map-area/end-to-end`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...BENCHMARK_AUTH_HEADERS,
+      },
       body: JSON.stringify({
         latitude: MAP_COORDINATES.latitude,
         longitude: MAP_COORDINATES.longitude,
@@ -599,7 +620,8 @@ function renderLockSummary(lockResults) {
 }
 
 async function main() {
-  const { outputJson, outputMd } = await resolveOutputPaths('stations-benchmark');
+  const { outputJson, outputMd } =
+    await resolveOutputPaths('stations-benchmark');
   log(
     `stations benchmark run started: outputJson=${outputJson} outputMd=${outputMd}`,
   );

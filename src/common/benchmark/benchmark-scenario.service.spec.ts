@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { BenchmarkScenarioService } from './benchmark-scenario.service';
 import { StationQueryService } from '../../stations/services/station-query.service';
 import { StationRealtimeService } from '../../stations/services/station-realtime.service';
@@ -15,6 +16,16 @@ describe('BenchmarkScenarioService', () => {
   const stationRealtimeService = {
     syncRealtimeInfoForStations: jest.fn(),
     syncRealtimeInfoByIds: jest.fn(),
+    syncRealtimeInfoByIdsParallel: jest.fn(),
+  };
+
+  const configService = {
+    get: jest.fn((key: string) => {
+      if (key === 'BENCHMARK_REALTIME_SYNC_CONCURRENCY') {
+        return '8';
+      }
+      return undefined;
+    }),
   };
 
   const routesService = {
@@ -31,6 +42,10 @@ describe('BenchmarkScenarioService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         BenchmarkScenarioService,
+        {
+          provide: ConfigService,
+          useValue: configService,
+        },
         {
           provide: StationQueryService,
           useValue: stationQueryService,
@@ -71,6 +86,9 @@ describe('BenchmarkScenarioService', () => {
       stationRealtimeService.syncRealtimeInfoForStations,
     ).not.toHaveBeenCalled();
     expect(stationRealtimeService.syncRealtimeInfoByIds).not.toHaveBeenCalled();
+    expect(
+      stationRealtimeService.syncRealtimeInfoByIdsParallel,
+    ).not.toHaveBeenCalled();
   });
 
   it('should run inline map sync scenario via station realtime service', async () => {
@@ -88,6 +106,9 @@ describe('BenchmarkScenarioService', () => {
       stationRealtimeService.syncRealtimeInfoForStations,
     ).toHaveBeenCalledWith(stations);
     expect(stationRealtimeService.syncRealtimeInfoByIds).not.toHaveBeenCalled();
+    expect(
+      stationRealtimeService.syncRealtimeInfoByIdsParallel,
+    ).not.toHaveBeenCalled();
   });
 
   it('should run batch map sync scenario via station ids', async () => {
@@ -108,6 +129,31 @@ describe('BenchmarkScenarioService', () => {
       '1',
       '2',
     ]);
+    expect(
+      stationRealtimeService.syncRealtimeInfoForStations,
+    ).not.toHaveBeenCalled();
+    expect(
+      stationRealtimeService.syncRealtimeInfoByIdsParallel,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('should run batch parallel map sync scenario via station ids', async () => {
+    stationQueryService.findStationsInMapArea.mockResolvedValue([
+      { id: '1', number: '0001' },
+      { id: '2', number: '0002' },
+    ]);
+
+    await service.runMapEndToEndScenario({
+      latitude: 37.1,
+      longitude: 127.1,
+      radius: 1000,
+      syncStrategy: 'batch_parallel',
+    });
+
+    expect(
+      stationRealtimeService.syncRealtimeInfoByIdsParallel,
+    ).toHaveBeenCalledWith(['1', '2'], 8);
+    expect(stationRealtimeService.syncRealtimeInfoByIds).not.toHaveBeenCalled();
     expect(
       stationRealtimeService.syncRealtimeInfoForStations,
     ).not.toHaveBeenCalled();

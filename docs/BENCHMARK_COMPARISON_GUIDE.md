@@ -125,8 +125,9 @@ pnpm benchmark:tts
 2. 노원권 5개 hotspot을 기준으로 clustered request trace를 생성합니다.
 3. `BENCHMARK_CLUSTER_SEED` 기반 seeded 랜덤으로 radius별 request plan을 만듭니다.
 4. `map_legacy`, `map_split_no_lock`, `map_split_with_lock`가 같은 trace를 재생합니다.
-5. map suite와 lock suite를 각각 수행합니다.
-6. 결과를 timestamp가 포함된 파일로 저장합니다.
+5. `legacy`는 `inline` 순차 동기화, `split`은 `batch_parallel` 제한 병렬 동기화를 사용합니다.
+6. map suite와 lock suite를 각각 수행합니다.
+7. 결과를 timestamp가 포함된 파일로 저장합니다.
 
 현재 clustered hotspot은 아래 5개입니다.
 
@@ -186,10 +187,16 @@ BENCHMARK_PROGRESS_INTERVAL_MS=5000 pnpm benchmark
 BENCHMARK_MAP_ITERATIONS=2 BENCHMARK_LOCK_CONCURRENCY=2 pnpm benchmark:stations
 ```
 
+split 병렬 동기화 병렬도를 바꾸려면:
+
+```bash
+BENCHMARK_REALTIME_SYNC_CONCURRENCY=8 pnpm benchmark:stations
+```
+
 clustered 스크립트를 빠르게 검증하려면:
 
 ```bash
-BENCHMARK_RELAY_SERVER_OUTPUT=false BENCHMARK_MAP_ITERATIONS=2 BENCHMARK_LOCK_CONCURRENCY=4 pnpm benchmark:stations:clustered
+BENCHMARK_RELAY_SERVER_OUTPUT=false BENCHMARK_MAP_ITERATIONS=2 BENCHMARK_LOCK_CONCURRENCY=4 BENCHMARK_REALTIME_SYNC_CONCURRENCY=8 pnpm benchmark:stations:clustered
 ```
 
 ## 산출물
@@ -248,6 +255,8 @@ BENCHMARK_RELAY_SERVER_OUTPUT=false BENCHMARK_MAP_ITERATIONS=2 BENCHMARK_LOCK_CO
   - `BENCHMARK_TIMESTAMP`
 - clustered trace 제어
   - `BENCHMARK_CLUSTER_SEED`
+- split 병렬 동기화 worker 수
+  - `BENCHMARK_REALTIME_SYNC_CONCURRENCY`
 
 ## TTS 벤치마크 해석 메모
 
@@ -264,6 +273,7 @@ BENCHMARK_RELAY_SERVER_OUTPUT=false BENCHMARK_MAP_ITERATIONS=2 BENCHMARK_LOCK_CO
 
 - 벤치마크용 오케스트레이션은 `common/benchmark` 아래로 분리했습니다.
 - 원래 도메인 서비스는 그대로 두고, benchmark 전용 서비스가 이를 조합해 legacy/split 시나리오를 재현합니다.
+- 현재 station benchmark에서 `legacy`는 순차 `inline`, `split`은 제한 병렬 `batch_parallel`을 사용합니다.
 - 따라서 벤치마크 스크립트는 일반 사용자 API 대신 내부 benchmark 엔드포인트만 호출합니다.
 - 통합 실행 스크립트는 하위 결과를 재계산하지 않고 결과 파일 경로만 인덱싱합니다.
 - clustered 스크립트는 기존 단일 hotspot 스크립트를 대체하지 않고, 더 현실적인 락 비교용으로 별도 유지합니다.

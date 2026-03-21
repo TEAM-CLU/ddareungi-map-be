@@ -282,7 +282,7 @@ export class StationRealtimeService {
   public async syncRealtimeInfoByIds(
     stationIds: string[],
   ): Promise<Map<string, StationRealtimeSyncResult>> {
-    const uniqueStationIds = Array.from(new Set(stationIds.filter(Boolean)));
+    const uniqueStationIds = this.normalizeStationIds(stationIds);
     if (uniqueStationIds.length === 0) {
       return new Map();
     }
@@ -300,6 +300,53 @@ export class StationRealtimeService {
     }
 
     return results;
+  }
+
+  public async syncRealtimeInfoByIdsParallel(
+    stationIds: string[],
+    concurrency = 8,
+  ): Promise<Map<string, StationRealtimeSyncResult>> {
+    const uniqueStationIds = this.normalizeStationIds(stationIds);
+    if (uniqueStationIds.length === 0) {
+      return new Map();
+    }
+
+    const workerCount = Math.min(
+      uniqueStationIds.length,
+      Math.max(1, Math.floor(concurrency)),
+    );
+    const resultsByIndex: Array<
+      [string, StationRealtimeSyncResult] | undefined
+    > = new Array(uniqueStationIds.length);
+    let nextIndex = 0;
+
+    await Promise.all(
+      Array.from({ length: workerCount }, async () => {
+        while (true) {
+          const currentIndex = nextIndex;
+          nextIndex += 1;
+
+          if (currentIndex >= uniqueStationIds.length) {
+            return;
+          }
+
+          const stationId = uniqueStationIds[currentIndex];
+          const result = await this.syncStationRealtimeByIdWithLock(stationId);
+          resultsByIndex[currentIndex] = [stationId, result];
+        }
+      }),
+    );
+
+    return new Map(
+      resultsByIndex.filter(
+        (entry): entry is [string, StationRealtimeSyncResult] =>
+          entry !== undefined,
+      ),
+    );
+  }
+
+  private normalizeStationIds(stationIds: string[]): string[] {
+    return Array.from(new Set(stationIds.filter(Boolean)));
   }
 
   /**

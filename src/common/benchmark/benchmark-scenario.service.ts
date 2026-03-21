@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { RoutesService } from '../../routes/routes.service';
 import { RouteDto } from '../../routes/dto/route.dto';
 import { NavigationService } from '../../navigation/navigation.service';
@@ -13,12 +14,17 @@ import { BenchmarkNavigationScenarioDto } from './dto/benchmark-navigation-scena
 
 @Injectable()
 export class BenchmarkScenarioService {
+  private readonly benchmarkRealtimeSyncConcurrency: number;
+
   constructor(
+    private readonly configService: ConfigService,
     private readonly stationQueryService: StationQueryService,
     private readonly stationRealtimeService: StationRealtimeService,
     private readonly routesService: RoutesService,
     private readonly navigationService: NavigationService,
-  ) {}
+  ) {
+    this.benchmarkRealtimeSyncConcurrency = this.resolveBenchmarkConcurrency();
+  }
 
   async runMapQueryScenario(dto: BenchmarkMapQueryDto): Promise<{
     stationCount: number;
@@ -59,7 +65,14 @@ export class BenchmarkScenarioService {
       const stationIds = stations
         .map((station) => station.id)
         .filter((id): id is string => Boolean(id));
-      await this.stationRealtimeService.syncRealtimeInfoByIds(stationIds);
+      if (dto.syncStrategy === 'batch_parallel') {
+        await this.stationRealtimeService.syncRealtimeInfoByIdsParallel(
+          stationIds,
+          this.benchmarkRealtimeSyncConcurrency,
+        );
+      } else {
+        await this.stationRealtimeService.syncRealtimeInfoByIds(stationIds);
+      }
     }
 
     return {
@@ -94,5 +107,14 @@ export class BenchmarkScenarioService {
       route,
       navigation,
     };
+  }
+
+  private resolveBenchmarkConcurrency(): number {
+    const configured = this.configService.get<string>(
+      'BENCHMARK_REALTIME_SYNC_CONCURRENCY',
+    );
+    const parsed = Number.parseInt(configured ?? '', 10);
+
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 8;
   }
 }

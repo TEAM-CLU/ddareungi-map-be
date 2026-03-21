@@ -269,4 +269,66 @@ describe('StationRealtimeService', () => {
       ]),
     );
   });
+
+  it('should remove duplicate station ids and skip realtime delay in parallel sync', async () => {
+    acquireLockMock.mockResolvedValue({
+      key: 'station:realtime-sync:lock:ST',
+      token: 'token',
+    });
+    releaseLockMock.mockResolvedValue(true);
+    fetchRealtimeStationInfoMock.mockResolvedValue({
+      parkingBikeTotCnt: '4',
+      rackTotCnt: '10',
+    });
+    calculateStationStatusMock.mockReturnValue('available');
+    updateMock.mockResolvedValue({ affected: 1 });
+
+    const result = await service.syncRealtimeInfoByIdsParallel(
+      ['ST-1', 'ST-2', 'ST-1'],
+      8,
+    );
+
+    expect(fetchRealtimeStationInfoMock).toHaveBeenCalledTimes(2);
+    expect(waitRealtimeApiDelayMock).not.toHaveBeenCalled();
+    expect(Array.from(result.keys())).toEqual(['ST-1', 'ST-2']);
+  });
+
+  it('should respect the provided concurrency limit in parallel sync', async () => {
+    let activeCount = 0;
+    let maxActiveCount = 0;
+
+    jest
+      .spyOn(
+        service as unknown as {
+          syncStationRealtimeByIdWithLock: (
+            stationId: string,
+          ) => Promise<unknown>;
+        },
+        'syncStationRealtimeByIdWithLock',
+      )
+      .mockImplementation(async (stationId: string) => {
+        activeCount += 1;
+        maxActiveCount = Math.max(maxActiveCount, activeCount);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        activeCount -= 1;
+
+        return {
+          stationId,
+          outcome: 'updated',
+          current_bikes: 1,
+          total_racks: 2,
+          status: 'available',
+          last_updated_at: new Date(),
+          usedLiveApi: true,
+        };
+      });
+
+    const result = await service.syncRealtimeInfoByIdsParallel(
+      ['ST-1', 'ST-2', 'ST-3', 'ST-4'],
+      2,
+    );
+
+    expect(maxActiveCount).toBe(2);
+    expect(Array.from(result.keys())).toEqual(['ST-1', 'ST-2', 'ST-3', 'ST-4']);
+  });
 });

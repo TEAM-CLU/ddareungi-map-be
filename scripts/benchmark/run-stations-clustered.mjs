@@ -10,6 +10,7 @@ import {
   PNPM_CMD,
   PORT,
   createLogger,
+  getBenchmarkAuthHeaders,
   resolveOutputPaths,
 } from './_shared.mjs';
 
@@ -64,6 +65,7 @@ const MODE_ENVS = {
 };
 
 const { log, logError } = createLogger('[benchmark:stations:clustered]');
+const BENCHMARK_AUTH_HEADERS = getBenchmarkAuthHeaders();
 
 let currentChild = null;
 const childState = new WeakMap();
@@ -269,7 +271,9 @@ async function waitForServer(modeName, child) {
     }
 
     try {
-      const response = await fetch(`${BASE_URL}/internal/benchmark/snapshot`);
+      const response = await fetch(`${BASE_URL}/internal/benchmark/snapshot`, {
+        headers: BENCHMARK_AUTH_HEADERS,
+      });
       if (response.ok) {
         log(`server is ready: mode=${modeName} attempt=${attempt + 1}`);
         return;
@@ -296,6 +300,10 @@ async function startServer(modeName) {
     ...process.env,
     NODE_ENV: process.env.NODE_ENV ?? 'local',
     ENABLE_BENCHMARK_METRICS: 'true',
+    BENCHMARK_RATE_LIMIT_LIMIT:
+      process.env.BENCHMARK_RATE_LIMIT_LIMIT ?? '1000',
+    BENCHMARK_RATE_LIMIT_TTL_SECONDS:
+      process.env.BENCHMARK_RATE_LIMIT_TTL_SECONDS ?? '60',
     PORT: String(PORT),
     ...MODE_ENVS[modeName],
   };
@@ -394,7 +402,10 @@ async function resetBenchmark(options = {}) {
   log(`resetting benchmark metrics: ${JSON.stringify(options)}`);
   return requestJson(`${BASE_URL}/internal/benchmark/reset`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...BENCHMARK_AUTH_HEADERS,
+    },
     body: JSON.stringify(options),
     logLabel: 'benchmark-reset',
   });
@@ -402,6 +413,7 @@ async function resetBenchmark(options = {}) {
 
 async function snapshotBenchmark() {
   const json = await requestJson(`${BASE_URL}/internal/benchmark/snapshot`, {
+    headers: BENCHMARK_AUTH_HEADERS,
     logLabel: 'benchmark-snapshot',
   });
   return json.data;
@@ -416,7 +428,10 @@ async function runMapRequest(planItem, includeBatchSync) {
     `${BASE_URL}/internal/benchmark/scenarios/map-area/query`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...BENCHMARK_AUTH_HEADERS,
+      },
       body: JSON.stringify({
         latitude: planItem.latitude,
         longitude: planItem.longitude,
@@ -438,12 +453,15 @@ async function runMapRequest(planItem, includeBatchSync) {
       `${BASE_URL}/internal/benchmark/scenarios/map-area/end-to-end`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...BENCHMARK_AUTH_HEADERS,
+        },
         body: JSON.stringify({
           latitude: planItem.latitude,
           longitude: planItem.longitude,
           radius: planItem.radius,
-          syncStrategy: 'batch',
+          syncStrategy: 'batch_parallel',
         }),
         logLabel: `clustered-map-end-to-end-batch point=${planItem.clusterPointName} radius=${planItem.radius}`,
       },
@@ -469,7 +487,10 @@ async function runLegacyMapRequest(planItem) {
     `${BASE_URL}/internal/benchmark/scenarios/map-area/end-to-end`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...BENCHMARK_AUTH_HEADERS,
+      },
       body: JSON.stringify({
         latitude: planItem.latitude,
         longitude: planItem.longitude,
@@ -503,7 +524,9 @@ async function runMapSuite(modeName, includeBatchSync, plansByRadius) {
 
     for (const radius of MAP_RADII) {
       const plan = plansByRadius[radius];
-      log(`clustered map suite radius start: mode=${modeName} radius=${radius}`);
+      log(
+        `clustered map suite radius start: mode=${modeName} radius=${radius}`,
+      );
       await resetBenchmark();
       const iterations = [];
 
@@ -555,7 +578,9 @@ async function runLockSuite(modeName, plansByRadius) {
 
     for (const radius of MAP_RADII) {
       const plan = plansByRadius[radius];
-      log(`clustered lock suite radius start: mode=${modeName} radius=${radius}`);
+      log(
+        `clustered lock suite radius start: mode=${modeName} radius=${radius}`,
+      );
       await resetBenchmark();
       const iterations = await Promise.all(
         plan.map((planItem) => runMapRequest(planItem, true)),
@@ -615,7 +640,9 @@ function renderMapSummary(results) {
           ),
         );
       }
-      lines.push(`| hotspot usage | - | - | - | - | - | ${renderClusterUsageLine(result.clusterUsage)} |`);
+      lines.push(
+        `| hotspot usage | - | - | - | - | - | ${renderClusterUsageLine(result.clusterUsage)} |`,
+      );
     }
 
     lines.push('');
@@ -696,7 +723,10 @@ async function main() {
   };
 
   const lockResults = {
-    map_split_no_lock: await runLockSuite('map_split_no_lock', lockPlansByRadius),
+    map_split_no_lock: await runLockSuite(
+      'map_split_no_lock',
+      lockPlansByRadius,
+    ),
     map_split_with_lock: await runLockSuite(
       'map_split_with_lock',
       lockPlansByRadius,
