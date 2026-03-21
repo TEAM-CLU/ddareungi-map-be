@@ -184,12 +184,12 @@
 
   const clearWaypointsMarkers = () => {
     if (waypointsMarkers.length > 0) {
-      waypointsMarkers.forEach(wayPointMarker => wayPointMarker.setMap(null));
+      waypointsMarkers.forEach((wayPointMarker) => wayPointMarker.setMap(null));
       waypointsMarkers = [];
     }
   };
 
-  const createWaypointsMarkers = waypoints => {
+  const createWaypointsMarkers = (waypoints) => {
     clearWaypointsMarkers();
     waypoints.forEach((waypoint, idx) => {
       const waypointPos = new kakaoRef.maps.LatLng(waypoint.lat, waypoint.lng);
@@ -205,8 +205,8 @@
   };
 
   // 단순 좌표 배열 -> kakao.maps.LatLng 배열 변환 함수
-  const convertToKakaoLatLngArray = coords => {
-    return coords.map(coord => {
+  const convertToKakaoLatLngArray = (coords) => {
+    return coords.map((coord) => {
       const [lng, lat] = coord;
       return new kakaoRef.maps.LatLng(lat, lng);
     });
@@ -239,7 +239,7 @@
   };
 
   // 색상 채널 값을 0~255 범위로 제한
-  const clampColorChannel = value => Math.max(0, Math.min(255, value));
+  const clampColorChannel = (value) => Math.max(0, Math.min(255, value));
 
   // HEX 색상을 밝게 조정
   const lightenHexColor = (hex, amount = 40) => {
@@ -248,7 +248,7 @@
     const r = clampColorChannel(parseInt(raw.slice(0, 2), 16) + amount);
     const g = clampColorChannel(parseInt(raw.slice(2, 4), 16) + amount);
     const b = clampColorChannel(parseInt(raw.slice(4, 6), 16) + amount);
-    return `#${[r, g, b].map(v => v.toString(16).padStart(2, '0')).join('')}`;
+    return `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
   };
 
   // HEX 색상을 어둡게 조정
@@ -258,7 +258,7 @@
     const r = clampColorChannel(parseInt(raw.slice(0, 2), 16) - amount);
     const g = clampColorChannel(parseInt(raw.slice(2, 4), 16) - amount);
     const b = clampColorChannel(parseInt(raw.slice(4, 6), 16) - amount);
-    return `#${[r, g, b].map(v => v.toString(16).padStart(2, '0')).join('')}`;
+    return `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
   };
 
   // 자전거 경로 화살표 렌더링 관련 상수
@@ -274,8 +274,8 @@
 `;
 
   // 각도/거리 계산 유틸
-  const toRad = deg => (deg * Math.PI) / 180;
-  const toDeg = rad => (rad * 180) / Math.PI;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const toDeg = (rad) => (rad * 180) / Math.PI;
 
   // 두 좌표 사이의 구면 거리(미터)
   const getDistanceMeters = (lat1, lng1, lat2, lng2) => {
@@ -334,7 +334,7 @@
   // 자전거 경로 화살표 및 줌 리스너 정리
   const clearBikeRouteArrows = () => {
     if (navigationBikeRouteArrowList.length > 0) {
-      navigationBikeRouteArrowList.forEach(overlay => overlay.setMap(null));
+      navigationBikeRouteArrowList.forEach((overlay) => overlay.setMap(null));
       navigationBikeRouteArrowList = [];
     }
     if (mapRef && handleMapZoomChanged) {
@@ -348,8 +348,8 @@
   };
 
   // 화살표 오버레이를 지도 표시 여부에 따라 토글
-  const setBikeRouteArrowVisibility = visible => {
-    navigationBikeRouteArrowList.forEach(overlay =>
+  const setBikeRouteArrowVisibility = (visible) => {
+    navigationBikeRouteArrowList.forEach((overlay) =>
       overlay.setMap(visible ? mapRef : null),
     );
   };
@@ -421,7 +421,7 @@
   };
 
   // 선택 해제 시 기존 세그먼트 zIndex 복구
-  const resetBikeRouteSegmentZIndex = idx => {
+  const resetBikeRouteSegmentZIndex = (idx) => {
     if (idx < 0) return;
     const baseZIndex = 5 + idx;
     const mainLine = navigationBikeRouteMainList[idx];
@@ -503,7 +503,7 @@
     let lastIdx = 0;
     const waypointIndices = [];
 
-    waypoints.forEach(wp => {
+    waypoints.forEach((wp) => {
       const exactIdx = findExactIndexOnPath(coords, wp.lat, wp.lng);
       const nearestIdx =
         exactIdx >= 0
@@ -602,7 +602,11 @@
   // loop-recovery 전용 분리:
   // - 자전거: 현재위치 -> ... -> 대여소(복귀+잔여)
   // - 도보: 대여소 -> 원점
-  const buildLoopRecoverySegments = (coords, startStationPoint, originPoint) => {
+  const buildLoopRecoverySegments = (
+    coords,
+    startStationPoint,
+    originPoint,
+  ) => {
     if (!Array.isArray(coords) || coords.length === 0) {
       return {
         bikeRouteCoords: [],
@@ -670,13 +674,13 @@
     clearWaypointsMarkers();
 
     // 기존 경로 폴리라인들 전부 제거
-    navigationBikeRouteOutlineList.forEach(polyline => {
+    navigationBikeRouteOutlineList.forEach((polyline) => {
       if (polyline) polyline.setMap(null);
     });
-    navigationBikeRouteMainList.forEach(polyline => {
+    navigationBikeRouteMainList.forEach((polyline) => {
       if (polyline) polyline.setMap(null);
     });
-    navigationBikeRouteGrayList.forEach(polyline => {
+    navigationBikeRouteGrayList.forEach((polyline) => {
       if (polyline) polyline.setMap(null);
     });
 
@@ -703,7 +707,7 @@
   };
 
   // interval 정보를 포함한 네비게이션 경로 렌더링
-  const drawNavigationPath = navigationPathData => {
+  const drawNavigationPath = (navigationPathData) => {
     const {
       routeType,
       startPoint,
@@ -768,8 +772,10 @@
 
     if (routeType === 'loop') {
       const [fallbackOriginLng, fallbackOriginLat] = startPoint;
-      const [originLng, originLat] =
-        originPoint ?? [fallbackOriginLng, fallbackOriginLat];
+      const [originLng, originLat] = originPoint ?? [
+        fallbackOriginLng,
+        fallbackOriginLat,
+      ];
 
       // loop-recovery라도 원점 마커는 항상 원래 원점에 표시
       if (shouldDrawStartWalking || isLoopRecoveryMode) {
@@ -958,9 +964,27 @@
       // fullPathCoordinateList에서 bikeRouteCoords의 시작 위치를 찾음
       const [firstLng, firstLat] = bikeRouteCoordsForRender[0];
 
-      const bikeStartIdx = fullPathCoordinateList.findIndex(
-        ([lng, lat]) => lng === firstLng && lat === firstLat,
-      );
+      // 부동소수점 오차 대응: epsilon 허용 범위 내에서 탐색 후 없으면 최근접 인덱스로 폴백
+      const COORD_EPSILON = 1e-7;
+      const bikeStartIdx = (() => {
+        const exactIdx = fullPathCoordinateList.findIndex(
+          ([lng, lat]) =>
+            Math.abs(lng - firstLng) < COORD_EPSILON &&
+            Math.abs(lat - firstLat) < COORD_EPSILON,
+        );
+        if (exactIdx >= 0) return exactIdx;
+
+        let minDist = Infinity;
+        let nearestIdx = 0;
+        fullPathCoordinateList.forEach(([lng, lat], i) => {
+          const d = (lng - firstLng) ** 2 + (lat - firstLat) ** 2;
+          if (d < minDist) {
+            minDist = d;
+            nearestIdx = i;
+          }
+        });
+        return nearestIdx;
+      })();
 
       // bikeEndIdx는 시작 인덱스 + 길이 - 1
       const bikeEndIdx = bikeStartIdx + bikeRouteCoordsForRender.length - 1;
@@ -1101,8 +1125,8 @@
   };
 
   // interval 변경 시 지나온 구간을 다시 회색 처리
-  const updateNavigationCurrentInterval = currentIntervalIndex => {
-    navigationBikeRouteGrayList.forEach(polyline => polyline.setMap(null));
+  const updateNavigationCurrentInterval = (currentIntervalIndex) => {
+    navigationBikeRouteGrayList.forEach((polyline) => polyline.setMap(null));
     navigationBikeRouteGrayList = [];
 
     if (currentIntervalIndex === 0) return;
@@ -1138,7 +1162,7 @@
   // 바운드 맞추기
   const focusOnNavigationPath = () => {
     const bounds = new kakaoRef.maps.LatLngBounds();
-    kakaoPathForFocusOnBound.forEach(latlng => bounds.extend(latlng));
+    kakaoPathForFocusOnBound.forEach((latlng) => bounds.extend(latlng));
     mapRef.setBounds(bounds, 100);
   };
 
