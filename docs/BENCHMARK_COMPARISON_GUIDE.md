@@ -274,6 +274,8 @@ BENCHMARK_RELAY_SERVER_OUTPUT=false BENCHMARK_MAP_ITERATIONS=2 BENCHMARK_LOCK_CO
 - 벤치마크용 오케스트레이션은 `common/benchmark` 아래로 분리했습니다.
 - 원래 도메인 서비스는 그대로 두고, benchmark 전용 서비스가 이를 조합해 legacy/split 시나리오를 재현합니다.
 - 현재 station benchmark에서 `legacy`는 순차 `inline`, `split`은 제한 병렬 `batch_parallel`을 사용합니다.
+- 운영 환경에서도 관리자용 `POST /stations/realtime-sync`, `POST /stations/realtime-sync/batch`는 `STATION_REALTIME_SYNC_CONCURRENCY` 기준 제한 병렬을 사용하며, 값이 없거나 잘못되면 기본값 `8`을 사용합니다.
+- 반대로 사용자 조회 경로(`nearby`, `detail`)는 외부 API 압력을 갑자기 키우지 않도록 순차 동기화를 유지합니다.
 - 따라서 벤치마크 스크립트는 일반 사용자 API 대신 내부 benchmark 엔드포인트만 호출합니다.
 - 통합 실행 스크립트는 하위 결과를 재계산하지 않고 결과 파일 경로만 인덱싱합니다.
 - clustered 스크립트는 기존 단일 hotspot 스크립트를 대체하지 않고, 더 현실적인 락 비교용으로 별도 유지합니다.
@@ -282,6 +284,7 @@ BENCHMARK_RELAY_SERVER_OUTPUT=false BENCHMARK_MAP_ITERATIONS=2 BENCHMARK_LOCK_CO
 ## 결과 해석 포인트
 
 - 지도 조회는 `split`의 `map_only_latency_ms`가 `legacy` end-to-end보다 낮아야 합니다.
+- `split` end-to-end가 `legacy`보다 큰 폭으로 빨라지지 않을 수 있습니다. 총 외부 실시간 API 호출 수는 같고, 응답시간은 DB 조회보다 서울시 API latency, timeout, provider queueing/rate-limit 영향이 더 크게 지배하기 때문입니다.
 - Redis 락은 `with_lock`에서 `station_lock_skipped_total > 0` 이어야 하고, `seoul_realtime_fetch_started_total`이 `without_lock`보다 작아야 합니다.
 - clustered 락 비교에서는 hotspot usage가 함께 저장되므로, 같은 trace가 재생됐는지 먼저 확인해야 합니다.
 - clustered 락 비교에서는 외부 API 호출 감소율뿐 아니라 `end_to_end avg(ms)`, `p95(ms)`도 같이 봐야 합니다.

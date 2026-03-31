@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull, Not } from 'typeorm';
 import { Station } from '../entities/station.entity';
@@ -10,9 +11,12 @@ import { StationRealtimeLockService } from './station-realtime-lock.service';
 import { StationRealtimeSyncResult } from '../interfaces/station.interfaces';
 import { BenchmarkMetricsService } from '../../common/benchmark/benchmark-metrics.service';
 
+const DEFAULT_OPERATIONAL_REALTIME_SYNC_CONCURRENCY = 8;
+
 @Injectable()
 export class StationRealtimeService {
   private readonly logger = new Logger(StationRealtimeService.name);
+  private readonly operationalRealtimeSyncConcurrency: number;
 
   constructor(
     @InjectRepository(Station)
@@ -21,7 +25,22 @@ export class StationRealtimeService {
     private readonly stationDomainService: StationDomainService,
     private readonly stationRealtimeLockService: StationRealtimeLockService,
     private readonly benchmarkMetricsService: BenchmarkMetricsService,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    this.operationalRealtimeSyncConcurrency =
+      this.resolveOperationalRealtimeSyncConcurrency();
+  }
+
+  private resolveOperationalRealtimeSyncConcurrency(): number {
+    const configuredValue = this.configService.get<string>(
+      'STATION_REALTIME_SYNC_CONCURRENCY',
+    );
+    const parsedValue = Number.parseInt(configuredValue ?? '', 10);
+
+    return parsedValue > 0
+      ? parsedValue
+      : DEFAULT_OPERATIONAL_REALTIME_SYNC_CONCURRENCY;
+  }
 
   private getErrorStack(error: unknown): string | undefined {
     return error instanceof Error ? error.stack : undefined;
@@ -345,6 +364,15 @@ export class StationRealtimeService {
     );
   }
 
+  public async syncRealtimeInfoByIdsForOperations(
+    stationIds: string[],
+  ): Promise<Map<string, StationRealtimeSyncResult>> {
+    return this.syncRealtimeInfoByIdsParallel(
+      stationIds,
+      this.operationalRealtimeSyncConcurrency,
+    );
+  }
+
   private normalizeStationIds(stationIds: string[]): string[] {
     return Array.from(new Set(stationIds.filter(Boolean)));
   }
@@ -406,8 +434,9 @@ export class StationRealtimeService {
         return { successCount: 0, failureCount: 0, details: [] };
       }
 
-      // ID 기반 동기화 메서드 사용
-      const realtimeResults = await this.syncRealtimeInfoByIds(stationIds);
+      // 운영용 전체/배치 동기화는 제한 병렬로 처리한다.
+      const realtimeResults =
+        await this.syncRealtimeInfoByIdsForOperations(stationIds);
 
       let successCount = 0;
       let failureCount = 0;

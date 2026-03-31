@@ -27,7 +27,9 @@ export class StationBatchRealtimeSyncService {
     ).filter((stationId): stationId is string => Boolean(stationId));
 
     const resultMap =
-      await this.stationRealtimeService.syncRealtimeInfoByIds(stationIds);
+      await this.stationRealtimeService.syncRealtimeInfoByIdsForOperations(
+        stationIds,
+      );
     const results = Array.from(resultMap.values());
     const successCount = results.filter(
       (result) => result.outcome !== 'not_found' && !result.error,

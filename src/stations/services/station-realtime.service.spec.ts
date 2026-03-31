@@ -1,4 +1,5 @@
 import { Repository } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
 import { Station } from '../entities/station.entity';
 import { StationRealtimeService } from './station-realtime.service';
 import { SeoulApiService } from './seoul-api.service';
@@ -41,14 +42,20 @@ describe('StationRealtimeService', () => {
     increment: jest.fn(),
   } as unknown as BenchmarkMetricsService;
 
+  const configService = {
+    get: jest.fn(),
+  } as unknown as ConfigService;
+
   beforeEach(() => {
     jest.clearAllMocks();
+    (configService.get as jest.Mock).mockReturnValue(undefined);
     service = new StationRealtimeService(
       stationRepository,
       seoulApiService,
       stationDomainService,
       stationRealtimeLockService,
       benchmarkMetricsService,
+      configService,
     );
   });
 
@@ -192,7 +199,7 @@ describe('StationRealtimeService', () => {
   });
 
   it('should count updated, inactive_no_data, and skipped_locked as success in batch sync', async () => {
-    jest.spyOn(service, 'syncRealtimeInfoByIds').mockResolvedValue(
+    jest.spyOn(service, 'syncRealtimeInfoByIdsForOperations').mockResolvedValue(
       new Map([
         [
           'ST-1',
@@ -268,6 +275,46 @@ describe('StationRealtimeService', () => {
         },
       ]),
     );
+  });
+
+  it('should use configured operational concurrency for admin sync', async () => {
+    (configService.get as jest.Mock).mockReturnValue('12');
+    service = new StationRealtimeService(
+      stationRepository,
+      seoulApiService,
+      stationDomainService,
+      stationRealtimeLockService,
+      benchmarkMetricsService,
+      configService,
+    );
+
+    const syncSpy = jest
+      .spyOn(service, 'syncRealtimeInfoByIdsParallel')
+      .mockResolvedValue(new Map());
+
+    await service.syncRealtimeInfoByIdsForOperations(['ST-1', 'ST-2']);
+
+    expect(syncSpy).toHaveBeenCalledWith(['ST-1', 'ST-2'], 12);
+  });
+
+  it('should fall back to default operational concurrency when config is invalid', async () => {
+    (configService.get as jest.Mock).mockReturnValue('0');
+    service = new StationRealtimeService(
+      stationRepository,
+      seoulApiService,
+      stationDomainService,
+      stationRealtimeLockService,
+      benchmarkMetricsService,
+      configService,
+    );
+
+    const syncSpy = jest
+      .spyOn(service, 'syncRealtimeInfoByIdsParallel')
+      .mockResolvedValue(new Map());
+
+    await service.syncRealtimeInfoByIdsForOperations(['ST-1']);
+
+    expect(syncSpy).toHaveBeenCalledWith(['ST-1'], 8);
   });
 
   it('should remove duplicate station ids and skip realtime delay in parallel sync', async () => {

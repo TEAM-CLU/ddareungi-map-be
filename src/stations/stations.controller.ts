@@ -135,7 +135,6 @@ export class StationsController {
   }
 
   @Post('realtime-sync/batch')
-  @AdminProtected()
   @Throttle({ default: getAdminRateLimit() })
   @ApiOperation({
     summary: '특정 대여소(들) 실시간 대여정보 동기화',

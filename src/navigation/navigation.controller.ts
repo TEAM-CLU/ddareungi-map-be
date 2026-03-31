@@ -33,6 +33,7 @@ import {
 import { AnalyticsIdentityResolver } from '../analytics/analytics-identity.resolver';
 import { AnalyticsService } from '../analytics/analytics.service';
 import type { AnalyticsRequest } from '../analytics/analytics.types';
+import { AdminProtected } from 'src/common/decorators/admin-protected.decorator';
 
 @ApiTags('네비게이션 (navigation)')
 @Controller('navigation')
@@ -375,6 +376,7 @@ export class NavigationController {
   // ============================================================================
 
   @Get('test/session/:sessionId')
+  @AdminProtected()
   @ApiOperation({
     summary: '[테스트] 세션 데이터 조회',
     description:
@@ -400,6 +402,7 @@ export class NavigationController {
   }
 
   @Get('test/route/:routeId')
+  @AdminProtected()
   @ApiOperation({
     summary: '[테스트] 경로 데이터 조회',
     description:
@@ -425,6 +428,7 @@ export class NavigationController {
   }
 
   @Get('test/session/:sessionId/with-route')
+  @AdminProtected()
   @ApiOperation({
     summary: '[테스트] 세션 + 경로 데이터 통합 조회',
     description:
