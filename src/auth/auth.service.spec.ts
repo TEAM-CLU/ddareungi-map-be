@@ -46,6 +46,14 @@ describe('AuthService social profile handling', () => {
     sign: jest.fn().mockReturnValue('jwt-token'),
   } as unknown as JwtService;
   const cryptoService = {} as CryptoService;
+  const redisMultiExecMock = jest.fn().mockResolvedValue([]);
+  const redisMultiMock = jest.fn(() => ({
+    setex: jest.fn().mockReturnThis(),
+    exec: redisMultiExecMock,
+  }));
+  const redis = {
+    multi: redisMultiMock,
+  };
   const redisService = {
     getOrThrow: jest.fn(),
   } as unknown as RedisService;
@@ -63,10 +71,15 @@ describe('AuthService social profile handling', () => {
     });
     ensureUserStatsExecuteMock.mockReset();
     ensureUserStatsExecuteMock.mockResolvedValue(undefined);
+    (configService.get as jest.Mock).mockReset();
+    (configService.getOrThrow as jest.Mock).mockReset();
     (jwtService.sign as jest.Mock).mockReset();
     (jwtService.sign as jest.Mock).mockReturnValue('jwt-token');
+    redisMultiExecMock.mockReset();
+    redisMultiExecMock.mockResolvedValue([]);
+    redisMultiMock.mockClear();
     (redisService.getOrThrow as jest.Mock).mockReset();
-    (redisService.getOrThrow as jest.Mock).mockReturnValue({});
+    (redisService.getOrThrow as jest.Mock).mockReturnValue(redis);
     service = new AuthService(
       mailService,
       configService,
@@ -102,6 +115,22 @@ describe('AuthService social profile handling', () => {
         optionalAgreed: true,
       }),
     );
+  });
+
+  it('requests Kakao profile_nickname scope for PKCE login', async () => {
+    (configService.get as jest.Mock).mockImplementation((key: string) => {
+      if (key === 'KAKAO_CLIENT_ID') return 'kakao-client-id';
+      if (key === 'KAKAO_PKCE_CALLBACK_URL') {
+        return 'https://example.com/auth/kakao/pkce/callback';
+      }
+      return undefined;
+    });
+
+    const result = await service.getKakaoPKCEAuthUrl();
+    const url = new URL(result.authUrl);
+
+    expect(url.searchParams.get('scope')).toContain('profile_nickname');
+    expect(url.searchParams.get('scope')).not.toContain(' name ');
   });
 
   it('falls back to placeholder and keeps optionalAgreed false when Kakao optional fields are missing', async () => {

@@ -1045,7 +1045,7 @@ export class AuthService {
     params.append('response_type', 'code');
     params.append(
       'scope',
-      ['account_email', 'name', 'gender', 'birthyear'].join(' '),
+      ['account_email', 'profile_nickname', 'gender', 'birthyear'].join(' '),
     );
     params.append('code_challenge', pkce.codeChallenge);
     params.append('code_challenge_method', pkce.codeChallengeMethod);
