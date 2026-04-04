@@ -52,12 +52,28 @@ type PkceStateData = {
   user?: unknown;
 };
 
+type SocialConsentStatus = {
+  requiredAgreed: boolean;
+  optionalAgreed: boolean;
+};
+
+const SOCIAL_LOGIN_NAME_PLACEHOLDERS = {
+  kakao: 'Kakao User',
+  naver: 'Naver User',
+} as const;
+
+type NicknameBackfillProvider = keyof typeof SOCIAL_LOGIN_NAME_PLACEHOLDERS;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
 function getString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
+}
+
+function getBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
 }
 
 function getStringOrNumber(value: unknown): string | undefined {
@@ -88,12 +104,130 @@ function _getUserEmailFromPkceUser(user: unknown): string | undefined {
   return naverResp ? getString(naverResp.email) : undefined;
 }
 
+function _getKakaoNickname(user: unknown): string | undefined {
+  const kakaoProfile = getNested(user, 'kakao_account', 'profile');
+  const kakaoProfileNickname = kakaoProfile
+    ? getString(kakaoProfile.nickname)
+    : undefined;
+  if (kakaoProfileNickname) return kakaoProfileNickname;
+
+  const kakaoAccount = getNested(user, 'kakao_account');
+  const kakaoAccountNickname = kakaoAccount
+    ? getString(kakaoAccount.nickname)
+    : undefined;
+  if (kakaoAccountNickname) return kakaoAccountNickname;
+
+  const properties = getNested(user, 'properties');
+  return properties ? getString(properties.nickname) : undefined;
+}
+
+function _getNaverNickname(user: unknown): string | undefined {
+  const naverResp = getNested(user, 'response');
+  return naverResp ? getString(naverResp.nickname) : undefined;
+}
+
 function _getUserNameFromPkceUser(user: unknown): string | undefined {
   const name = isRecord(user) ? getString(user.name) : undefined;
   if (name) return name;
 
-  const naverResp = getNested(user, 'response');
-  return naverResp ? getString(naverResp.nickname) : undefined;
+  const kakaoNickname = _getKakaoNickname(user);
+  if (kakaoNickname) return kakaoNickname;
+
+  return _getNaverNickname(user);
+}
+
+function shouldBackfillSocialNickname(
+  currentName: string | null | undefined,
+  provider: NicknameBackfillProvider,
+): boolean {
+  if (!currentName || currentName.trim().length === 0) {
+    return true;
+  }
+
+  return currentName.trim() === SOCIAL_LOGIN_NAME_PLACEHOLDERS[provider];
+}
+
+function hasNonEmptyString(value: string | undefined): boolean {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function isProvidedAndConsented(
+  value: string | undefined,
+  needsAgreement?: boolean,
+): boolean {
+  return hasNonEmptyString(value) && needsAgreement !== true;
+}
+
+function inferKakaoConsentStatus(kakaoProfile: unknown): SocialConsentStatus {
+  const kakaoAccount = getNested(kakaoProfile, 'kakao_account');
+  const kakaoProfileInfo = getNested(kakaoProfile, 'kakao_account', 'profile');
+
+  const email = kakaoAccount ? getString(kakaoAccount.email) : undefined;
+  const name = kakaoAccount ? getString(kakaoAccount.name) : undefined;
+  const gender = kakaoAccount ? getString(kakaoAccount.gender) : undefined;
+  const birthyear = kakaoAccount
+    ? getString(kakaoAccount.birthyear)
+    : undefined;
+  const nickname = _getKakaoNickname(kakaoProfile);
+
+  const emailNeedsAgreement = kakaoAccount
+    ? getBoolean(kakaoAccount.email_needs_agreement)
+    : undefined;
+  const nameNeedsAgreement = kakaoAccount
+    ? getBoolean(kakaoAccount.name_needs_agreement)
+    : undefined;
+  const genderNeedsAgreement = kakaoAccount
+    ? getBoolean(kakaoAccount.gender_needs_agreement)
+    : undefined;
+  const birthyearNeedsAgreement = kakaoAccount
+    ? getBoolean(kakaoAccount.birthyear_needs_agreement)
+    : undefined;
+  const profileNeedsAgreement = kakaoAccount
+    ? getBoolean(kakaoAccount.profile_needs_agreement)
+    : undefined;
+  const profileNicknameNeedsAgreement = kakaoAccount
+    ? getBoolean(kakaoAccount.profile_nickname_needs_agreement)
+    : undefined;
+  const nestedProfileNicknameNeedsAgreement = kakaoProfileInfo
+    ? getBoolean(kakaoProfileInfo.profile_nickname_needs_agreement)
+    : undefined;
+
+  const optionalAgreed =
+    isProvidedAndConsented(email, emailNeedsAgreement) ||
+    isProvidedAndConsented(name, nameNeedsAgreement) ||
+    isProvidedAndConsented(gender, genderNeedsAgreement) ||
+    isProvidedAndConsented(birthyear, birthyearNeedsAgreement) ||
+    isProvidedAndConsented(
+      nickname,
+      profileNicknameNeedsAgreement ??
+        nestedProfileNicknameNeedsAgreement ??
+        profileNeedsAgreement,
+    );
+
+  return {
+    // 카카오 로그인 성공 자체가 현재 앱의 필수 동의 완료를 의미한다.
+    requiredAgreed: true,
+    optionalAgreed,
+  };
+}
+
+function inferNaverConsentStatus(naverProfile: unknown): SocialConsentStatus {
+  const response = getNested(naverProfile, 'response');
+  const email = response ? getString(response.email) : undefined;
+  const nickname = response ? getString(response.nickname) : undefined;
+  const gender = response ? getString(response.gender) : undefined;
+  const birthyear = response ? getString(response.birthyear) : undefined;
+
+  return {
+    // 네이버는 동의 완료 후에만 콜백으로 code/state가 전달되므로 필수 동의는 성공 로그인으로 판단한다.
+    requiredAgreed: true,
+    // 응답에 추가 프로필 값이 실제로 내려온 경우만 선택 동의로 본다.
+    optionalAgreed:
+      hasNonEmptyString(email) ||
+      hasNonEmptyString(nickname) ||
+      hasNonEmptyString(gender) ||
+      hasNonEmptyString(birthyear),
+  };
 }
 
 const PKCE_STATE_KEY_PREFIX = 'pkce:state:';
@@ -405,9 +539,10 @@ export class AuthService {
     const response = getNested(naverProfile, 'response');
     const socialUid = response ? getStringOrNumber(response.id) : undefined;
     const email = response ? getString(response.email) : undefined;
-    const nickname = response ? getString(response.nickname) : undefined;
+    const nickname = _getNaverNickname(naverProfile);
     const gender = response ? getString(response.gender) : undefined;
     const birthyear = response ? getString(response.birthyear) : undefined;
+    const consentStatus = inferNaverConsentStatus(naverProfile);
 
     // Debugging: Check if socialUid is null
     if (!socialUid) {
@@ -455,9 +590,11 @@ export class AuthService {
         socialName: 'Naver',
         socialUid,
         email: userEmail,
-        name: nickname ?? 'Naver User',
+        name: nickname ?? SOCIAL_LOGIN_NAME_PLACEHOLDERS.naver,
         gender: normalizedGender,
         birthYear: normalizedBirthYear,
+        requiredAgreed: consentStatus.requiredAgreed,
+        optionalAgreed: consentStatus.optionalAgreed,
         passwordHash: null,
         // 선택 정보는 가능한 경우 null로 저장
         address: null, // 네이버에서 주소를 제공하지 않을 수 있음
@@ -466,6 +603,36 @@ export class AuthService {
       console.log('Creating new user:', user);
       await this.userRepository.save(user);
       await this.ensureUserStatsExists(user.userId, 'naver');
+    } else {
+      // 기존 유저는 수동 수정 가능성이 있으므로 placeholder/빈 값일 때만 닉네임을 보강
+      const normalizedBirthYear = this.normalizeBirthYear(birthyear);
+      const normalizedGender = this.normalizeGender(gender);
+
+      let shouldUpdate = false;
+      if (nickname && shouldBackfillSocialNickname(user.name, 'naver')) {
+        user.name = nickname;
+        shouldUpdate = true;
+      }
+      if (user.gender == null && normalizedGender != null) {
+        user.gender = normalizedGender;
+        shouldUpdate = true;
+      }
+      if (user.birthYear == null && normalizedBirthYear != null) {
+        user.birthYear = normalizedBirthYear;
+        shouldUpdate = true;
+      }
+      if (!user.requiredAgreed && consentStatus.requiredAgreed) {
+        user.requiredAgreed = true;
+        shouldUpdate = true;
+      }
+      if (!user.optionalAgreed && consentStatus.optionalAgreed) {
+        user.optionalAgreed = true;
+        shouldUpdate = true;
+      }
+
+      if (shouldUpdate) {
+        await this.userRepository.save(user);
+      }
     }
 
     // 3. 로그인 처리 (lastLogin 업데이트)
@@ -488,13 +655,12 @@ export class AuthService {
       : undefined;
     const kakaoAccount = getNested(kakaoProfile, 'kakao_account');
     const email = kakaoAccount ? getString(kakaoAccount.email) : undefined;
-    const nickname = kakaoAccount
-      ? getString(kakaoAccount.nickname)
-      : undefined;
+    const nickname = _getKakaoNickname(kakaoProfile);
     const gender = kakaoAccount ? getString(kakaoAccount.gender) : undefined;
     const birthyear = kakaoAccount
       ? getString(kakaoAccount.birthyear)
       : undefined;
+    const consentStatus = inferKakaoConsentStatus(kakaoProfile);
 
     // Debugging: Check if socialUid is null
     if (!socialUid) {
@@ -542,9 +708,11 @@ export class AuthService {
         socialName: 'Kakao',
         socialUid,
         email: userEmail,
-        name: nickname ?? 'Kakao User',
+        name: nickname ?? SOCIAL_LOGIN_NAME_PLACEHOLDERS.kakao,
         gender: normalizedGender,
         birthYear: normalizedBirthYear,
+        requiredAgreed: consentStatus.requiredAgreed,
+        optionalAgreed: consentStatus.optionalAgreed,
         passwordHash: null,
         // 선택 정보는 가능한 경우 null로 저장
         address: null,
@@ -562,9 +730,7 @@ export class AuthService {
       const candidateNickname = nickname ?? null;
       if (
         candidateNickname &&
-        (user.name == null ||
-          user.name.trim().length === 0 ||
-          user.name === 'Kakao User')
+        shouldBackfillSocialNickname(user.name, 'kakao')
       ) {
         user.name = candidateNickname;
         shouldUpdate = true;
@@ -575,6 +741,14 @@ export class AuthService {
       }
       if (user.birthYear == null && normalizedBirthYear != null) {
         user.birthYear = normalizedBirthYear;
+        shouldUpdate = true;
+      }
+      if (!user.requiredAgreed && consentStatus.requiredAgreed) {
+        user.requiredAgreed = true;
+        shouldUpdate = true;
+      }
+      if (!user.optionalAgreed && consentStatus.optionalAgreed) {
+        user.optionalAgreed = true;
         shouldUpdate = true;
       }
 

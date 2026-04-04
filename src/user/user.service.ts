@@ -168,7 +168,7 @@ export class UserService {
       : null;
     newUser.requiredAgreed = createUserDto.requiredAgreed ?? false;
     newUser.optionalAgreed = createUserDto.optionalAgreed ?? false;
-    newUser.socialName = 'SocialUser';
+    newUser.socialName = '자체회원가입';
 
     try {
       await this.userRepository.save(newUser);
