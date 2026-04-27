@@ -51,27 +51,17 @@ jobs:
         id: ssm
         run: |
           set -euo pipefail
-          # 단일 명령으로 호출: tar 풀고 스크립트 실행 (escaping 단순화)
-          read -r -d '' COMMANDS <<EOF || true
-          set -euo pipefail
-          export ARTIFACT="$ARTIFACT"
-          export S3_BUCKET="$S3_BUCKET"
-          export APP_DIR="$REMOTE_APP_DIR"
-          # 산출물 받아서 압축 풀기
-          aws s3 cp "s3://\$S3_BUCKET/\$ARTIFACT" "/tmp/\$ARTIFACT"
-          mkdir -p "\$APP_DIR"
-          tar -xzf "/tmp/\$ARTIFACT" -C "\$APP_DIR"
-          rm -f "/tmp/\$ARTIFACT"
-          chown -R ubuntu:ubuntu "\$APP_DIR"
-          # 배포 스크립트 실행
-          bash "\$APP_DIR/scripts/deploy-on-ec2.sh"
-          EOF
+          # 한 줄짜리 bash 스크립트 (S3 다운로드 → 압축 해제 → 배포 스크립트 호출)
+          SCRIPT="set -euo pipefail; cd /tmp; aws s3 cp \"s3://${S3_BUCKET}/${ARTIFACT}\" \"${ARTIFACT}\"; mkdir -p \"${REMOTE_APP_DIR}\"; tar -xzf \"${ARTIFACT}\" -C \"${REMOTE_APP_DIR}\"; rm -f \"${ARTIFACT}\"; chown -R ubuntu:ubuntu \"${REMOTE_APP_DIR}\"; ARTIFACT=\"${ARTIFACT}\" S3_BUCKET=\"${S3_BUCKET}\" APP_DIR=\"${REMOTE_APP_DIR}\" bash \"${REMOTE_APP_DIR}/scripts/deploy-on-ec2.sh\""
+
+          # jq로 JSON 안전 빌드 ({"commands":["..."]})
+          PARAMS=$(jq -nc --arg cmd "$SCRIPT" '{commands:[$cmd]}')
 
           CMD_ID=$(aws ssm send-command \
             --instance-ids "$EC2_INSTANCE_ID" \
             --document-name AWS-RunShellScript \
             --comment "Deploy ${GITHUB_SHA::8} by ${{ github.actor }}" \
-            --parameters commands="$COMMANDS" \
+            --parameters "$PARAMS" \
             --query 'Command.CommandId' --output text)
 
           echo "CommandId=$CMD_ID"
