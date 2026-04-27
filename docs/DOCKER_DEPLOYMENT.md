@@ -41,10 +41,11 @@ PM2 cluster를 컨테이너 안에서 돌리는 대신 단일 Node 프로세스 
 
 | 위치 | 설명 |
 |------|------|
-| `Dockerfile` | NestJS 멀티스테이지 빌드 (node:24-alpine, pnpm corepack, tini) |
-| `.dockerignore` | 빌드 컨텍스트 축소 + 시크릿(`*.pem`, `.env*`) 차단 |
-| `docker-compose.yml` | nestjs / redis / graphhopper 3 서비스 정의 |
-| `.github/workflows/deploy.yml` | dev 브랜치 push 시 EC2로 소스 전송 → compose build/up |
+| `Dockerfile` | NestJS 멀티스테이지 빌드 (node:24-alpine, pnpm corepack, tini, non-root user) |
+| `.dockerignore` | 빌드 컨텍스트 축소 + 시크릿(`*.pem`, `.env*`, GCP 키 JSON) 차단 |
+| `docker-compose.yml` | nestjs / redis / graphhopper 3 서비스 정의 + GCP 키 read-only 마운트 |
+| `scripts/deploy-on-ec2.sh` | EC2에서 SSM SendCommand로 호출되는 배포 스크립트 (디스크 가드 → compose build/up → 헬스체크 → prune) |
+| `.github/workflows/deploy.yml` | dev push 시 tar → S3 → SSM SendCommand로 EC2 배포 트리거 |
 | `src/app.controller.ts` | `GET /health` (도커 healthcheck용) |
 
 EC2에서만 존재하는 파일
@@ -74,22 +75,35 @@ GRAPHHOPPER_URL=http://graphhopper:8989
 
 > **주의**: `REDIS_HOST=localhost` / `GRAPHHOPPER_URL=http://localhost:8989`로 두면 컨테이너 안에서는 자기 자신을 가리켜 연결이 실패합니다.
 
-호스트(EC2 셸)에서 직접 디버깅할 때는 다음 포트가 노출되어 있습니다.
+호스트(EC2 셸)에서 직접 디버깅할 때 노출되는 포트:
 
 | 서비스 | 호스트 포트 | 노출 범위 |
 |--------|-------------|----------|
 | NestJS | `127.0.0.1:3000` | 루프백만 (Nginx만 접근) |
-| GraphHopper | `0.0.0.0:8989` | 외부 (보안그룹에서 IP 제한 권장) |
+| GraphHopper | `0.0.0.0:8989` | **호스트만** (보안그룹에서 외부 차단) |
 | Redis | (외부 노출 없음) | 컨테이너 네트워크 내부만 |
+
+### 호스트 시크릿 파일 (이미지에 포함 안 됨, 런타임 마운트)
+
+`.dockerignore`로 이미지 빌드 컨텍스트에서 제외하고, 컨테이너 시작 시 **read-only로 바인드 마운트**합니다.
+
+| 호스트 경로 | 컨테이너 경로 | 용도 |
+|-------------|--------------|------|
+| `/home/ubuntu/ddareungi-map-be/.env.production` | `env_file` | 환경변수 (compose가 자동) |
+| `/home/ubuntu/ddareungi-map-be/ddareungimap-b829ea269d30.json` | `/app/ddareungimap-b829ea269d30.json:ro` | Google TTS GCP 서비스 계정 키 |
+
+GCP 키는 `.env.production`의 `GOOGLE_APPLICATION_CREDENTIALS=./ddareungimap-b829ea269d30.json` 상대 경로로 참조됨. 새 인스턴스 구성 시 이 파일을 `/home/ubuntu/ddareungi-map-be/`에 미리 배치해야 NestJS 컨테이너 부팅 성공.
 
 ---
 
 ## 4. 최초 1회 부트스트랩 (이미 완료된 절차)
 
-이미 `43.200.11.89`에서 완료된 절차이며, 신규 인스턴스 구축 시 그대로 재사용합니다.
+이미 `43.200.11.89` (`i-0349ea5cf82643001`, ap-northeast-2)에서 완료된 절차이며, 신규 인스턴스 구축 시 그대로 재사용합니다.
+
+### 4-1. EC2 OS 레벨
 
 ```bash
-# 0) 디스크 점검 (3GB 이상 권장)
+# 0) 디스크 점검 (5GB 이상 여유 권장 — GH 이미지/캐시/도커 빌드 캐시 고려)
 df -h /
 
 # 1) Docker + Compose plugin
@@ -105,33 +119,100 @@ sudo usermod -aG docker $USER && newgrp docker
 cd /home/ubuntu/graphhopper-server
 docker build -t local/ddareungimap-gh:latest .
 
-# 3) 그래프 캐시 디렉터리
-mkdir -p /home/ubuntu/graph-cache  # 컨테이너가 첫 실행 시 자동 빌드 (~10분)
+# 3) 그래프 캐시 디렉터리 (컨테이너가 첫 실행 시 자동 빌드, ~10분)
+mkdir -p /home/ubuntu/graph-cache
 
-# 4) 앱 디렉터리에 .env.production 배치 (REDIS_HOST=redis, GRAPHHOPPER_URL=http://graphhopper:8989)
+# 4) 앱 디렉터리에 .env.production + GCP 키 JSON 배치
 cd /home/ubuntu/ddareungi-map-be
+# REDIS_HOST=redis / GRAPHHOPPER_URL=http://graphhopper:8989 확인 필수
 vim .env.production
+# Google TTS 서비스 계정 키 파일 (compose에서 :/app/...:ro로 마운트됨)
+ls ddareungimap-b829ea269d30.json
 
 # 5) 기동
 docker compose up -d
 docker compose ps
 ```
 
-**기존 systemd Redis에서 옮기는 경우**
+### 4-2. 기존 systemd Redis에서 컨테이너 Redis로 옮길 때
 
 ```bash
-sudo redis-cli SAVE
+sudo redis-cli SAVE                              # AOF/RDB 디스크에 동기화
 sudo cp /var/lib/redis/dump.rdb /tmp/redis-dump.rdb
 sudo systemctl stop redis-server && sudo systemctl disable redis-server
 
-docker compose up -d redis
+docker compose up -d redis                       # 컨테이너 띄우고
 docker cp /tmp/redis-dump.rdb ddareungimap-redis:/data/dump.rdb
-docker compose restart redis
+docker compose restart redis                     # 데이터 로드
 ```
+
+### 4-3. AWS IAM — EC2 인스턴스 역할
+
+EC2 인스턴스 프로파일/역할(`Ddareungimap_EC2_S3_Uploader`)에 다음 정책이 모두 부착돼 있어야 함:
+
+| 정책 | 용도 |
+|------|------|
+| `AmazonS3FullAccess` | CI 배포 시 S3 산출물 다운로드 |
+| `AmazonSSMManagedInstanceCore` | **SSM Agent가 AWS와 통신해 SendCommand/Session 수신** |
+| `SecretsManagerReadWrite` | (앱이 Secrets Manager 사용 시) |
+| 커스텀 `ddareungimap-tts` | 인스턴스가 EC2/IAM 메타데이터 조회 (운영 디버깅) |
+
+콘솔: IAM → Roles → 역할 클릭 → "권한 추가" → 정책 연결.
+
+### 4-4. AWS IAM — CI/운영 사용자 (mac + GitHub Actions 공용)
+
+IAM User `ddareungimap-tts`에 인라인 정책 `DeployAutomation`을 부착. 정책 JSON은 [§ 6 CI/CD](#6-cicd-동작-githubworkflowsdeployyml) 참조.
+
+이 사용자의 Access Key를 다음 두 곳에 등록:
+- 로컬 mac `~/.aws/credentials` (default profile)
+- GitHub Repo Secrets: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
+
+### 4-5. SSM Session Manager (SSH 대체)
+
+EC2에 SSH 22 포트 닫기 위해선 SSM Agent + 정책이 필요. Ubuntu 24.04 AMI는 `snap.amazon-ssm-agent`가 기본 설치돼 있으므로 정책 부착만 하면 됨 (4-3 단계에 포함).
+
+운영자 mac 셋업:
+```bash
+brew install --cask session-manager-plugin    # Session Manager Plugin
+aws configure                                  # IAM User access key 입력
+aws ssm start-session --target i-0349ea5cf82643001 --region ap-northeast-2
+# → ssm-user 셸 진입 (sudo -i 로 ubuntu 또는 root 전환)
+```
+
+### 4-6. 보안그룹 정리
+
+`launch-wizard-2` (sg-06c8bffbc5df9ba90) 인바운드 최종 상태:
+
+| 포트 | Source | 상태 |
+|------|--------|------|
+| 80 | 0.0.0.0/0 | Nginx HTTP (HTTPS 리다이렉트) |
+| 443 | 0.0.0.0/0 | Nginx HTTPS |
+| ~~22~~ | (삭제) | SSH는 SSM이 대체 |
+| ~~6379~~ | (삭제) | Redis는 컨테이너 내부 통신만 |
+| ~~8989~~ | (삭제) | GraphHopper는 NestJS와 docker network로만 통신 |
 
 ---
 
 ## 5. 일상 운영 명령
+
+### 5-0. EC2 접속 (SSH 폐쇄됨, SSM 사용)
+
+```bash
+# 인터랙티브 셸
+aws ssm start-session --target i-0349ea5cf82643001 --region ap-northeast-2
+# 진입 후 sudo -i 로 root, 또는 sudo -u ubuntu 로 ubuntu 사용자 작업
+
+# 일회성 명령 (mac에서)
+CMD_ID=$(aws ssm send-command --instance-ids i-0349ea5cf82643001 \
+  --document-name AWS-RunShellScript --region ap-northeast-2 \
+  --parameters 'commands=["sudo -u ubuntu docker compose -f /home/ubuntu/ddareungi-map-be/docker-compose.yml ps"]' \
+  --query 'Command.CommandId' --output text)
+aws ssm get-command-invocation --command-id "$CMD_ID" \
+  --instance-id i-0349ea5cf82643001 --region ap-northeast-2 \
+  --query StandardOutputContent --output text
+```
+
+### 5-1. 컨테이너 운영
 
 ```bash
 cd /home/ubuntu/ddareungi-map-be
@@ -363,14 +444,20 @@ docker run --rm -v ddareungimap_redis-data:/data -v $(pwd):/backup alpine \
 
 ---
 
-## 9. 보안 체크리스트
+## 9. 보안 체크리스트 (현재 상태)
 
-- [ ] EC2 보안그룹: 22(특정 IP), 80/443(0.0.0.0/0), 8989(특정 IP만 또는 비공개) — Redis는 컨테이너 외부 노출 없음
-- [ ] `.env.production`은 `chmod 600`, git 추적 제외 (`.gitignore` 등록 확인)
-- [ ] `.dockerignore`로 `*.pem`, `.env*`, GCP 키 JSON 빌드 컨텍스트에서 제외
-- [ ] NestJS 컨테이너 비루트 사용자(`nodeapp`) 실행
-- [ ] tini로 PID 1 시그널 처리 → SIGTERM 시 graceful shutdown
-- [ ] Nginx에서 IP 직접 접속(`Host: _`)은 444로 차단
+- [x] **EC2 보안그룹 인바운드: 80/443만 0.0.0.0/0** — 22(SSH)/6379(Redis)/8989(GH) 모두 폐쇄
+- [x] **EC2 접속은 SSM Session Manager** — `aws ssm start-session ...` (SSH 포트 미사용)
+- [x] **CloudTrail에 모든 SSM 호출/세션이 자동 기록** (감사 가능)
+- [x] `.env.production`은 git 추적 제외 (`.gitignore` 등록 확인)
+- [x] `.dockerignore`로 `*.pem`, `.env*`, GCP 키 JSON 빌드 컨텍스트에서 제외
+- [x] GCP 키 JSON은 read-only 바인드 마운트만 (이미지에 포함 안 됨)
+- [x] NestJS 컨테이너 비루트 사용자(`nodeapp`) 실행
+- [x] tini로 PID 1 시그널 처리 → SIGTERM 시 graceful shutdown
+- [x] Nginx에서 IP 직접 접속(`Host: _`)은 444로 차단
+- [x] Redis는 호스트 포트에 바인딩하지 않음 (컨테이너 네트워크 전용)
+- [ ] **(TODO)** IAM User `ddareungimap-tts` Access Key 분기마다 rotation
+- [ ] **(TODO)** GitHub OIDC로 마이그레이션 시 장기 키 자체 제거 가능
 
 ---
 
