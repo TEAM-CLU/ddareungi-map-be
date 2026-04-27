@@ -51,8 +51,9 @@ jobs:
         id: ssm
         run: |
           set -euo pipefail
-          # 한 줄짜리 bash 스크립트 (S3 다운로드 → 압축 해제 → 배포 스크립트 호출)
-          SCRIPT="set -euo pipefail; cd /tmp; aws s3 cp \"s3://${S3_BUCKET}/${ARTIFACT}\" \"${ARTIFACT}\"; mkdir -p \"${REMOTE_APP_DIR}\"; tar -xzf \"${ARTIFACT}\" -C \"${REMOTE_APP_DIR}\"; rm -f \"${ARTIFACT}\"; chown -R ubuntu:ubuntu \"${REMOTE_APP_DIR}\"; ARTIFACT=\"${ARTIFACT}\" S3_BUCKET=\"${S3_BUCKET}\" APP_DIR=\"${REMOTE_APP_DIR}\" bash \"${REMOTE_APP_DIR}/scripts/deploy-on-ec2.sh\""
+          # SSM 기본 셸은 dash라 pipefail 미지원 → bash -c로 감싸 실행
+          INNER="set -euo pipefail; cd /tmp; aws s3 cp \"s3://${S3_BUCKET}/${ARTIFACT}\" \"${ARTIFACT}\"; mkdir -p \"${REMOTE_APP_DIR}\"; tar -xzf \"${ARTIFACT}\" -C \"${REMOTE_APP_DIR}\"; rm -f \"${ARTIFACT}\"; chown -R ubuntu:ubuntu \"${REMOTE_APP_DIR}\"; ARTIFACT=\"${ARTIFACT}\" S3_BUCKET=\"${S3_BUCKET}\" APP_DIR=\"${REMOTE_APP_DIR}\" bash \"${REMOTE_APP_DIR}/scripts/deploy-on-ec2.sh\""
+          SCRIPT="bash -c $(printf '%q' "$INNER")"
 
           # jq로 JSON 안전 빌드 ({"commands":["..."]})
           PARAMS=$(jq -nc --arg cmd "$SCRIPT" '{commands:[$cmd]}')
