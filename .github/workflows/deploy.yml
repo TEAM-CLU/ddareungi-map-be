@@ -1,4 +1,4 @@
-name: DDareungiMap BE CI/CD (Docker)
+name: DDareungiMap BE CI/CD (SSM Deploy)
 
 on:
   push:
@@ -6,66 +6,110 @@ on:
       - dev
 
 concurrency:
-  # 같은 브랜치 푸시가 연속될 때 중간 빌드 취소
   group: deploy-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  AWS_REGION: ap-northeast-2
+  S3_BUCKET: ddareungimap-deploy-artifacts-586110264746
+  EC2_INSTANCE_ID: i-0349ea5cf82643001
+  REMOTE_APP_DIR: /home/ubuntu/ddareungi-map-be
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          ref: ${{ github.ref }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      # 빌드는 EC2 컨테이너 안에서 수행하므로 여기선 소스/구성 파일만 EC2로 전송
-      - name: Transfer source to EC2
-        uses: appleboy/scp-action@v1
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
-          # 도커 이미지 빌드 컨텍스트에 필요한 모든 파일
-          source: 'src,public,package.json,pnpm-lock.yaml,tsconfig.json,tsconfig.build.json,nest-cli.json,Dockerfile,.dockerignore,docker-compose.yml'
-          target: '/home/ubuntu/ddareungi-map-be'
+      - name: Package source artifact
+        run: |
+          set -euo pipefail
+          ARTIFACT="deploy-${GITHUB_SHA::8}-${{ github.run_id }}.tar.gz"
+          tar -czf "$ARTIFACT" \
+            src public package.json pnpm-lock.yaml \
+            tsconfig.json tsconfig.build.json nest-cli.json \
+            Dockerfile .dockerignore docker-compose.yml \
+            scripts/deploy-on-ec2.sh
+          ls -lh "$ARTIFACT"
+          echo "ARTIFACT=$ARTIFACT" >> "$GITHUB_ENV"
 
-      - name: Build & Reload via Docker Compose
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
-          # 무중단에 가까운 재기동:
-          #  - nestjs 이미지만 새로 빌드
-          #  - --no-deps: redis/graphhopper는 건드리지 않음
-          #  - --force-recreate: 새 이미지로 컨테이너 교체 (헬스체크 통과 시까지 대기)
-          script: |
-            set -euo pipefail
-            cd /home/ubuntu/ddareungi-map-be
+      - name: Upload to S3
+        run: |
+          aws s3 cp "$ARTIFACT" "s3://$S3_BUCKET/$ARTIFACT" \
+            --metadata "git-sha=${{ github.sha }},triggered-by=${{ github.actor }}"
 
-            # 디스크 안전장치 (1GB 미만이면 빌드 거부)
-            AVAIL_KB=$(df -k / | awk 'NR==2 {print $4}')
-            if [ "$AVAIL_KB" -lt 1048576 ]; then
-              echo "ERROR: insufficient disk (<1GB free). aborting build."; df -h /; exit 1
-            fi
+      - name: Trigger deploy on EC2 via SSM
+        id: ssm
+        run: |
+          set -euo pipefail
+          # 단일 명령으로 호출: tar 풀고 스크립트 실행 (escaping 단순화)
+          read -r -d '' COMMANDS <<EOF || true
+          set -euo pipefail
+          export ARTIFACT="$ARTIFACT"
+          export S3_BUCKET="$S3_BUCKET"
+          export APP_DIR="$REMOTE_APP_DIR"
+          # 산출물 받아서 압축 풀기
+          aws s3 cp "s3://\$S3_BUCKET/\$ARTIFACT" "/tmp/\$ARTIFACT"
+          mkdir -p "\$APP_DIR"
+          tar -xzf "/tmp/\$ARTIFACT" -C "\$APP_DIR"
+          rm -f "/tmp/\$ARTIFACT"
+          chown -R ubuntu:ubuntu "\$APP_DIR"
+          # 배포 스크립트 실행
+          bash "\$APP_DIR/scripts/deploy-on-ec2.sh"
+          EOF
 
-            # 빌드 → 교체 → 미사용 이미지 정리
-            docker compose build nestjs
-            docker compose up -d --no-deps --force-recreate nestjs
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "$EC2_INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "Deploy ${GITHUB_SHA::8} by ${{ github.actor }}" \
+            --parameters commands="$COMMANDS" \
+            --query 'Command.CommandId' --output text)
 
-            # 30초간 헬스체크 통과 대기 (실패 시 비정상 종료)
-            for i in $(seq 1 30); do
-              if [ "$(docker inspect -f '{{.State.Health.Status}}' ddareungimap-api 2>/dev/null)" = "healthy" ]; then
-                echo "nestjs healthy"; break
-              fi
-              sleep 2
-              if [ "$i" -eq 30 ]; then
-                echo "ERROR: nestjs unhealthy after 60s"; docker logs --tail 80 ddareungimap-api; exit 1
-              fi
-            done
+          echo "CommandId=$CMD_ID"
+          echo "command_id=$CMD_ID" >> "$GITHUB_OUTPUT"
 
-            docker image prune -f
+      - name: Wait for deploy result
+        run: |
+          set -euo pipefail
+          CMD_ID="${{ steps.ssm.outputs.command_id }}"
+          for i in $(seq 1 90); do
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "$CMD_ID" \
+              --instance-id "$EC2_INSTANCE_ID" \
+              --query Status --output text 2>/dev/null || echo InProgress)
+            echo "[$i] status=$STATUS"
+            case "$STATUS" in
+              Success) echo "DEPLOY OK"; exit 0 ;;
+              Failed|Cancelled|TimedOut)
+                echo "=== STDERR ==="
+                aws ssm get-command-invocation --command-id "$CMD_ID" \
+                  --instance-id "$EC2_INSTANCE_ID" \
+                  --query StandardErrorContent --output text || true
+                echo "=== STDOUT ==="
+                aws ssm get-command-invocation --command-id "$CMD_ID" \
+                  --instance-id "$EC2_INSTANCE_ID" \
+                  --query StandardOutputContent --output text || true
+                exit 1
+                ;;
+            esac
+            sleep 5
+          done
+          echo "ERROR: SSM command timeout (7.5min)"
+          exit 1
+
+      - name: Print deploy stdout
+        if: always() && steps.ssm.outputs.command_id != ''
+        run: |
+          aws ssm get-command-invocation \
+            --command-id "${{ steps.ssm.outputs.command_id }}" \
+            --instance-id "$EC2_INSTANCE_ID" \
+            --query StandardOutputContent --output text 2>/dev/null | tail -50 || true

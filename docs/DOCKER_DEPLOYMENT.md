@@ -190,26 +190,100 @@ docker exec ddareungimap-api curl -fsS http://graphhopper:8989/health
 
 ## 6. CI/CD 동작 (`.github/workflows/deploy.yml`)
 
-`dev` 브랜치 push 시:
+`dev` 브랜치 push 시 (SSM 기반 — SSH 22 폐쇄 환경):
 
 1. `actions/checkout` → 소스 받기
-2. `appleboy/scp-action` → `src/`, `Dockerfile`, `docker-compose.yml`, 패키지 메타 EC2 전송
-3. EC2에서 `docker compose build nestjs` (멀티스테이지 빌드, ~3~5분)
-4. `docker compose up -d --no-deps --force-recreate nestjs` (NestJS만 교체, redis/gh는 그대로)
-5. healthcheck 통과(60초 내) 확인 → 실패 시 빌드 fail
-6. `docker image prune -f`로 이전 이미지 정리
+2. `aws-actions/configure-aws-credentials` → AWS 자격증명 로드
+3. 빌드 컨텍스트 (`src/`, `Dockerfile`, `docker-compose.yml`, `scripts/deploy-on-ec2.sh` 등) tar로 패키징
+4. **S3 버킷 (`ddareungimap-deploy-artifacts-586110264746`) 업로드** (7일 lifecycle 자동 만료)
+5. **SSM SendCommand**로 EC2에 배포 트리거: S3 다운로드 → 압축 해제 → `scripts/deploy-on-ec2.sh` 실행
+6. 5초 간격으로 SSM command 결과 폴링 (최대 7.5분)
+7. EC2 측 스크립트가: `docker compose build nestjs` → `up -d --no-deps --force-recreate` → 60초 healthcheck → `docker image prune -f`
 
-**필요한 GitHub Secrets**: `EC2_HOST`, `EC2_USER`(=`ubuntu`), `EC2_SSH_KEY`(.pem 본문) — 기존 시크릿 그대로 사용.
+**필요한 GitHub Secrets** (Repo: `TEAM-CLU/ddareungi-map-be` → Settings → Secrets and variables → Actions):
+- `AWS_ACCESS_KEY_ID` — IAM User `ddareungimap-tts`의 access key
+- `AWS_SECRET_ACCESS_KEY` — 같은 사용자의 secret access key
 
-**기존 PM2 reload 흐름과 차이**
+기존 `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`는 더 이상 사용하지 않음 (삭제 가능).
 
-| 단계 | 이전 (PM2) | 현재 (Docker) |
+**필요한 IAM 권한 (mac/CI 공용 IAM User `ddareungimap-tts`의 인라인 정책 `DeployAutomation`)**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:CreateBucket", "s3:PutBucketPublicAccessBlock",
+        "s3:PutLifecycleConfiguration", "s3:GetBucketLocation",
+        "s3:GetBucketLifecycleConfiguration", "s3:GetBucketPublicAccessBlock",
+        "s3:ListBucket", "s3:PutObject", "s3:GetObject", "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::ddareungimap-deploy-artifacts-586110264746",
+        "arn:aws:s3:::ddareungimap-deploy-artifacts-586110264746/*"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["s3:ListAllMyBuckets", "s3:HeadBucket"],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ssm:DescribeInstanceInformation", "ssm:ListCommands",
+        "ssm:ListCommandInvocations", "ssm:GetCommandInvocation",
+        "ssm:CancelCommand"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "ssm:SendCommand",
+      "Resource": [
+        "arn:aws:ec2:ap-northeast-2:586110264746:instance/i-0349ea5cf82643001",
+        "arn:aws:ssm:*:*:document/AWS-RunShellScript"
+      ]
+    }
+  ]
+}
+```
+
+EC2 instance role(`Ddareungimap_EC2_S3_Uploader`)은 다음 정책 필요 (이미 부착됨):
+- `AmazonS3FullAccess` — S3에서 산출물 다운로드
+- `AmazonSSMManagedInstanceCore` — SSM Agent 등록
+
+**EC2 접속 (SSH 대신 SSM)**
+
+```bash
+# 셸 진입
+aws ssm start-session --target i-0349ea5cf82643001 --region ap-northeast-2
+
+# 일회성 명령 실행
+aws ssm send-command --instance-ids i-0349ea5cf82643001 \
+  --document-name AWS-RunShellScript --region ap-northeast-2 \
+  --parameters 'commands=["sudo -u ubuntu docker compose -f /home/ubuntu/ddareungi-map-be/docker-compose.yml ps"]' \
+  --query 'Command.CommandId' --output text
+# → 결과 확인:
+aws ssm get-command-invocation --command-id <위에서 받은 ID> \
+  --instance-id i-0349ea5cf82643001 --region ap-northeast-2 \
+  --query StandardOutputContent --output text
+```
+
+**기존 PM2/SSH 흐름과의 차이**
+
+| 단계 | 이전 (PM2 + SSH) | 현재 (Docker + SSM) |
 |------|-----------|---------------|
 | 빌드 위치 | GH Actions에서 빌드 → dist 전송 | EC2 컨테이너 내부 빌드 |
-| 의존성 | EC2에서 `pnpm install --prod` | 빌드 단계에서 1회만 |
+| 의존성 | EC2에서 `pnpm install --prod` | Docker 빌드 단계에서 1회만 |
+| 전송 채널 | scp via SSH 22 | S3 업로드 + SSM SendCommand |
+| EC2 SSH 22 | 0.0.0.0/0 열림 (위험) | **완전 폐쇄** (보안그룹에서 삭제) |
 | 재기동 | `pm2 reload` | `docker compose up -d --force-recreate` |
 | 헬스체크 | 없음 | 60초 내 `/health` 통과 강제 |
 | 롤백 | 수동 | 이전 이미지 태그 사용 (아래 참조) |
+| 감사 로그 | 없음 | CloudTrail에 모든 SSM 호출 기록 |
 
 ---
 
