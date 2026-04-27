@@ -1,0 +1,89 @@
+# 따릉이맵 백엔드 운영 스택
+# - nestjs   : 단일 컨테이너 (Node.js 24, 멀티프로세스 없음. 필요 시 deploy.replicas + nginx로 확장)
+# - redis    : 영속 볼륨 + AOF
+# - graphhopper : 기존 빌드 이미지 재사용 (OSM 재빌드 불필요)
+
+name: ddareungimap
+
+services:
+  nestjs:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ddareungimap-api:latest
+    container_name: ddareungimap-api
+    restart: always
+    env_file:
+      - .env.production
+    environment:
+      # 컨테이너 간 통신은 서비스명을 호스트로 사용
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - GRAPHHOPPER_URL=http://graphhopper:8989
+      - PORT=3000
+    ports:
+      # 호스트 nginx가 localhost:3000으로 프록시하므로 루프백에만 바인딩
+      - "127.0.0.1:3000:3000"
+    volumes:
+      # GCP 서비스 계정 키 (TTS) - .dockerignore로 이미지 포함 차단, 런타임에 read-only 마운트
+      - ./ddareungimap-b829ea269d30.json:/app/ddareungimap-b829ea269d30.json:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      graphhopper:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  redis:
+    image: redis:7-alpine
+    container_name: ddareungimap-redis
+    restart: always
+    # AOF 영속화 켜기 (재시작 시 데이터 보존)
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  graphhopper:
+    # 기존에 EC2에서 빌드된 이미지를 재사용 (OSM/SRTM 캐시 재빌드 회피)
+    # 신규 환경에서 처음 띄울 때는 graphhopper-server/ 디렉터리에서 미리 빌드 필요:
+    #   docker build -t local/ddareungimap-gh:latest /home/ubuntu/graphhopper-server
+    image: local/ddareungimap-gh:latest
+    container_name: ddareungimap-gh
+    restart: always
+    # 컨테이너 메모리 인지 비활성화는 기존 명령어와 동일하게 유지 (-Xmx2g)
+    command: ["java", "-Xmx2g", "-XX:-UseContainerSupport", "-jar", "graphhopper-web-8.0.jar", "server", "config.yml"]
+    volumes:
+      # 기존 EC2의 그래프 캐시(약 600MB, CH 사전계산 완료)를 그대로 마운트
+      - /home/ubuntu/graph-cache:/app/graph-cache
+    ports:
+      # 디버깅/외부 검증을 위해 호스트 8989에 노출 (보안그룹에서 IP 제한 권장)
+      - "8989:8989"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  redis-data:
+    driver: local

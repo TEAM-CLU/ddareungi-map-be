@@ -1,0 +1,43 @@
+# 빌드 컨텍스트에서 제외 (이미지 크기/속도 개선 + 시크릿 차단)
+.git
+.github
+.vscode
+.cursor
+node_modules
+dist
+build
+coverage
+.nyc_output
+benchmark-results
+docs
+test
+scripts
+logs
+*.log
+
+# OS / 에디터
+.DS_Store
+.idea
+*.swp
+
+# 환경변수 (런타임 env_file로 주입)
+.env
+.env.*
+!.env.example
+
+# 시크릿
+*.pem
+ddareungimap-b829ea269d30.json
+ethereal-entity-478102-d0-d2603a45e6e9.json
+ddareungimap.pem
+
+# 도커 자체
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# 잡다
+README.md
+.coderabbit.yaml
+.prettierrc
+eslint.config.mjs
